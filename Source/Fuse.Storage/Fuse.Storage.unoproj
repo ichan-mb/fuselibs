@@ -13,7 +13,11 @@
     "../Fuse.Scripting/Fuse.Scripting.unoproj"
   ],
   "Includes": [
+    "Android/AesCbcWithIntegrity.java:Java:Android",
+    "Android/SecurePreferences.java:Java:Android",
+    "Android/AndroidUserSettings.uno:Source",
     "ApplicationDir.uno:Source",
-    "StorageModule.uno:Source"
+    "StorageModule.uno:Source",
+    "UserSettingsImpl.uno:Source"
   ]
 }
