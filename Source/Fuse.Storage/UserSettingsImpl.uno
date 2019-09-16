@@ -77,4 +77,96 @@ namespace Fuse.Storage
 			_userSettings.Clear();
 		}
 	}
+
+	internal class DesktopUserSettings : IUserSettings
+	{
+
+		string filename = "UserSettings.json";
+		Dictionary<string, object> data = new Dictionary<string, object>();
+
+		public DesktopUserSettings()
+		{
+			string content = "";
+			ApplicationDir.TryRead(filename, out content);
+			if (content != "") {
+				IObject obj = Json.Parse(content) as IObject;
+				for (var i = 0; i< obj.Keys.Length; i++)
+				 	data[obj.Keys[i]] = obj[obj.Keys[i]];
+			}
+		}
+
+		public string GetStringValue(string key)
+		{
+			if (data.ContainsKey(key))
+				return data[key] as string;
+			else
+				return "";
+		}
+
+		public double GetNumberValue(string key)
+		{
+			if (data.ContainsKey(key))
+				return (double)data[key];
+			else
+				return 0;
+		}
+
+		public bool GetBooleanValue(string key)
+		{
+			if (data.ContainsKey(key))
+				return (bool)data[key];
+			else
+				return false;
+		}
+
+		public float GetFloatValue(string key)
+		{
+			if (data.ContainsKey(key))
+				return (float)(double)data[key];
+			else
+				return 0;
+		}
+
+		public void SetStringValue(string key, string value)
+		{
+			if (data.ContainsKey(key))
+				data.Remove(key);
+			data.Add(key, value);
+			Synchronize();
+		}
+
+		public void SetNumberValue(string key, double value)
+		{
+			if (data.ContainsKey(key))
+				data.Remove(key);
+			data.Add(key, value);
+			Synchronize();
+		}
+
+		public void SetBooleanValue(string key, bool value)
+		{
+			if (data.ContainsKey(key))
+				data.Remove(key);
+			data.Add(key, value);
+			Synchronize();
+		}
+
+		public void Remove(string key)
+		{
+			data.Remove(key);
+			Synchronize();
+		}
+
+		public void Clear()
+		{
+			data.Clear();
+			Synchronize();
+		}
+
+		private void Synchronize()
+		{
+			var jsonString = Json.Stringify(data);
+			ApplicationDir.Write(filename, jsonString);
+		}
+	}
 }
