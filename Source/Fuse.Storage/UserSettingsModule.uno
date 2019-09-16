@@ -7,6 +7,45 @@ using Fuse.Scripting;
 namespace Fuse.Storage
 {
 	[UXGlobalModule]
+	/**
+		@scriptmodule FuseJS/UserSettings
+
+		`FuseJS/UserSettings` module provides key-value pairs mechanism to store and retrieve primitive data types (string, number, boolean) as well as an array and json object.
+		You can use this module to store information such as configuration data, application states etc. `FusejS/UserSettings` module has builtin AES encryption
+		when targeting Mobile (iOS & Android) so it is also the perfect method for storing sensitive information such as username, password, API token etc.
+
+		> `UserSettings` module is implemented atop NSUserDefaults on iOS and Shared Preferences on Android
+
+		## Example
+
+			<JavaScript>
+				var userSettings = require("FuseJS/UserSettings")
+
+				userSettings.putString('email', 'john.appleseed@example.com');
+				userSettings.putString('password', 's3c1ReT');
+				userSettings.putString('api_token', '73awnljqurelcvxiy832a');
+				userSettings.putBoolean('logged', true);
+				userSettings.putNumber('state_num', 2);
+				userSettings.putArray('preferences', ['Technology', 'Cars', 'Foods']);
+				userSettings.putObject('profile', {
+					'first_name': 'John',
+					'last_name': 'Appleseed',
+					'gender': 'male',
+					'address': '5 avenue'
+					'age': 25,
+					'married': false
+				});
+
+				var username = userSettings.getString('username');
+				var password = userSettings.getString('password');
+				var api_token = userSettings.getString('api_token');
+				var logged = userSettings.getBoolean('logged');
+				var state_num = userSettings.getNumber('state_num');
+				var preferences = userSettings.getArray('preferences');
+				var profile = userSettings.getObject('profile');
+			</JavaScript>
+
+	*/
 	public sealed class UserSettingsModule : NativeModule
 	{
 		static readonly UserSettingsModule _instance;
@@ -105,8 +144,9 @@ namespace Fuse.Storage
 			{
 				string key = args[0] as string;
 				var value = _userSettingImpl.GetStringValue(key);
-				if (value != null) 
+				if (value != null)
 				{
+					// convert string to scripting object
 					return Converter(c, Json.Parse(value));
 				}
 			}
@@ -120,6 +160,7 @@ namespace Fuse.Storage
 				string key = args[0] as string;
 				if (args[1] == null)
 					return null;
+				// convert scripting object to string
 				var value = Json.Stringify(args[1]);
 				_userSettingImpl.SetStringValue(key, value);
 			}

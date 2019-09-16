@@ -1,5 +1,7 @@
 # Unreleased
 
+### Fuse.Storage
+- add `UserSettings` module to provides key-value pairs mechanism to store and retrieve primitive data types (string, number, boolean) as well as an array and json object
 
 # 1.12
 
