@@ -2,6 +2,19 @@
 
 ### Fuse.Storage
 - add `UserSettings` module to provides key-value pairs mechanism to store and retrieve primitive data types (string, number, boolean) as well as an array and json object
+- Add `UserSettings` module. This module provides key-value pairs mechanism to store and retrieve primitive data types (string, number, boolean) as well as an array and a JSON object
+
+### Fuse.Drawing.Surface
+- Fixed SVGPathParser to better parse minimized svg data.
+
+### Fuse.ImageTools
+- Fix crop function not using height parameter
+
+### Fuse.Alerts
+- Fix crash on iOS 13
+
+### Fuse.Triggers.Actions.TransitionState
+- Added `Value` property on `TransitionState`.
 
 # 1.12
 
