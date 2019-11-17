@@ -89,6 +89,11 @@ namespace Fuse.Controls
 			NativeView = null;
 		}
 
+		public override void MoveCaret(int position)
+		{
+			_textEdit.MoveCaret(position);
+		}
+
 		protected override void OnValueChanged(IPropertyListener origin)
 		{
 			base.OnValueChanged(origin);

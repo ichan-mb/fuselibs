@@ -90,6 +90,11 @@ namespace Fuse.Controls
 			base.OnValueChanged(origin);
 		}
 
+		public override void MoveCaret(int position)
+		{
+			/** TODO */
+		}
+
 		void INotifyFocus.OnFocusGained()
 		{
 			_isSelecting = false;

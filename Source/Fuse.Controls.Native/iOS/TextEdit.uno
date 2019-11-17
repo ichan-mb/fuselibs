@@ -291,6 +291,26 @@ namespace Fuse.Controls.Native.iOS
 			_textEditHost.OnFocusLost();
 		}
 
+		void ITextEdit.MoveCaret(int position)
+		{
+			MoveCaret(Handle, position);
+		}
+
+		[Foreign(Language.ObjC)]
+		static void MoveCaret(ObjC.Object handle, int position)
+		@{
+			::UITextField* textField = (::UITextField*)handle;
+			UITextPosition * pos = nil;
+			if (position == 0)
+				pos = textField.beginningOfDocument;
+			else if (position < 0)
+				pos = textField.endOfDocument;
+			else
+				pos = [textField positionFromPosition:textField.beginningOfDocument inDirection:UITextLayoutDirectionRight offset:position];
+			if (pos)
+				textField.selectedTextRange = [textField textRangeFromPosition:pos toPosition:pos];
+		@}
+
 		[Foreign(Language.ObjC)]
 		static void GiveFocus(ObjC.Object handle)
 		@{
@@ -650,6 +670,26 @@ namespace Fuse.Controls.Native.iOS
 			::UITextView* textView = (::UITextView*)handle;
 			::UIColor* color = [::UIColor colorWithRed:(CGFloat)r green:(CGFloat)g blue:(CGFloat)b alpha:(CGFloat)a];
 			[textView setTintColor:color];
+		@}
+
+		void ITextEdit.MoveCaret(int position)
+		{
+			MoveCaret(Handle, position);
+		}
+
+		[Foreign(Language.ObjC)]
+		static void MoveCaret(ObjC.Object handle, int position)
+		@{
+			::UITextView* textView = (::UITextView*)handle;
+			UITextPosition * pos = nil;
+			if (position == 0)
+				pos = textView.beginningOfDocument;
+			else if (position < 0)
+				pos = textView.endOfDocument;
+			else
+				pos = [textView positionFromPosition:textView.beginningOfDocument offset:position];
+			if (pos)
+				textView.selectedTextRange = [textView textRangeFromPosition:pos toPosition:pos];
 		@}
 
 		float4 ITextEdit.SelectionColor

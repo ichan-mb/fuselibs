@@ -52,6 +52,11 @@ namespace Fuse.Controls
 			InvalidateVisual();
 		}
 
+		public override void MoveCaret(int position)
+		{
+			/** TODO */
+		}
+
 		protected override void OnPlaceholderTextChanged()
 		{
 			base.OnPlaceholderTextChanged();

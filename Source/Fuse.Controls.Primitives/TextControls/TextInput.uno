@@ -95,7 +95,7 @@ namespace Fuse.Controls
 			</DockPanel>
 		
 	*/
-	public class TextInput: TextInputControl, ITextEditControl
+	public partial class TextInput: TextInputControl, ITextEditControl
 	{
 		public TextInput() : base(Create())
 		{
@@ -138,7 +138,6 @@ namespace Fuse.Controls
 			used in forms.
 		*/
 		public TextInputActionStyle ActionStyle { get { return Editor.ActionStyle; } set { Editor.ActionStyle = value; } }
-		
 	}
 
 	/**	Multi-line text editor.
@@ -157,7 +156,7 @@ namespace Fuse.Controls
 			</TextView>
 
 	*/
-	public class TextView: TextInputControl
+	public partial class TextView: TextInputControl
 	{
 		public TextView() : base(Create())
 		{

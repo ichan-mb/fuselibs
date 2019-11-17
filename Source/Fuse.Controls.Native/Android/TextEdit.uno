@@ -280,6 +280,26 @@ namespace Fuse.Controls.Native.Android
 			set { SetPlaceholderColor(Handle, (int)Color.ToArgb(value)); }
 		}
 
+		public void ITextEdit.MoveCaret(int position)
+		{
+			MoveCaret(Handle, position);
+		}
+
+		[Foreign(Language.Java)]
+		static void MoveCaret(Java.Object handle, int position)
+		@{
+			android.widget.EditText editText = ((android.widget.EditText)handle);
+			if (position == 0)
+				editText.setSelection(0);
+			else if (position < 0)
+				editText.setSelection(editText.length());
+			else
+			{
+				if (position < editText.length())
+					editText.setSelection(position);
+			}
+		@}
+
 		[Foreign(Language.Java)]
 		static void SetPlaceholderColor(Java.Object handle, int value)
 		@{

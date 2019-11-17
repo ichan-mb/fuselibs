@@ -229,6 +229,8 @@ namespace Fuse.Controls
 			InvalidateVisual();
 		}
 
+		public abstract void MoveCaret(int position);
+
 		public override TextTruncation TextTruncation
 		{
 			get { return Get(FastProperty2.TextTruncation, TextTruncation.None); }

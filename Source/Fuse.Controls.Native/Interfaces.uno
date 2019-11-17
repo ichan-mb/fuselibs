@@ -78,6 +78,7 @@ namespace Fuse.Controls.Native
 		float4 PlaceholderColor { set; }
 		void FocusGained();
 		void FocusLost();
+		void MoveCaret(int position);
 	}
 
 	public interface IViewGroup : IView
