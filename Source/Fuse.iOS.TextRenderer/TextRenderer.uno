@@ -58,7 +58,7 @@ namespace Fuse.iOS.Bindings
 			if (control.TextTruncation == Fuse.Controls.TextTruncation.None &&
 				control.TextWrapping == TextWrapping.NoWrap)
 				width = 0;
-			TextContainer = CreateNSTextContainer(width, size.Y);
+			TextContainer = CreateNSTextContainer(width, size.Y, control.MaxLines);
 			AddNSTextContainer(LayoutManager, TextContainer);
 
 			SetNSParagraphStyleProperties(
@@ -102,10 +102,11 @@ namespace Fuse.iOS.Bindings
 		@}
 
 		[Foreign(Language.ObjC)]
-		public static ObjC.Object CreateNSTextContainer(float width, float height)
+		public static ObjC.Object CreateNSTextContainer(float width, float height, int maxLines)
 		@{
 			NSTextContainer* result = [[NSTextContainer alloc] initWithSize:CGSizeMake(width, height)];
 			result.lineFragmentPadding = 0;
+			result.maximumNumberOfLines = maxLines == 0 ? NSUIntegerMax : maxLines;
 			return result;
 		@}
 
