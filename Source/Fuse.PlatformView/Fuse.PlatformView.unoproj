@@ -1,0 +1,27 @@
+{
+  "copyright": "Copyright (c) Fuse Open",
+  "description": "Fuse Platform Views",
+  "publisher": "Fuse Open",
+  "outputType": "library",
+  "projects": [
+    "../Fuse.Common/Fuse.Common.unoproj",
+    "../Fuse.Controls.Native/Fuse.Controls.Native.unoproj",
+    "../Fuse.Controls.Panels/Fuse.Controls.Panels.unoproj",
+    "../Fuse.Controls.Primitives/Fuse.Controls.Primitives.unoproj",
+    "../Fuse.Controls/Fuse.Controls.unoproj",
+    "../Fuse.Drawing/Fuse.Drawing.unoproj",
+    "../Fuse.Elements/Fuse.Elements.unoproj",
+    "../Fuse.Nodes/Fuse.Nodes.unoproj",
+    "../Fuse.Scripting/Fuse.Scripting.unoproj"
+  ],
+  "includes": [
+    "*",
+    "Android/ComposeViewFactory.kt:Java:Android",
+    "iOS/SwiftUIViewFactory.swift:Swift:iOS",
+    "iOS/SwiftUIHostingContainer.h:objcheader:iOS",
+    "iOS/SwiftUIHostingContainer.m:objcsource:iOS"
+  ],
+  "iOS": {
+    "SwiftVersion": 5,
+  }
+}
