@@ -1,0 +1,22 @@
+{
+  "copyright": "Copyright (c) Fuse Open",
+  "description": "Audio And Video Player",
+  "publisher": "Fuse Open",
+  "outputType": "library",
+  "projects": [
+    "../Fuse.Common/Fuse.Common.unoproj",
+    "../Fuse.Controls.Native/Fuse.Controls.Native.unoproj",
+    "../Fuse.Controls.Panels/Fuse.Controls.Panels.unoproj",
+    "../Fuse.Controls.Primitives/Fuse.Controls.Primitives.unoproj",
+    "../Fuse.Controls/Fuse.Controls.unoproj",
+    "../Fuse.Drawing/Fuse.Drawing.unoproj",
+    "../Fuse.Elements/Fuse.Elements.unoproj",
+    "../Fuse.Nodes/Fuse.Nodes.unoproj",
+    "../Fuse.Scripting/Fuse.Scripting.unoproj"
+  ],
+  "includes": [
+    "*",
+    "iOS/AVPlayerContainer.h:objcheader:iOS",
+    "iOS/AVPlayerContainer.m:objcsource:iOS"
+  ]
+}
