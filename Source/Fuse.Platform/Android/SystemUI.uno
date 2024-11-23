@@ -15,7 +15,8 @@ namespace Fuse.Platform
 		"android.view.WindowManager", "android.widget.FrameLayout",
 		"android.content.Context", "android.content.pm.ActivityInfo",
 		"android.view.Surface", "java.lang.reflect.Method",
-		"android.graphics.Color", "android.view.WindowManager.LayoutParams")]
+		"android.graphics.Color", "android.view.WindowManager.LayoutParams",
+		"androidx.lifecycle.ViewTreeLifecycleOwner", "androidx.savedstate.ViewTreeSavedStateRegistryOwner")]
 
 	static extern(android) class SystemUI
 	{
@@ -199,9 +200,11 @@ namespace Fuse.Platform
 		[Foreign(Language.Java)]
 		static public void CreateLayouts()
 		@{
-			Activity activity = com.fuse.Activity.getRootActivity();
+			androidx.appcompat.app.AppCompatActivity activity = com.fuse.Activity.getRootActivity();
 
 			FrameLayout superLayout = new FrameLayout(activity);
+			ViewTreeLifecycleOwner.set(superLayout, activity);
+			ViewTreeSavedStateRegistryOwner.set(superLayout, activity);
 			FrameLayout rootLayout = new FrameLayout(activity);
 			@{SuperLayout:set(superLayout)};
 			@{RootLayout:set(rootLayout)};

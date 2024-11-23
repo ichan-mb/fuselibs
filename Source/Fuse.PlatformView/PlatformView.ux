@@ -1,0 +1,10 @@
+<Fuse.Controls.PlatformViewBase ux:Class="Fuse.Controls.PlatformView" ux:Name="self">
+    <Panel ux:Template="GraphicsAppearance" Margin="4" Background="#eee" Padding="30">
+        <Text Value="GraphicsAppearance for PlatformView is not available" Alignment="Center" TextWrapping="Wrap" />
+        <Rectangle Layer="Background">
+            <Stroke Color="#000" />
+        </Rectangle>
+    </Panel>
+    <Fuse.Controls.Native.iOS.PlatformNativeView ux:Condition="iOS" ux:Template="iOSAppearance" Host="self" />
+    <Fuse.Controls.Native.Android.PlatformNativeView ux:Condition="Android" ux:Template="AndroidAppearance" Host="self" />
+</Fuse.Controls.PlatformViewBase>
