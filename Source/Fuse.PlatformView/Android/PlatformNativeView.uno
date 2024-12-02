@@ -15,12 +15,6 @@ namespace Fuse.Controls.Native.Android
 		public PlatformNativeView([UXParameter("Host")]PlatformView host) { }
 	}
 
-	[Require("gradle.dependency.implementation", "androidx.compose.ui:ui:1.7.5")]
-	[Require("gradle.dependency.implementation", "androidx.compose.runtime:runtime-livedata:1.7.5")]
-	[Require("gradle.dependency.implementation", "androidx.compose.foundation:foundation:1.7.5")]
-	[Require("gradle.dependency.implementation", "androidx.compose.material3:material3:1.3.1")]
-	[Require("gradle.android.end", "buildFeatures { compose true } ")]
-	[Require("gradle.android.end", "composeOptions { kotlinCompilerExtensionVersion '1.5.1' } ")]
 	extern(Android) class PlatformNativeView : LeafView, IPlatformView
 	{
 
