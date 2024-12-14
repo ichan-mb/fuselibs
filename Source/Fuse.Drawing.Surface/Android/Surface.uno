@@ -30,12 +30,13 @@ namespace Fuse.Drawing
 		"android.opengl.GLES20",
 		"android.graphics.Paint",
 		"android.graphics.LinearGradient",
+		"android.graphics.RadialGradient",
 		"android.graphics.Shader.TileMode",
 		"android.graphics.Color",
 		"android.graphics.PorterDuffXfermode",
 		"android.graphics.Matrix",
 		"android.graphics.PorterDuff.Mode",
-		"com.fuse.drawing.surface.LinearGradientStore",
+		"com.fuse.drawing.surface.GradientStore",
 		"com.fuse.drawing.surface.GraphicsSurfaceContext"
 	)]
 	[ForeignInclude(Language.Java,
@@ -182,6 +183,22 @@ namespace Fuse.Drawing
 				return;
 			}
 
+			var radialGradient = fill as RadialGradient;
+			if (radialGradient != null)
+			{
+				Java.Object gradient;
+				if (!_gradientBrushes.TryGetValue( fill, out gradient ))
+				{
+					Fuse.Diagnostics.InternalError( "Unprepared radialGradient", fill );
+					return;
+				}
+
+				var start = radialGradient.GetEffectiveStartPoint(ElementSize) * _pixelsPerPoint;
+				var radius = (Math.Max(ElementSize.X, ElementSize.Y) / 2)  * _pixelsPerPoint;
+				FillPathRadialGradient(SurfaceContext, path, gradient, start[0], start[1], radius, eoFill, paint);
+				return;
+			}
+
 			var imageFill = fill as ImageFill;
 			if (imageFill != null)
 			{
@@ -232,6 +249,44 @@ namespace Fuse.Drawing
 		@}
 
 		[Foreign(Language.Java)]
+		static void FillPathRadialGradient(
+			Java.Object cp, Java.Object path,
+			Java.Object gradientStore, float startX,
+			float startY, float radius, bool eoFill,
+			Java.Object pretendPaint
+		)
+		@{
+			GraphicsSurfaceContext context = (GraphicsSurfaceContext) cp;
+
+			Paint paint = null;
+
+			paint = (Paint) pretendPaint;
+			if (paint == null) paint = new Paint();
+
+			GradientStore store = (GradientStore) gradientStore;
+
+			RadialGradient gradient = new RadialGradient(
+				startX,
+				startY,
+				radius,
+				store.colors,
+				store.stops,
+			TileMode.CLAMP);
+
+			paint.setShader(gradient);
+
+			// this is different from iOS
+			// iOS draws relative to the _entire_ canvas
+			// and therefore needs to clip to the path before drawing
+			// On Android, we can just call `drawPath` which clips
+			// to the right area for us
+			Canvas canvas = context.canvas;
+			int index = canvas.save();
+			canvas.drawPath((Path) path, paint);
+			canvas.restoreToCount(index);
+		@}
+
+		[Foreign(Language.Java)]
 		static void FillPathLinearGradient(
 			Java.Object cp, Java.Object path,
 			Java.Object gradientStore, float startX,
@@ -247,7 +302,7 @@ namespace Fuse.Drawing
 			paint = (Paint) pretendPaint;
 			if (paint == null) paint = new Paint();
 
-			LinearGradientStore store = (LinearGradientStore) gradientStore;
+			GradientStore store = (GradientStore) gradientStore;
 
 			LinearGradient gradient = new LinearGradient(
 				startX, startY,
@@ -313,12 +368,12 @@ namespace Fuse.Drawing
 			`colors` _must_ be the same length as `stops`.
 		*/
 		[Foreign(Language.Java)]
-		static Java.Object CreateLinearGradient(
+		static Java.Object CreateGradient(
 			int[] colors,
 			float[] stops
 		)
 		@{
-			LinearGradientStore store = new LinearGradientStore();
+			GradientStore store = new GradientStore();
 			store.colors = colors.copyArray();
 			store.stops = stops.copyArray();
 			return store;
@@ -379,6 +434,13 @@ namespace Fuse.Drawing
 			if (linearGradient != null)
 			{
 				PrepareLinearGradient(linearGradient);
+				return;
+			}
+
+			var radialGradient = brush as RadialGradient;
+			if (radialGradient != null)
+			{
+				PrepareRadialGradient(radialGradient);
 				return;
 			}
 
@@ -483,7 +545,28 @@ namespace Fuse.Drawing
 				offsets[i] = stop.Offset;
 			}
 
-			_gradientBrushes[lg] = CreateLinearGradient(
+			_gradientBrushes[lg] = CreateGradient(
+				colors,
+				offsets
+			);
+		}
+
+		void PrepareRadialGradient(RadialGradient rg)
+		{
+			var stops = rg.SortedStops;
+
+			int[] colors = new int[stops.Length];
+			float[] offsets = new float[stops.Length];
+
+
+			for (int i=0; i < stops.Length; ++i)
+			{
+				var stop = stops[i];
+				colors[i] = (int)Uno.Color.ToArgb(stop.Color);
+				offsets[i] = stop.Offset;
+			}
+
+			_gradientBrushes[rg] = CreateGradient(
 				colors,
 				offsets
 			);

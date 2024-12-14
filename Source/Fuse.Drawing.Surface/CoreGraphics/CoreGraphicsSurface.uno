@@ -200,6 +200,13 @@ namespace Fuse.Drawing
 				return;
 			}
 
+			var radialGradient = brush as RadialGradient;
+			if (radialGradient != null)
+			{
+				PrepareRadialGradient(radialGradient);
+				return;
+			}
+
 			var imageFill = brush as ImageFill;
 			if (imageFill != null)
 			{
@@ -229,7 +236,31 @@ namespace Fuse.Drawing
 				if (stop.Offset > 1.0f || stop.Offset < 0.0f)
 					Fuse.Diagnostics.UserWarning( "iOS/macOS does not support gradient stops outside of 0.0 to 1.0", stop.Offset );
 			}
-			_gradientBrushes[lg] = CreateLinearGradient(_context, colors, offsets, stops.Length );
+			_gradientBrushes[lg] = CreateGradient(_context, colors, offsets, stops.Length );
+
+			CGFloatDeleteArray(colors);
+			CGFloatDeleteArray(offsets);
+		}
+
+		void PrepareRadialGradient(RadialGradient rg)
+		{
+			var stops = rg.SortedStops;
+
+			var colors = CGFloatNewArray(stops.Length*4);
+			var offsets = CGFloatNewArray(stops.Length);
+			for (int i=0; i < stops.Length; ++i)
+			{
+				var stop = stops[i];
+				CGFloatSet(colors,i*4 + 0, stop.Color.X);
+				CGFloatSet(colors,i*4 + 1, stop.Color.Y);
+				CGFloatSet(colors,i*4 + 2, stop.Color.Z);
+				CGFloatSet(colors,i*4 + 3, stop.Color.W);
+				CGFloatSet(offsets, i, Math.Clamp(stop.Offset, 0.0f, 1.0f));
+
+				if (stop.Offset > 1.0f || stop.Offset < 0.0f)
+					Fuse.Diagnostics.UserWarning( "iOS/macOS does not support gradient stops outside of 0.0 to 1.0", stop.Offset );
+			}
+			_gradientBrushes[rg] = CreateGradient(_context, colors, offsets, stops.Length );
 
 			CGFloatDeleteArray(colors);
 			CGFloatDeleteArray(offsets);
@@ -348,6 +379,22 @@ namespace Fuse.Drawing
 				return;
 			}
 
+			var radialGradient = fill as RadialGradient;
+			if (radialGradient != null)
+			{
+				IntPtr gradient;
+				if (!_gradientBrushes.TryGetValue( fill, out gradient ))
+				{
+					Fuse.Diagnostics.InternalError( "Unprepared radialGradient", fill );
+					return;
+				}
+
+				var points = radialGradient.GetEffectiveStartPoint(ElementSize) * _pixelsPerPoint;
+				var radius = (Math.Max(ElementSize.X, ElementSize.Y) / 2)  * _pixelsPerPoint;
+				FillPathRadialGradient(_context, path, gradient, points[0], points[1], radius, eoFill);
+				return;
+			}
+
 			var imageFill = fill as ImageFill;
 			if (imageFill != null)
 			{
@@ -446,6 +493,19 @@ namespace Fuse.Drawing
 		@}
 
 		[Foreign(Language.CPlusPlus)]
+		static void FillPathRadialGradient(IntPtr cp, IntPtr path, IntPtr gradient,
+			float sx, float sy, float radius, bool eoFill)
+		@{
+			auto ctx = (CGLib::Context*)cp;
+
+			//clip to path
+			ctx->ClipPath((CGPathRef)path, eoFill);
+
+			CGContextDrawRadialGradient(ctx->Context, (CGGradientRef)gradient, CGPoint{sx,sy}, 0.0, CGPoint{sx,sy}, radius,
+				kCGGradientDrawsBeforeStartLocation | kCGGradientDrawsAfterEndLocation);
+		@}
+
+		[Foreign(Language.CPlusPlus)]
 		static void FillPathLinearGradient(IntPtr cp, IntPtr path, IntPtr gradient,
 			float sx, float sy, float ex, float ey, bool eoFill)
 		@{
@@ -475,7 +535,7 @@ namespace Fuse.Drawing
 		@}
 
 		[Foreign(Language.CPlusPlus)]
-		static IntPtr CreateLinearGradient(IntPtr cp, IntPtr colors, IntPtr stops, int count)
+		static IntPtr CreateGradient(IntPtr cp, IntPtr colors, IntPtr stops, int count)
 		@{
 			auto ctx = (CGLib::Context*)cp;
 			return CGGradientCreateWithColorComponents(ctx->ColorSpace,

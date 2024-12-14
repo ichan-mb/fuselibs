@@ -4,7 +4,7 @@ package com.fuse.drawing.surface;
 // different stops based on the rotation of the phone
 // this class is used as a holder for all that until the
 // gradient is actually drawn
-public class LinearGradientStore
+public class GradientStore
 {
 	public int[] colors;
 	public float[] stops;
