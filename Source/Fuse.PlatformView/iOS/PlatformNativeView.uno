@@ -145,7 +145,7 @@ namespace Fuse.Controls.Native.iOS
 		}
 
 		[Foreign(Language.ObjC)]
-		static void SetSource(ObjC.Object handle, string viewName,
+		void SetSource(ObjC.Object handle, string viewName,
 			Action<int> intCallback,
 			Action<float> floatCallback,
 			Action<bool> boolCallback,
