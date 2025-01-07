@@ -124,16 +124,16 @@ public class ShadowDrawable extends Drawable {
         if (this.isCircle) {
             shadowPath = new Path();
             Rect bounds= getBounds();
-            float x = (bounds.width() / 2) + convertDpToPx(this.offsetX);
-            float y = (bounds.width() / 2) + convertDpToPx(this.offsetY);
-            float radius = (bounds.width() / 2) + convertDpToPx(this.size);
+            float x = ((float) bounds.width() / 2) + this.offsetX;
+            float y = ((float) bounds.width() / 2) + this.offsetY;
+            float radius = ((float) bounds.width() / 2) + this.size;
             shadowPath.addCircle(x, y,  radius, Path.Direction.CW);
         } else {
             shadowPath = new Path();
-            int spreadExtent = convertDpToPx(size);
+            int spreadExtent = size;
             RectF shadowRect = new RectF(getBounds());
             shadowRect.inset(-spreadExtent, -spreadExtent);
-            shadowRect.offset(convertDpToPx(offsetX), convertDpToPx(offsetY));
+            shadowRect.offset(offsetX, offsetY);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 RectF subpixelInsetBounds = new RectF(getBounds());
                 subpixelInsetBounds.inset(0.4f, 0.4f);
