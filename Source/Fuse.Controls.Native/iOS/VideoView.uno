@@ -41,19 +41,29 @@ namespace Fuse.Controls.Native.iOS
 				if (value != _file)
 				{
 					_file = value;
-					if (_file is BundleFileSource)
+					var bundleFileSource = _file as BundleFileSource;
+					if (bundleFileSource != null)
 						SetVideoUri(_videoView, GetBundleAbsolutePath("data/" + ((BundleFileSource)_file).BundleFile.BundlePath));
 					else
 					{
+						var path = Uno.IO.Directory.GetUserDirectory(Uno.IO.UserDirectory.Data) + "/" + GetFileName(_file.Name) ;
 						var data = _file.ReadAllBytes();
-						var path = Uno.IO.Directory.GetUserDirectory(Uno.IO.UserDirectory.Videos) + "/" + _file.Name;
 						Uno.IO.File.WriteAllBytes(path, data);
-						SetVideoUri(_videoView, path);
+						SetVideoUri(_videoView, "file://" + path);
 					}
 					OnLoading();
 
 				}
 			}
+		}
+
+		string GetFileName(string fileName)
+		{
+			var strings = fileName.Split(new [] { '/' });
+			if (strings.Length > 0)
+				return strings[strings.Length - 1];
+			else
+				return fileName;
 		}
 
 		string _url;
