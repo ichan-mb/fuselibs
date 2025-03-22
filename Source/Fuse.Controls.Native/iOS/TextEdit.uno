@@ -256,6 +256,11 @@ namespace Fuse.Controls.Native.iOS
 			}
 		}
 
+		bool ITextView.SizeToFit
+		{
+			set { SetSizeToFit(Handle, value); }
+		}
+
 		string _placeholderText = "";
 		string ITextEdit.PlaceholderText
 		{
@@ -388,6 +393,21 @@ namespace Fuse.Controls.Native.iOS
 		@{
 			::UITextField* textField = (::UITextField*)handle;
 			[textField setAutocapitalizationType: (UITextAutocapitalizationType)hint];
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetSizeToFit(ObjC.Object handle, bool value)
+		@{
+			::UITextField* textField = (::UITextField*)handle;
+			if (value)
+			{
+				textField.minimumFontSize = 5;
+				textField.adjustsFontSizeToFitWidth = YES;
+			}
+			else
+			{
+				textField.adjustsFontSizeToFitWidth = NO;
+			}
 		@}
 	}
 
@@ -554,6 +574,11 @@ namespace Fuse.Controls.Native.iOS
 		int ITextView.MaxLines
 		{
 			set { /* TODO */ }
+		}
+
+		bool ITextView.SizeToFit
+		{
+			set { SetSizeToFit(Handle, value); }
 		}
 
 		[Foreign(Language.ObjC)]
@@ -770,6 +795,23 @@ namespace Fuse.Controls.Native.iOS
 		@{
 			::UITextView* textView = (::UITextView*)handle;
 			[textView setAutocapitalizationType: (UITextAutocapitalizationType)hint];
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetSizeToFit(ObjC.Object handle, bool value)
+		@{
+			::UITextView* textView = (::UITextView*)handle;
+			if (value)
+			{
+				textView.translatesAutoresizingMaskIntoConstraints = YES;
+				[textView sizeToFit];
+				textView.scrollEnabled = NO;
+			}
+			else
+			{
+				textView.translatesAutoresizingMaskIntoConstraints = NO;
+				textView.scrollEnabled = YES;
+			}
 		@}
 
 	}

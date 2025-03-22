@@ -250,6 +250,23 @@ namespace Fuse.Controls
 			}
 		}
 
+		/** auto font size.
+
+			Normally, the TextControl draws the text with the font you specify in the font property. If this property is true, and the text in the text property exceeds the TextControl’s bounding rectangle, the TextControl reduces the font size until the text fits or it has scaled the font down to the minimum font size.
+		*/
+		bool _sizeToFit = false;
+		public bool SizeToFit
+		{
+			get { return _sizeToFit; }
+			set
+			{
+				if (_sizeToFit != value)
+				{
+					_sizeToFit = value;
+					OnSizeToFitChanged();
+				}
+			}
+		}
 
 		/** The color of the text.
 

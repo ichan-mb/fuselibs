@@ -18,6 +18,7 @@ namespace Fuse.Controls
 		public static readonly Selector TextColorPropertyName = "TextColor";
 		public static readonly Selector TextTruncationPropertyName = "TextTruncation";
 		public static readonly Selector LoadAsyncPropertyName = "LoadAsync";
+		public static readonly Selector SizeToFitPropertyName = "SizeToFit";
 
 		protected ITextView GetITextView()
 		{
@@ -38,6 +39,7 @@ namespace Fuse.Controls
 			tv.TextAlignment = TextAlignment;
 			tv.TextColor = Color;
 			tv.MaxLines = MaxLines;
+			tv.SizeToFit = SizeToFit;
 		}
 
 		protected virtual void OnValueChanged(IPropertyListener origin)
@@ -159,6 +161,16 @@ namespace Fuse.Controls
 				}
 			}
 			OnPropertyChanged(LoadAsyncPropertyName);
+			InvalidateRenderer();
+		}
+
+		protected virtual void OnSizeToFitChanged()
+		{
+			OnPropertyChanged(SizeToFitPropertyName);
+			var edit = GetITextView();
+			if (edit != null) edit.SizeToFit = SizeToFit;
+			InvalidateLayout();
+			InvalidateVisual();
 			InvalidateRenderer();
 		}
 	}

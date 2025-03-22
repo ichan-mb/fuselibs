@@ -77,6 +77,11 @@ namespace Fuse.Controls.Native.Android
 			set { SetTextColor(Handle, (int)Color.ToArgb(value)); }
 		}
 
+		public bool SizeToFit
+		{
+			set { SetSizeToFit(Handle, value); }
+		}
+
 		TextTruncation ITextView.TextTruncation
 		{
 			set
@@ -102,11 +107,27 @@ namespace Fuse.Controls.Native.Android
 		@}
 
 		[Foreign(Language.Java)]
+		static void SetSizeToFit(Java.Object handle, bool value)
+		@{
+			android.widget.TextView tv = (android.widget.TextView)handle;
+			if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
+			{
+				if (value) {
+					tv.setAutoSizeTextTypeUniformWithConfiguration(5, 112, 2, android.util.TypedValue.COMPLEX_UNIT_SP);
+				} else {
+					tv.setAutoSizeTextTypeWithDefaults(android.widget.TextView.AUTO_SIZE_TEXT_TYPE_NONE);
+				}
+				tv.requestLayout();
+			}
+		@}
+
+		[Foreign(Language.Java)]
 		static void SetTextWrapping(Java.Object handle, bool wrap)
 		@{
 			android.widget.TextView tv = (android.widget.TextView)handle;
 			tv.setHorizontallyScrolling( (wrap) ? false : true );
 			tv.setSingleLine( (wrap) ? false : true );
+			tv.requestLayout();
 		@}
 
 		[Foreign(Language.Java)]
@@ -116,12 +137,15 @@ namespace Fuse.Controls.Native.Android
 			tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
 			tv.setHorizontallyScrolling(false);
 			tv.setSingleLine();
+			tv.requestLayout();
 		@}
 
 		[Foreign(Language.Java)]
 		static void SetLineSpacing(Java.Object handle, float spacing)
 		@{
-			((android.widget.TextView)handle).setLineSpacing(spacing, 1.0f);
+			android.widget.TextView tv = (android.widget.TextView)handle;
+			tv.setLineSpacing(spacing, 1.0f);
+			tv.requestLayout();
 		@}
 
 		[Foreign(Language.Java)]
@@ -131,12 +155,15 @@ namespace Fuse.Controls.Native.Android
 			tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
 			tv.setHorizontallyScrolling(false);
 			tv.setMaxLines(line);
+			tv.requestLayout();
 		@}
 
 		[Foreign(Language.Java)]
 		static void SetFontSize(Java.Object handle, float size)
 		@{
-			((android.widget.TextView)handle).setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, size);
+			android.widget.TextView tv = ((android.widget.TextView)handle);
+			tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, size);
+			tv.requestLayout();
 		@}
 
 		[Foreign(Language.Java)]
