@@ -65,6 +65,15 @@ namespace Fuse.Gestures
 				return true;
 			return args.IsPrimary;
 		}
+
+		extern(Android) 
+		protected void SetClickable(bool clickable)
+		{
+			var viewHandle = Parent.ViewHandle;
+			if (viewHandle != null)
+				viewHandle.SetClickable(clickable);
+		}
+
 	}
 
 	public abstract class WhileClickerTrigger : Fuse.Triggers.WhileTrigger

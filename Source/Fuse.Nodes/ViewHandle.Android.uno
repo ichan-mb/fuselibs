@@ -77,6 +77,7 @@ namespace Fuse.Controls.Native
 			ResetLayoutParams();
 			SetOpacity(1.0f);
 			SetEnabled(true);
+			SetClickable(false);
 			SetIsVisible(true);
 			SetBackgroundColor(0);
 			UpdateTransform(1.0f, 1.0f, 0.0f, 0.0f, 0.0f);
@@ -89,6 +90,7 @@ namespace Fuse.Controls.Native
 			android.view.View dest = (android.view.View)@{Fuse.Controls.Native.ViewHandle:of(destHandle).NativeHandle:get()};
 			dest.setVisibility(source.getVisibility());
 			dest.setEnabled(source.isEnabled());
+			dest.setClickable(source.isClickable());
 			dest.setAlpha(source.getAlpha());
 			dest.setBackgroundDrawable(source.getBackground());
 			dest.setLayoutParams(source.getLayoutParams());
@@ -185,6 +187,16 @@ namespace Fuse.Controls.Native
 			if (view instanceof com.fuse.android.views.ViewGroup) {
 				com.fuse.android.views.ViewGroup viewgroup = (com.fuse.android.views.ViewGroup)view;
 				viewgroup.HitTestEnabled = enabled;
+			}
+		@}
+
+		[Foreign(Language.Java)]
+		public void SetClickable(bool clickable)
+		@{
+			android.view.View view = (android.view.View)@{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
+			if (view instanceof com.fuse.android.views.ViewGroup) {
+				com.fuse.android.views.ViewGroup viewgroup = (com.fuse.android.views.ViewGroup)view;
+				viewgroup.setClickable(clickable);
 			}
 		@}
 

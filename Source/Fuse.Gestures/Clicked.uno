@@ -57,12 +57,16 @@ namespace Fuse.Gestures
 		protected override void OnRooted()
 		{
 			base.OnRooted();
+			if defined(Android)
+				SetClickable(true);
 			Clicker.ClickedEvent += OnClicked;
 		}
 
 		protected override void OnUnrooted()
 		{
 			Clicker.ClickedEvent -= OnClicked;
+			if defined(Android)
+				SetClickable(false);
 			base.OnUnrooted();
 		}
 
@@ -102,11 +106,15 @@ namespace Fuse.Gestures
 		protected override void OnRooted()
 		{
 			base.OnRooted();
+			if defined(Android)
+				SetClickable(true);
 			Clicker.ClickedEvent += OnClicked;
 		}
 
 		protected override void OnUnrooted()
 		{
+			if defined(Android)
+				SetClickable(false);
 			Clicker.ClickedEvent -= OnClicked;
 			base.OnUnrooted();
 		}
