@@ -111,6 +111,11 @@ namespace Fuse.Controls.Native.iOS
 			}
 		}
 
+		public bool ITextView.SizeToFit
+		{
+			set { SetSizeToFit(Handle, value); }
+		}
+
 		TextTruncation ITextView.TextTruncation
 		{
 			set
@@ -138,6 +143,22 @@ namespace Fuse.Controls.Native.iOS
 			::UILabel* label = (::UILabel*)handle;
 			label.numberOfLines = line;
 			label.lineBreakMode = NSLineBreakByTruncatingTail;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetSizeToFit(ObjC.Object handle, bool value)
+		@{
+			::UILabel* label = (::UILabel*)handle;
+			if (value)
+			{
+				label.adjustsFontSizeToFitWidth = true;
+				label.minimumScaleFactor = 0.5;
+			}
+			else
+			{
+				label.adjustsFontSizeToFitWidth = false;
+				label.minimumScaleFactor = 0.0;
+			}
 		@}
 	}
 }

@@ -36,6 +36,7 @@ namespace Fuse.Controls.Native
 		TextAlignment TextAlignment { set; }
 		float4 TextColor { set; }
 		TextTruncation TextTruncation { set; }
+		bool SizeToFit { set;}
 	}
 
 	public interface ITextEditHost
