@@ -485,7 +485,7 @@ namespace Fuse.Controls
 		{
 			get
 			{
-				return MaxScroll + ConstrainUp(_scroller == null ? float2(0) : _scroller.OverflowExtent);
+				return MaxScroll + ConstrainUp(_scroller == null ? float2(150) : _scroller.OverflowExtent);
 			}
 		}
 
@@ -509,7 +509,7 @@ namespace Fuse.Controls
 		{
 			get
 			{
-				return MinScroll - ConstrainDown(_scroller == null ? float2(0) : _scroller.OverflowExtent);
+				return MinScroll - ConstrainDown(_scroller == null ? float2(150) : _scroller.OverflowExtent);
 			}
 		}
 

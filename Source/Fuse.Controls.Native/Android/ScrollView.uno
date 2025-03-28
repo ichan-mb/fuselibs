@@ -119,6 +119,33 @@ namespace Fuse.Controls.Native.Android
 			}
 		}
 
+		public float SnapInterval
+		{
+			set
+			{
+				SetSnapInterval(NativeHandle, value);
+			}
+		}
+
+		public SnapAlign SnapAlignment
+		{
+			set
+			{
+				var align = value == SnapAlign.Start ? 0 : value == SnapAlign.Center ? 1 : 2;
+				SetSnapAlignment(Handle, align);
+			}
+		}
+
+		int _decelerationRate = 0;
+		public DecelerationType DecelerationRate
+		{
+			set
+			{
+				_decelerationRate = value == DecelerationType.Fast ? 1 : 0;
+				SetDecelerationRate(Handle, _decelerationRate);
+			}
+		}
+
 		void OnScrollChanged(int x, int y, int oldx, int oldy)
 		{
 			var p = _host.PixelsPerPoint;
@@ -150,6 +177,24 @@ namespace Fuse.Controls.Native.Android
 		static void SetGoto(Java.Object handle, int x, int y)
 		@{
 			((com.fuse.android.views.FuseScrollView)handle).smoothScrollTo(x, y);
+		@}
+
+		[Foreign(Language.Java)]
+		static void SetSnapInterval(Java.Object handle, float interval)
+		@{
+			((com.fuse.android.views.FuseScrollView)handle).setSnapInterval(interval);
+		@}
+
+		[Foreign(Language.Java)]
+		static void SetSnapAlignment(Java.Object handle, int alignment)
+		@{
+			((com.fuse.android.views.FuseScrollView)handle).setSnapAlignment(alignment);
+		@}
+
+		[Foreign(Language.Java)]
+		static void SetDecelerationRate(Java.Object handle, int decelerationRate)
+		@{
+			((com.fuse.android.views.FuseScrollView)handle).setDecelerationRate(decelerationRate);
 		@}
 	}
 }

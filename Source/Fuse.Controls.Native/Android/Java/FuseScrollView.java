@@ -8,6 +8,9 @@ import android.view.MotionEvent;
 
 public class FuseScrollView extends FrameLayout implements ScrollEventHandler {
 
+	public static final float DECELERATION_RATE_FAST = 0.9f;
+	public static final float DECELERATION_RATE_NORMAL = 0.985f;
+
 	private VerticalScrollView _verticalScrollView = null;
 	private HorizontalScrollView _horizontalScrollView = null;
 	private ViewGroup _currentScrollView = null;
@@ -23,6 +26,27 @@ public class FuseScrollView extends FrameLayout implements ScrollEventHandler {
 		_verticalScrollView.setScrollEventHandler(this);
 		addView(_currentScrollView);
 		setupContainer();
+	}
+
+	public void setSnapInterval(float interval) {
+		if (_currentScrollView instanceof VerticalScrollView)
+			((VerticalScrollView)_currentScrollView).setSnapInterval(interval);
+		if (_currentScrollView instanceof HorizontalScrollView)
+			((HorizontalScrollView)_currentScrollView).setSnapInterval(interval);
+	}
+
+	public void setSnapAlignment(int alignment) {
+		if (_currentScrollView instanceof VerticalScrollView)
+			((VerticalScrollView)_currentScrollView).setSnapAlignment(alignment);
+		if (_currentScrollView instanceof HorizontalScrollView)
+			((HorizontalScrollView)_currentScrollView).setSnapAlignment(alignment);
+	}
+
+	public void setDecelerationRate(int decelerationRate) {
+		if (_currentScrollView instanceof VerticalScrollView)
+			((VerticalScrollView)_currentScrollView).setDecelerationRate(decelerationRate);
+		if (_currentScrollView instanceof HorizontalScrollView)
+			((HorizontalScrollView)_currentScrollView).setDecelerationRate(decelerationRate);
 	}
 
 	public void onScrollChanged(int x, int y, int oldX, int oldY) {
