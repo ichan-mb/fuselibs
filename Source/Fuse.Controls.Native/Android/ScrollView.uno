@@ -119,6 +119,23 @@ namespace Fuse.Controls.Native.Android
 			}
 		}
 
+		public float SnapInterval
+		{
+			set
+			{
+				SetSnapInterval(NativeHandle, value);
+			}
+		}
+
+		public SnapAlign SnapAlignment
+		{
+			set
+			{
+				var align = value == SnapAlign.Start ? 0 : value == SnapAlign.Center ? 1 : 2;
+				SetSnapAlignment(Handle, align);
+			}
+		}
+
 		void OnScrollChanged(int x, int y, int oldx, int oldy)
 		{
 			var p = _host.PixelsPerPoint;
@@ -150,6 +167,18 @@ namespace Fuse.Controls.Native.Android
 		static void SetGoto(Java.Object handle, int x, int y)
 		@{
 			((com.fuse.android.views.FuseScrollView)handle).smoothScrollTo(x, y);
+		@}
+
+		[Foreign(Language.Java)]
+		static void SetSnapInterval(Java.Object handle, float y)
+		@{
+
+		@}
+
+		[Foreign(Language.Java)]
+		static void SetSnapAlignment(Java.Object handle, float y)
+		@{
+
 		@}
 	}
 }

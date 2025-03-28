@@ -140,6 +140,9 @@ namespace Fuse.Controls.Native
 		bool UserScroll { set; }
 		bool SnapMinTransform { set; }
 		bool SnapMaxTransform { set; }
+		float SnapInterval { set; }
+		SnapAlign SnapAlignment { set; }
+
 	}
 
 	public interface IScrollViewHost

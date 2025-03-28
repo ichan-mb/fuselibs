@@ -17,4 +17,14 @@ namespace Fuse.Controls
 		Both = Horizontal | Vertical,
 		All = Both,
 	}
+
+	/**
+		How the lock position of ScrollView viewport are treated.
+	*/
+	public enum SnapAlign
+	{
+		Start,
+		Center,
+		End
+	}
 }

@@ -3,19 +3,10 @@ using Uno.UX;
 
 using Fuse.Elements;
 using Fuse.Controls;
+using Fuse.Controls.Native;
 
 namespace Fuse.Controls
 {
-	/**
-		How the lock position of ScrollView viewport are treated.
-	*/
-	public enum SnapAlign
-	{
-		Start,
-		Center,
-		End
-	}
-
 	/**
 		Add scroll snapping behavior to the `ScrollView`. Scroll snapping allows you to lock the viewport to certain location after a user has finished scrolling.
 
@@ -98,7 +89,19 @@ namespace Fuse.Controls
 			}
 
 			_scrollable.AddPropertyListener(this);
-			_scrollable.IsInteractingChanged += OnInteractingChanged;
+			if (_scrollable.NativeView as IScrollView == null)
+			{
+				_scrollable.IsInteractingChanged += OnInteractingChanged;
+			}
+			else
+			{
+				var nativeScrollView = _scrollable.NativeView as IScrollView;
+				if (nativeScrollView != null)
+				{
+					nativeScrollView.SnapInterval = _scrollable.AllowedScrollDirections == ScrollDirections.Horizontal ? SnapInterval.X : SnapInterval.Y;
+					nativeScrollView.SnapAlignment = SnapAlignment;
+				}
+			}
 		}
 
 		protected override void OnUnrooted()
@@ -129,6 +132,15 @@ namespace Fuse.Controls
 			}
 		}
 
+		public float2 SnapInterval
+		{
+			get { return GetChildSize; }
+			set
+			{
+				_childSize = value;
+			}
+		}
+
 		static Selector SizingChanged = "SizingChanged";
 		static Selector ScrollPositionName = "ScrollPosition";
 
@@ -137,7 +149,7 @@ namespace Fuse.Controls
 			if (obj != _scrollable)
 				return;
 
-			if (prop == ScrollPositionName)
+			if (prop == ScrollPositionName && _scrollable.NativeView == null)
 			{
 				RequestCheckPosition();
 			}

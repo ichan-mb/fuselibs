@@ -1,4 +1,4 @@
-#if !(@{Fuse.Controls.Native.iOS.GraphicsView:isStripped} && @{Fuse.Controls.Native.iOS.FocusHelpers:isStripped} && @{Fuse.Controls.Native.iOS.InputDispatch:isStripped} && @{Fuse.Controls.Native.iOS.KeyboardView:isStripped} && @{Fuse.Controls.Native.iOS.ScrollView:isStripped} && @{Fuse.Controls.Native.iOS.SingleLineTextEdit:isStripped} && @{Fuse.Controls.Native.iOS.MultiLineTextEdit:isStripped} && @{Fuse.Controls.Native.iOS.UIControlEvent:isStripped})
+//#if !(#{Fuse.Controls.Native.iOS.GraphicsView:isStripped} && #{Fuse.Controls.Native.iOS.FocusHelpers:isStripped} && #{Fuse.Controls.Native.iOS.InputDispatch:isStripped} && #{Fuse.Controls.Native.iOS.KeyboardView:isStripped} && #{Fuse.Controls.Native.iOS.ScrollView:isStripped} && #{Fuse.Controls.Native.iOS.SingleLineTextEdit:isStripped} && #{Fuse.Controls.Native.iOS.MultiLineTextEdit:isStripped} && #{Fuse.Controls.Native.iOS.UIControlEvent:isStripped})
 
 #import "Helpers.h"
 
@@ -180,6 +180,11 @@ static id currentFirstResponder;
 	[self didInteractinglCallback](NO);
 }
 
+- (void)scrollViewWillEndDragging:(UIScrollView *)scrollView withVelocity:(CGPoint)velocity targetContentOffset:(CGPoint *)targetContentOffset
+{
+	[self willEndDraggingCallback](scrollView, velocity, targetContentOffset);
+}
+
 @end
 
 @implementation UIControlEventHandler
@@ -191,4 +196,4 @@ static id currentFirstResponder;
 
 @end
 
-#endif // IsStripped
+//#endif // IsStrippe
