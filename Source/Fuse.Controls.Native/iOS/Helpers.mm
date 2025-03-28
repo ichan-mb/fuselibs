@@ -180,6 +180,11 @@ static id currentFirstResponder;
 	[self didInteractinglCallback](NO);
 }
 
+- (void)scrollViewWillEndDragging:(UIScrollView *)scrollView withVelocity:(CGPoint)velocity targetContentOffset:(CGPoint *)targetContentOffset
+{
+	[self willEndDraggingCallback](scrollView, velocity, targetContentOffset);
+}
+
 @end
 
 @implementation UIControlEventHandler

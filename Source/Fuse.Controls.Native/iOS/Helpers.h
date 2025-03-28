@@ -72,9 +72,12 @@
 
 @property (copy) void (^didScrollCallback)(id);
 @property (copy) void (^didInteractinglCallback)(BOOL);
+@property (copy) void (^willEndDraggingCallback)(id, CGPoint, void*);
+
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView;
 - (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView;
 - (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate;
+- (void)scrollViewWillEndDragging:(UIScrollView *)scrollView withVelocity:(CGPoint) velocity targetContentOffset:(CGPoint *) targetContentOffset;
 
 @end
 
