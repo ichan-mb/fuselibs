@@ -1,5 +1,6 @@
 using Uno;
 using Uno.UX;
+using Uno.Platform.iOS;
 using Uno.Compiler.ExportTargetInterop;
 
 namespace Fuse.Controls.Native.iOS
@@ -58,11 +59,33 @@ namespace Fuse.Controls.Native.iOS
 			set { SetContentOffset(Handle, value.X, value.Y, true); }
 		}
 
+		float _snapInterval = 0;
+		public float SnapInterval
+		{
+			set { _snapInterval = value; }
+		}
+
+		int _snapAlignment = -1;
+		public SnapAlign SnapAlignment
+		{
+			set { _snapAlignment = value == SnapAlign.Start ? 0 : value == SnapAlign.Center ? 1 : 2; }
+		}
+
+		int _decelerationRate = 0;
+		public DecelerationType DecelerationRate
+		{
+			set
+			{
+				_decelerationRate = value == DecelerationType.Fast ? 1 : 0;
+				SetDecelerationRate(Handle, _decelerationRate);
+			}
+		}
+
 		[UXConstructor]
 		public ScrollView([UXParameter("Host")]IScrollViewHost host) : base(Create())
 		{
 			_host = host;
-			_delegateHandle = AddCallback(Handle, OnScrollViewDidScroll, OnInteractionChanged);
+			_delegateHandle = AddCallback(Handle, OnScrollViewDidScroll, OnInteractionChanged, OnWillEndDragging);
 		}
 
 		public override void Dispose()
@@ -83,11 +106,22 @@ namespace Fuse.Controls.Native.iOS
 		@}
 
 		[Foreign(Language.ObjC)]
-		static ObjC.Object AddCallback(ObjC.Object handle, Action<ObjC.Object> callback, Action<bool> interactingCallback)
+		static void SetDecelerationRate(ObjC.Object handle, int decelerationRate)
+		@{
+			::UIScrollView* scrollView = (::UIScrollView*)handle;
+			if (decelerationRate == 1)
+				scrollView.decelerationRate = UIScrollViewDecelerationRateFast;
+			else
+				scrollView.decelerationRate = UIScrollViewDecelerationRateNormal;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static ObjC.Object AddCallback(ObjC.Object handle, Action<ObjC.Object> callback, Action<bool> interactingCallback, Action<ObjC.Object, uCGPoint, IntPtr> scrollViewWillEndDraggingCallback)
 		@{
 			ScrollViewDelegate* del = [[ScrollViewDelegate alloc] init];
 			[del setDidScrollCallback: callback];
 			[del setDidInteractinglCallback: interactingCallback];
+			[del setWillEndDraggingCallback: scrollViewWillEndDraggingCallback];
 			::UIScrollView* scrollView =  (::UIScrollView*)handle;
 			[scrollView setDelegate:del];
 			return del;
@@ -109,6 +143,67 @@ namespace Fuse.Controls.Native.iOS
 		{
 			_host.OnInteractionChanged(isInteracting);
 		}
+
+		void OnWillEndDragging(ObjC.Object scrollViewHandle, uCGPoint velocity, IntPtr targetContentOffset)
+		{
+			if (_snapInterval > 0)
+			{
+				bool isHorizontal = _scrollDirection == ScrollDirections.Horizontal;
+				var vel = CGPointToUnoFloat2(velocity);
+				var velocityAxis = isHorizontal ? vel.X : vel.Y;
+				var targetContentOffsetAxis = GetTargetContentOffsetY(targetContentOffset);
+				if (isHorizontal)
+					targetContentOffsetAxis = GetTargetContentOffsetX(targetContentOffset);
+				// Pick snap point based on direction and proximity
+				var fractionalIndex = targetContentOffsetAxis / _snapInterval;
+
+				var snapIndex = velocityAxis > 0.0 ? Math.Ceil(fractionalIndex) : velocityAxis < 0.0 ? Math.Floor(fractionalIndex) : Math.Round(fractionalIndex);
+				var newTargetContentOffset = snapIndex * _snapInterval;
+
+				// Set new targetContentOffset
+				if (isHorizontal)
+					SetTargetContentOffsetX(targetContentOffset, newTargetContentOffset);
+				else
+					SetTargetContentOffsetY(targetContentOffset, newTargetContentOffset);
+			}
+		}
+
+		[Foreign(Language.ObjC)]
+		static extern float2 CGPointToUnoFloat2(uCGPoint point)
+		@{
+			@{Uno.Float2} unoPoint;
+			unoPoint.X = point.x;
+			unoPoint.Y = point.y;
+			return unoPoint;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static float GetTargetContentOffsetX(IntPtr targetContentOffset)
+		@{
+			CGPoint* point = (CGPoint*)targetContentOffset;
+			return point->x;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static float GetTargetContentOffsetY(IntPtr targetContentOffset)
+		@{
+			CGPoint* point = (CGPoint*)targetContentOffset;
+			return point->y;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetTargetContentOffsetX(IntPtr targetContentOffset, float value)
+		@{
+			CGPoint* point = (CGPoint*)targetContentOffset;
+			point->x = value;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetTargetContentOffsetY(IntPtr targetContentOffset, float value)
+		@{
+			CGPoint* point = (CGPoint*)targetContentOffset;
+			point->y = value;
+		@}
 
 		internal protected override void OnSizeChanged()
 		{

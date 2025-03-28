@@ -1,5 +1,9 @@
 package com.fuse.android.views;
 
+import java.lang.reflect.Field;
+import android.os.Build;
+import android.widget.ScrollView;
+import android.widget.OverScroller;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Context;
@@ -11,7 +15,7 @@ import android.view.animation.Interpolator;
 
 import androidx.annotation.NonNull;
 
-public class VerticalScrollView extends android.widget.ScrollView {
+public class VerticalScrollView extends ScrollView {
 
 	private static final int MAX_Y_OVERSCROLL_DISTANCE = 50;
 	private static final float DEFAULT_DAMPING_COEFFICIENT = 4.0f;
@@ -30,6 +34,17 @@ public class VerticalScrollView extends android.widget.ScrollView {
 	private ObjectAnimator mAnimator;
 	private FuseScrollView.OnOverScrollListener mOverScrollListener;
 	private int mMaxYOverscrollDistance;
+	private final OverScroller mScroller;
+	private float _snapInterval;
+	private int _snapAlignment;
+
+	private static Field sScrollerField;
+	private static boolean sTriedToGetScrollerField = false;
+	private Runnable scrollerTask;
+	private int initialPosition;
+	private int newCheck = 100;
+	private boolean alreadySnap = false;
+	private int decelerationRate;
 
 	public VerticalScrollView(Context context) {
 		super(context);
@@ -40,15 +55,138 @@ public class VerticalScrollView extends android.widget.ScrollView {
 		this.setVerticalScrollBarEnabled(false);
 		this.setHorizontalScrollBarEnabled(false);
 		this.setFillViewport(true);
+		mScroller = getOverScrollerFromParent();
 
 		this.mInterpolator = new FuseScrollView.DefaultQuartOutInterpolator();
 		initBounceScrollView(context);
+
+		scrollerTask = new Runnable() {
+			public void run() {
+
+				int newPosition = getScrollY();
+				if(initialPosition - newPosition == 0){ //has stopped
+					onScrollStopped();
+				}else{
+					initialPosition = getScrollY();
+					VerticalScrollView.this.postDelayed(scrollerTask, newCheck);
+				}
+			}
+		};
+	}
+
+	public void setSnapInterval(float interval) {
+		DisplayMetrics metrics = getContext().getResources().getDisplayMetrics();
+		float dpi = metrics.density;
+		this._snapInterval = interval * dpi;
+	}
+
+	public void setSnapAlignment(int alignment) {
+		this._snapAlignment = alignment;
+	}
+
+	public void setDecelerationRate(int decelerationRate) {
+		this.decelerationRate = decelerationRate;
+		if (decelerationRate == 1)
+			mScroller.setFriction(1 - com.fuse.android.views.FuseScrollView.DECELERATION_RATE_FAST);
+		else
+			mScroller.setFriction(1 - com.fuse.android.views.FuseScrollView.DECELERATION_RATE_NORMAL);
+	}
+
+	private OverScroller getOverScrollerFromParent() {
+		OverScroller scroller;
+
+		if (!sTriedToGetScrollerField) {
+			sTriedToGetScrollerField = true;
+			try {
+				sScrollerField = ScrollView.class.getDeclaredField("mScroller");
+				sScrollerField.setAccessible(true);
+			} catch (NoSuchFieldException e) {
+			}
+		}
+
+		if (sScrollerField != null) {
+			try {
+			Object scrollerValue = sScrollerField.get(this);
+			if (scrollerValue instanceof OverScroller) {
+				scroller = (OverScroller) scrollerValue;
+			} else {
+				scroller = null;
+			}
+			} catch (IllegalAccessException e) {
+				throw new RuntimeException("Failed to get mScroller from ScrollView!", e);
+			}
+		} else {
+			scroller = null;
+		}
+
+		return scroller;
 	}
 
 	private void initBounceScrollView(Context context) {
 		final DisplayMetrics metrics = context.getResources().getDisplayMetrics();
 		final float density = metrics.density;
 		this.mMaxYOverscrollDistance = (int) (density * MAX_Y_OVERSCROLL_DISTANCE);
+	}
+
+	private int getMaxScrollY() {
+		return this.getChildAt(0).getHeight();
+	}
+
+	private int predictFinalScrollPosition(int velocityY) {
+		OverScroller scroller = new OverScroller(this.getContext());
+		if (this.decelerationRate == 1)
+			scroller.setFriction(1 - com.fuse.android.views.FuseScrollView.DECELERATION_RATE_FAST);
+		else
+			scroller.setFriction(1 - com.fuse.android.views.FuseScrollView.DECELERATION_RATE_NORMAL);
+		int width = this.getWidth() - this.getPaddingStart() - this.getPaddingEnd();
+		int height = this.getHeight() - this.getPaddingBottom() - this.getPaddingTop();
+		scroller.fling(getScrollX(), getScrollY(), 0, velocityY, 0, 0, 0, getMaxScrollY(), width / 2, height / 2);
+		return scroller.getFinalY();
+	}
+
+	private void flingAndSnap(int velocityY) {
+		if (getChildCount() <= 0) {
+			return;
+		}
+
+		int maximumOffset = getMaxScrollY();
+		int targetOffset = predictFinalScrollPosition(velocityY);
+		double ratio = (double) targetOffset / _snapInterval;
+
+		int smallerOffset = (int) (Math.floor(ratio) * _snapInterval);
+		int largerOffset = (int) (Math.ceil(ratio) * _snapInterval);
+		int nearestOffset = (int) (Math.round(ratio) * _snapInterval);
+
+		if (velocityY > 0) {
+			velocityY += (int) ((largerOffset - targetOffset) * 10.0);
+			targetOffset = largerOffset;
+		} else if (velocityY < 0) {
+			velocityY -= (int) ((targetOffset - smallerOffset) * 10.0);
+			targetOffset = smallerOffset;
+		} else {
+			targetOffset = nearestOffset;
+		}
+		// Make sure the new offset isn't out of bounds
+		targetOffset = Math.min(Math.max(0, targetOffset), maximumOffset);
+		mScroller.fling(getScrollX(), getScrollY(), 0, velocityY != 0 ? velocityY : targetOffset - getScrollY(), 0, 0, targetOffset, targetOffset, 0, 0 );
+		alreadySnap = true;
+		postInvalidateOnAnimation();
+	}
+
+	void onScrollStopped() {
+		if (_snapInterval > 0 && !alreadySnap) {
+			flingAndSnap(0);
+		}
+		alreadySnap = false;
+	}
+
+	@Override
+	public void fling(int velocityY) {
+		if (_snapInterval > 0) {
+			flingAndSnap(velocityY);
+		} else {
+			super.fling(velocityY);
+		}
 	}
 
 	@Override
@@ -130,6 +268,9 @@ public class VerticalScrollView extends android.widget.ScrollView {
 					});
 				}
 				this.mAnimator.start();
+
+				initialPosition = getScrollY();
+				VerticalScrollView.this.postDelayed(scrollerTask, newCheck);
 
 				break;
 		}
