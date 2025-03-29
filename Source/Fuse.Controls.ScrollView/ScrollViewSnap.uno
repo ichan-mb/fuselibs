@@ -55,6 +55,12 @@ namespace Fuse.Controls
 				OnPropertyChanged(_snapAlignmentName, origin);
 				CheckSizing();
 			}
+			if (_scrollable != null)
+			{
+				var nativeScrollView = _scrollable.NativeView as IScrollView;
+				if (nativeScrollView != null)
+					nativeScrollView.SnapAlignment = SnapAlignment;
+			}
 		}
 
 		/**
@@ -80,27 +86,21 @@ namespace Fuse.Controls
 				Fuse.Diagnostics.UserError( "Content of ScrollView is not an StackPanel", this );
 				return;
 			}
-
+			var nativeScrollView = _scrollable.NativeView as IScrollView;
 			//this mode won't work correctly, emit a warning with a suitable one
-			if (_scrollable.LayoutMode == ScrollViewLayoutMode.PreserveScrollPosition)
+			if (_scrollable.LayoutMode == ScrollViewLayoutMode.PreserveScrollPosition && nativeScrollView == null)
 			{
 				Fuse.Diagnostics.UserError( "The ScrollView should have `LayoutMode=\"PreserveVisual\"` to work correctly", this );
 				return;
 			}
 
 			_scrollable.AddPropertyListener(this);
-			if (_scrollable.NativeView as IScrollView == null)
+			_scrollable.IsInteractingChanged += OnInteractingChanged;
+
+			if (nativeScrollView != null)
 			{
-				_scrollable.IsInteractingChanged += OnInteractingChanged;
-			}
-			else
-			{
-				var nativeScrollView = _scrollable.NativeView as IScrollView;
-				if (nativeScrollView != null)
-				{
-					nativeScrollView.SnapInterval = _scrollable.AllowedScrollDirections == ScrollDirections.Horizontal ? SnapInterval.X : SnapInterval.Y;
-					nativeScrollView.SnapAlignment = SnapAlignment;
-				}
+				nativeScrollView.SnapInterval = _scrollable.AllowedScrollDirections == ScrollDirections.Horizontal ? SnapInterval.X : SnapInterval.Y;
+				nativeScrollView.SnapAlignment = SnapAlignment;
 			}
 		}
 
@@ -126,18 +126,44 @@ namespace Fuse.Controls
 				{
 					var element = _element.FirstChild<Element>();
 					if (element != null)
-						_childSize = element.ActualSize;
+					{
+						_childSize = element.ActualSize + _element.ItemSpacing;
+						var nativeScrollView = _scrollable.NativeView as IScrollView;
+						if (!_snapIntervalSet && nativeScrollView != null)
+							nativeScrollView.SnapInterval = _scrollable.AllowedScrollDirections == ScrollDirections.Horizontal ? _childSize.X : _childSize.Y;
+					}
 				}
 				return _childSize;
 			}
 		}
 
+		static Selector _snapIntervalName = "SnapInterval";
+		bool _snapIntervalSet = false;
+		/**
+			The length interval of snapping
+		*/
 		public float2 SnapInterval
 		{
 			get { return GetChildSize; }
 			set
 			{
-				_childSize = value;
+				SetSnapInterval(value, this);
+				_snapIntervalSet = true;
+			}
+		}
+
+		public void SetSnapInterval(float2 snapInterval, IPropertyListener origin)
+		{
+			if (snapInterval != _childSize)
+			{
+				_childSize = snapInterval;
+				OnPropertyChanged(_snapIntervalName, origin);
+			}
+			if (_scrollable != null)
+			{
+				var nativeScrollView = _scrollable.NativeView as IScrollView;
+				if (nativeScrollView != null)
+					nativeScrollView.SnapInterval = _scrollable.AllowedScrollDirections == ScrollDirections.Horizontal ? snapInterval.X : snapInterval.Y;
 			}
 		}
 
@@ -149,7 +175,7 @@ namespace Fuse.Controls
 			if (obj != _scrollable)
 				return;
 
-			if (prop == ScrollPositionName && _scrollable.NativeView == null)
+			if (prop == ScrollPositionName)
 			{
 				RequestCheckPosition();
 			}
@@ -197,13 +223,13 @@ namespace Fuse.Controls
 			switch (SnapAlignment)
 			{
 				case SnapAlign.Center:
-					offset = Math.Floor((_scrollable.ActualSize / 2 - GetChildSize / 2) + 0.5f);
+					offset = Math.Floor((_scrollable.ActualSize / 2 - GetChildSize / 2 + _element.ItemSpacing / 2) + 0.5f);
 					break;
 				case SnapAlign.Start:
-					offset = Math.Floor((_scrollable.ActualSize - GetChildSize) + 0.5f);
+					offset = Math.Floor((_scrollable.ActualSize - GetChildSize) + 0.5f) + _element.ItemSpacing;
 					break;
 				case SnapAlign.End:
-					offset = Math.Floor((_scrollable.ActualSize - GetChildSize) + 0.5f);
+					offset = Math.Floor((_scrollable.ActualSize - GetChildSize) + 0.5f) + _element.ItemSpacing;
 					break;
 			}
 			return NormalizeOffset(offset);
@@ -271,18 +297,21 @@ namespace Fuse.Controls
 			if (_selectedElement == null)
 				return;
 
-			switch (SnapAlignment)
+			if (_scrollable.NativeView as IScrollView == null)
 			{
-				case SnapAlign.Center:
-					_selectedElement.BringIntoView();
-					break;
-				case SnapAlign.End:
-					var offset = float2(_element.Padding.X, _element.Padding.Y);
-					_scrollable.Goto(_selectedElement.ActualPosition - offset);
-					break;
-				case SnapAlign.Start:
-					_scrollable.Goto(_selectedElement.ActualPosition);
-					break;
+				switch (SnapAlignment)
+				{
+					case SnapAlign.Center:
+						_selectedElement.BringIntoView();
+						break;
+					case SnapAlign.End:
+						var offset = float2(_element.Padding.X, _element.Padding.Y);
+						_scrollable.Goto(_selectedElement.ActualPosition - offset);
+						break;
+					case SnapAlign.Start:
+						_scrollable.Goto(_selectedElement.ActualPosition);
+						break;
+				}
 			}
 			UpdateManager.AddDeferredAction(NotifyHandler);
 			_scrollIsUp = false;

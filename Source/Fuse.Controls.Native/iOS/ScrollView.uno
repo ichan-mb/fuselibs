@@ -134,35 +134,17 @@ namespace Fuse.Controls.Native.iOS
 				var targetContentOffsetAxis = GetTargetContentOffsetY(targetContentOffset);
 				if (isHorizontal)
 					targetContentOffsetAxis = GetTargetContentOffsetX(targetContentOffset);
-				float w = 0;
-				float h = 0;
-				GetFrameSize(scrollViewHandle, out w, out h);
-				var frameLength = isHorizontal ? w : h;
-				var alignmentOffset = 0.0f;
-				if (_snapAlignment == 1)
-				{
-					alignmentOffset = (frameLength * 0.5f) + (_snapInterval * 0.5f);
-				}
-				else if (_snapAlignment == 2)
-				{
-					alignmentOffset = frameLength;
-				}
-
 				// Pick snap point based on direction and proximity
-				var fractionalIndex = (targetContentOffsetAxis + alignmentOffset) / _snapInterval;
+				var fractionalIndex = targetContentOffsetAxis / _snapInterval;
 
 				var snapIndex = velocityAxis > 0.0 ? Math.Ceil(fractionalIndex) : velocityAxis < 0.0 ? Math.Floor(fractionalIndex) : Math.Round(fractionalIndex);
-				var newTargetContentOffset = (snapIndex * _snapInterval) - alignmentOffset;
+				var newTargetContentOffset = snapIndex * _snapInterval;
 
 				// Set new targetContentOffset
 				if (isHorizontal)
-				{
 					SetTargetContentOffsetX(targetContentOffset, newTargetContentOffset);
-				}
 				else
-				{
 					SetTargetContentOffsetY(targetContentOffset, newTargetContentOffset);
-				}
 			}
 		}
 
