@@ -3,6 +3,7 @@ using Uno.UX;
 using Uno.Collections;
 using Fuse;
 using Fuse.Drawing;
+using Fuse.Effects;
 using Fuse.Elements;
 using Fuse.Controls;
 using Fuse.Controls.Native;
@@ -55,6 +56,8 @@ namespace Fuse.Controls
 			if (!v.HandlesInput)
 				Fuse.Controls.Native.iOS.InputDispatch.RemoveInputHandler(v);
 
+			RemoveEffect(e);
+
 			if (e is Control)
 			{
 				var c = (Control)e;
@@ -89,6 +92,8 @@ namespace Fuse.Controls
 			var viewHandle = _elements[e];
 			if (viewHandle.NeedsRenderBounds)
 				viewHandle.SetSizeAndVisualBounds(e.ActualSize, e.RenderBoundsWithoutEffects);
+
+			ApplyEffect(e);
 		}
 
 		void ITreeRenderer.Placed(Element e)
@@ -98,6 +103,8 @@ namespace Fuse.Controls
 				viewHandle.SetSizeAndVisualBounds(e.ActualSize, e.RenderBoundsWithoutEffects);
 			else
 				viewHandle.SetSize(e.ActualSize);
+
+			ApplyEffect(e);
 		}
 
 		void ITreeRenderer.IsVisibleChanged(Element e, bool isVisible)
@@ -192,6 +199,31 @@ namespace Fuse.Controls
 			return null;
 		}
 
+		void ApplyEffect(Element e)
+		{
+			var blur = e.FirstChild<Blur>();
+			if (blur != null)
+			{
+				var viewHandle = e.ViewHandle;
+				if (viewHandle != null)
+				{
+					viewHandle.ApplyBlurEffect(blur.Radius);
+				}
+			}
+		}
+
+		void RemoveEffect(Element e)
+		{
+			var blur = e.FirstChild<Blur>();
+			if (blur != null)
+			{
+				var viewHandle = e.ViewHandle;
+				if (viewHandle != null)
+				{
+					viewHandle.RemoveBlurEffect();
+				}
+			}
+		}
 	}
 
 	extern(iOS) static class Extensions

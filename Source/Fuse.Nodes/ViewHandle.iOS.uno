@@ -11,6 +11,7 @@ namespace Fuse.Controls.Native
 	[Require("source.include", "iOS/CanvasViewGroup.h")]
 	[Require("source.include", "CoreGraphics/CoreGraphics.h")]
 	[Require("source.include", "QuartzCore/QuartzCore.h")]
+	[Require("source.include", "CoreImage/CoreImage.h")]
 	extern(iOS) public class ViewHandle : IDisposable
 	{
 		public enum InputMode
@@ -52,7 +53,11 @@ namespace Fuse.Controls.Native
 			return "Fuse.Controls.Native.ViewHandle(" + Format() + ")";
 		}
 
-		public virtual void Dispose() {}
+		public virtual void Dispose()
+		{
+			blurView = null;
+			originalBlurImage = null;
+		}
 
 		internal bool HandlesInput
 		{
@@ -84,6 +89,113 @@ namespace Fuse.Controls.Native
 		{
 			get { return GetHitTesthandle(); }
 		}
+
+		ObjC.Object blurView;
+		ObjC.Object originalBlurImage;
+
+		[Foreign(Language.ObjC)]
+		public void ApplyBlurEffect(float radius)
+		@{
+			UIView* view = (UIView*)@{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
+			UIImageView* imageView = Nil;
+			for (UIView *subview in view.subviews) {
+				if ([subview isKindOfClass:[UIImageView class]] && subview.tag != 1001) {
+					imageView = (UIImageView*)subview;
+					break;
+				}
+			}
+			if (imageView != Nil) {
+				CIContext *context = [CIContext contextWithOptions:nil];
+				CIImage *inputImage = [[CIImage alloc] initWithImage:imageView.image];
+
+				CIFilter *blurFilter = [CIFilter filterWithName:@"CIGaussianBlur"];
+				[blurFilter setValue:inputImage forKey:kCIInputImageKey];
+				[blurFilter setValue:[NSNumber numberWithFloat:radius] forKey:kCIInputRadiusKey];
+
+				CIImage *outputImage = [blurFilter outputImage];
+				CGImageRef cgImage = [context createCGImage:outputImage fromRect:[inputImage extent]];
+
+				UIImage *blurredImage = [UIImage imageWithCGImage:cgImage];
+				CGImageRelease(cgImage);
+
+				imageView.image = blurredImage;
+			} else {
+				if (radius == 0.0f)
+				{
+					UIView *blurView = [view viewWithTag:1001];
+					if (blurView) {
+						[blurView removeFromSuperview];
+						blurView = nil;
+						@{Fuse.Controls.Native.ViewHandle:of(_this).blurView:set(Nil)};
+					}
+					@{Fuse.Controls.Native.ViewHandle:of(_this).originalBlurImage:set(Nil)};
+					return;
+				}
+
+				dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1f * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+
+					UIImage *image = (UIImage*)@{Fuse.Controls.Native.ViewHandle:of(_this).originalBlurImage:get()};
+
+					if (image == Nil)
+					{
+						if (view.frame.size.width == 0 && view.frame.size.height == 0)
+							return;
+
+						UIGraphicsBeginImageContextWithOptions(view.frame.size, NO, [UIScreen mainScreen].scale);
+						[view drawViewHierarchyInRect:view.bounds afterScreenUpdates:YES];
+						image = UIGraphicsGetImageFromCurrentImageContext();
+						UIGraphicsEndImageContext();
+
+						if (!image) return;
+
+						@{Fuse.Controls.Native.ViewHandle:of(_this).originalBlurImage:set(image)};
+					}
+
+					CIImage *ciImage = [[CIImage alloc] initWithImage:image];
+					CIFilter *filter = [CIFilter filterWithName:@"CIGaussianBlur"];
+					if (!filter) return;
+
+					[filter setValue:ciImage forKey:kCIInputImageKey];
+					[filter setValue:[NSNumber numberWithFloat:radius] forKey:kCIInputRadiusKey];
+
+					CIImage *outputImage = filter.outputImage;
+					if (!outputImage) return;
+
+					CIContext *ciContext = [CIContext contextWithOptions:nil];
+					CGImageRef cgImage = [ciContext createCGImage:outputImage
+													fromRect:[outputImage extent]];
+					if (!cgImage) return;
+
+					UIImage *blurredImage = [UIImage imageWithCGImage:cgImage];
+					CGImageRelease(cgImage);
+
+					UIImageView *blurView = (UIImageView *)@{Fuse.Controls.Native.ViewHandle:of(_this).blurView:get()};
+					if (blurView != Nil)
+					{
+						blurView.image = blurredImage;
+						if (blurView.superview == Nil)
+							[view addSubview:blurView];
+					} else {
+						blurView = [[UIImageView alloc] initWithImage:blurredImage];
+						blurView.tag = 1001;
+						[view addSubview:blurView];
+						@{Fuse.Controls.Native.ViewHandle:of(_this).blurView:set(blurView)};
+					}
+					blurView.frame = CGRectMake(-radius - radius / 2, -radius - radius / 2, view.bounds.size.width + radius*3, view.bounds.size.height + radius*3);
+					[view setNeedsLayout];
+				});
+			}
+		@}
+
+		[Foreign(Language.ObjC)]
+		public void RemoveBlurEffect()
+		@{
+			UIView* view = (UIView*)@{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
+			UIView *blurView = [view viewWithTag:1001];
+			if (blurView) {
+				[blurView removeFromSuperview];
+			}
+		@}
 
 		[Foreign(Language.ObjC)]
 		ObjC.Object GetHitTesthandle()

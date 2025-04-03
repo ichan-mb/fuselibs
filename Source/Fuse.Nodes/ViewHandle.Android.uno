@@ -155,6 +155,25 @@ namespace Fuse.Controls.Native
 			return handle.toString();
 		@}
 
+		[Foreign(Language.Java)]
+		public void ApplyBlurEffect(float radius)
+		@{
+			android.view.View handle = (android.view.View)@{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
+			if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+				android.graphics.RenderEffect blurEffect = android.graphics.RenderEffect.createBlurEffect(radius, radius, android.graphics.Shader.TileMode.CLAMP);
+				handle.setRenderEffect(blurEffect);
+			}
+		@}
+
+		[Foreign(Language.Java)]
+		public void RemoveBlurEffect()
+		@{
+			android.view.View handle = (android.view.View)@{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
+			if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+				handle.setRenderEffect(null);
+			}
+		@}
+
 		public void UpdateViewRect(float4x4 transform, float2 size, float density)
 		{
 			float3 scale;
