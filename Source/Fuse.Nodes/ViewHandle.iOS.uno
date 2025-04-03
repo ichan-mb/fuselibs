@@ -11,6 +11,7 @@ namespace Fuse.Controls.Native
 	[Require("source.include", "iOS/CanvasViewGroup.h")]
 	[Require("source.include", "CoreGraphics/CoreGraphics.h")]
 	[Require("source.include", "QuartzCore/QuartzCore.h")]
+	[Require("source.include", "CoreImage/CoreImage.h")]
 	extern(iOS) public class ViewHandle : IDisposable
 	{
 		public enum InputMode
@@ -52,7 +53,11 @@ namespace Fuse.Controls.Native
 			return "Fuse.Controls.Native.ViewHandle(" + Format() + ")";
 		}
 
-		public virtual void Dispose() {}
+		public virtual void Dispose()
+		{
+			effectView = null;
+			originalImage = null;
+		}
 
 		internal bool HandlesInput
 		{
@@ -83,6 +88,204 @@ namespace Fuse.Controls.Native
 		public virtual ObjC.Object HitTestHandle
 		{
 			get { return GetHitTesthandle(); }
+		}
+
+		ObjC.Object effectView;
+		ObjC.Object originalImage;
+
+		[Foreign(Language.ObjC)]
+		ObjC.Object GetImageView()
+		@{
+			UIView* view = (UIView*)@{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
+			UIImageView* imageView = Nil;
+			for (UIView *subview in view.subviews) {
+				if ([subview isKindOfClass:[UIImageView class]] && subview.tag != 1001) {
+					imageView = (UIImageView*)subview;
+					break;
+				}
+			}
+			return imageView;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static ObjC.Object GetUIImageFromImageView(ObjC.Object imageView)
+		@{
+			UIImageView* imgview = (UIImageView*)imageView;
+			return imgview.image;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetUIImageToImageView(ObjC.Object imageView, ObjC.Object uiImage)
+		@{
+			UIImageView* imgview = (UIImageView*)imageView;
+			UIImage* img = (UIImage*)uiImage;
+			imgview.image = img;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static ObjC.Object CreateCIImageFromUIImage(ObjC.Object uiImage)
+		@{
+			UIImage *image = (UIImage * )uiImage;
+			CIImage* inputImage = [[CIImage alloc] initWithImage:image];
+			return inputImage;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static ObjC.Object CreateUIImageFromCIImage(ObjC.Object ciImage)
+		@{
+			CIImage* finalImage = (CIImage*)ciImage;
+			CIContext* context = [CIContext contextWithOptions:nil];
+			CGImageRef cgImage = [context createCGImage:finalImage fromRect:[finalImage extent]];
+			UIImage *resultImage = [UIImage imageWithCGImage:cgImage];
+			CGImageRelease(cgImage);
+			return resultImage;
+		@}
+
+		[Foreign(Language.ObjC)]
+		ObjC.Object CaptureUICurrentStateToUIImage(bool force = false)
+		@{
+			UIView* view = (UIView*)@{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
+			if (view.frame.size.width == 0 && view.frame.size.height == 0)
+				return Nil;
+
+			UIImage *image = (UIImage*)@{Fuse.Controls.Native.ViewHandle:of(_this).originalImage:get()};
+			if (image == nil || force)
+			{
+				UIGraphicsBeginImageContextWithOptions(view.frame.size, NO, [UIScreen mainScreen].scale);
+				[view drawViewHierarchyInRect:view.bounds afterScreenUpdates:YES];
+				UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+				UIGraphicsEndImageContext();
+
+				@{Fuse.Controls.Native.ViewHandle:of(_this).originalImage:set(image)};
+			}
+			return image;
+		@}
+
+		[Foreign(Language.ObjC)]
+		void ApplyLayerEffect(ObjC.Object image, float radius)
+		@{
+			UIImage *img = (UIImage *)image;
+
+			UIView* view = (UIView*)@{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
+
+			CALayer* imageLayer = (CALayer*)@{Fuse.Controls.Native.ViewHandle:of(_this).effectView:get()};
+			if (imageLayer == Nil) {
+				imageLayer = [CALayer layer];
+				@{Fuse.Controls.Native.ViewHandle:of(_this).effectView:set(imageLayer)};
+			}
+			imageLayer.frame = CGRectMake(-radius - radius / 2, -radius - radius / 2, view.bounds.size.width + radius*3, view.bounds.size.height + radius*3);
+			imageLayer.contents = (__bridge id)img.CGImage;
+
+			[view.layer addSublayer:imageLayer];
+			[view setNeedsDisplay];
+		@}
+
+		[Foreign(Language.ObjC)]
+		void RemoveLayerEffect()
+		@{
+			CALayer* imageLayer = (CALayer*)@{Fuse.Controls.Native.ViewHandle:of(_this).effectView:get()};
+			if (imageLayer != Nil)
+				[imageLayer removeFromSuperlayer];
+		@}
+
+		[Foreign(Language.ObjC)]
+		static ObjC.Object CoreImageBlur(ObjC.Object ciImage, float radius)
+		@{
+			CIImage* inputImage = (CIImage* )ciImage;
+			CIFilter *blurFilter = [CIFilter filterWithName:@"CIGaussianBlur"];
+			[blurFilter setValue:inputImage forKey:kCIInputImageKey];
+			[blurFilter setValue:[NSNumber numberWithFloat:radius] forKey:kCIInputRadiusKey];
+			return [blurFilter outputImage];
+		@}
+
+		[Foreign(Language.ObjC)]
+		static ObjC.Object CoreImageSaturate(ObjC.Object ciImage, float saturationAmount)
+		@{
+			CIImage* inputImage = (CIImage* )ciImage;
+			CIFilter *saturateFilter = [CIFilter filterWithName:@"CIColorControls"];
+			[saturateFilter setValue:inputImage forKey:kCIInputImageKey];
+			[saturateFilter setValue:[NSNumber numberWithFloat:saturationAmount] forKey:kCIInputSaturationKey];
+			return [saturateFilter outputImage];
+		@}
+
+		[Foreign(Language.ObjC)]
+		static ObjC.Object CoreImageDuotone(ObjC.Object ciImage, float4 lightColor, float4 shadowColor)
+		@{
+			CIImage* inputImage = (CIImage* )ciImage;
+			CIFilter *filter = [CIFilter filterWithName:@"CIFalseColor"];
+			[filter setValue:inputImage forKey:kCIInputImageKey];
+			CIColor *ciColor1 = [[CIColor alloc] initWithColor:[UIColor colorWithRed:lightColor.X green:lightColor.Y blue:lightColor.Z alpha:lightColor.W]];
+			CIColor *ciColor2 = [[CIColor alloc] initWithColor:[UIColor colorWithRed:shadowColor.X green:shadowColor.Y blue:shadowColor.Z alpha:shadowColor.W]];
+			[filter setValue:ciColor1 forKey:@"inputColor0"];
+			[filter setValue:ciColor2 forKey:@"inputColor1"];
+			return [filter outputImage];
+		@}
+
+		bool _hasBlur;
+		bool _hasSaturate;
+		bool _hasDuotone;
+		bool _firstTime = true;
+		float _radius;
+		float _saturationAmount;
+		float4 _lightColor;
+		float4 _shadowColor;
+		public void ApplyEffect(bool hasBlur, bool hasSaturate, bool hasDuotone, float radius, float saturationAmount, float4 lightColor, float4 shadowColor)
+		{
+			if (!hasBlur && !hasSaturate && !hasDuotone)
+				return;
+
+			_hasBlur = hasBlur;
+			_hasSaturate = hasSaturate;
+			_hasDuotone = hasDuotone;
+			_radius = radius;
+			_saturationAmount = saturationAmount;
+			_lightColor = lightColor;
+			_shadowColor = shadowColor;
+
+			if (_firstTime)
+				Timer.Wait(0.1f, ScheduleApplyEffect); // wait for subviews to layouts
+			else
+				ScheduleApplyEffect();
+		}
+
+		void ScheduleApplyEffect()
+		{
+			bool forceCapture = false;
+			if (_radius == 0 || _saturationAmount == 1 || _lightColor == float4(0) || _shadowColor == float4(0))
+			{
+				RemoveLayerEffect();
+				forceCapture = true;
+			}
+
+			var uiImage = CaptureUICurrentStateToUIImage(forceCapture);
+			var imageView = GetImageView();
+			if (imageView != null)
+				uiImage = GetUIImageFromImageView(imageView);
+
+			if (uiImage == null)
+				return;
+
+			var ciImage = CreateCIImageFromUIImage(uiImage);
+			if (_hasBlur)
+				ciImage = CoreImageBlur(ciImage, _radius);
+			if (_hasSaturate)
+				ciImage = CoreImageSaturate(ciImage, _saturationAmount);
+			if (_hasDuotone)
+				ciImage = CoreImageDuotone(ciImage, _lightColor, _shadowColor);
+
+			var finalImage = CreateUIImageFromCIImage(ciImage);
+
+			if (imageView != null)
+				SetUIImageToImageView(imageView, finalImage);
+			else
+				ApplyLayerEffect(finalImage, _radius);
+
+			_firstTime = false;
+		}
+
+		public void RemoveEffect()
+		{
+			RemoveLayerEffect();
 		}
 
 		[Foreign(Language.ObjC)]

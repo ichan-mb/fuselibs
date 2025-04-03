@@ -3,6 +3,7 @@ using Uno.UX;
 using Uno.Collections;
 using Fuse;
 using Fuse.Drawing;
+using Fuse.Effects;
 using Fuse.Elements;
 using Fuse.Controls;
 using Fuse.Controls.Native;
@@ -55,6 +56,8 @@ namespace Fuse.Controls
 			if (!v.HandlesInput)
 				Fuse.Controls.Native.iOS.InputDispatch.RemoveInputHandler(v);
 
+			RemoveEffect(e);
+
 			if (e is Control)
 			{
 				var c = (Control)e;
@@ -89,6 +92,8 @@ namespace Fuse.Controls
 			var viewHandle = _elements[e];
 			if (viewHandle.NeedsRenderBounds)
 				viewHandle.SetSizeAndVisualBounds(e.ActualSize, e.RenderBoundsWithoutEffects);
+
+			ApplyEffect(e);
 		}
 
 		void ITreeRenderer.Placed(Element e)
@@ -98,6 +103,8 @@ namespace Fuse.Controls
 				viewHandle.SetSizeAndVisualBounds(e.ActualSize, e.RenderBoundsWithoutEffects);
 			else
 				viewHandle.SetSize(e.ActualSize);
+
+			ApplyEffect(e);
 		}
 
 		void ITreeRenderer.IsVisibleChanged(Element e, bool isVisible)
@@ -192,6 +199,38 @@ namespace Fuse.Controls
 			return null;
 		}
 
+		void ApplyEffect(Element e)
+		{
+			var blur = e.FirstChild<Blur>();
+			var desaturate = e.FirstChild<Desaturate>();
+			var duotone = e.FirstChild<Duotone>();
+			var viewHandle = e.ViewHandle;
+			if (viewHandle != null && (blur != null || desaturate != null || duotone != null))
+			{
+				var blurRadius = 0.0f;
+				var saturationAmount = 1.0f;
+				var duotoneLightColor = float4(0);
+				var duotoneShadowColor = float4(0);
+
+				if (blur != null) blurRadius = blur.Radius;
+				if (desaturate != null) saturationAmount = 1.0f - desaturate.Amount;
+				if (duotone != null)
+				{
+					duotoneLightColor = float4(duotone.Light, 1);
+					duotoneShadowColor = float4(duotone.Shadow, 1);
+				}
+				viewHandle.ApplyEffect(blur != null, desaturate != null, duotone != null, blurRadius, saturationAmount, duotoneLightColor, duotoneShadowColor);
+			}
+		}
+
+		void RemoveEffect(Element e)
+		{
+			var viewHandle = e.ViewHandle;
+			if (viewHandle != null)
+			{
+				viewHandle.RemoveEffect();
+			}
+		}
 	}
 
 	extern(iOS) static class Extensions

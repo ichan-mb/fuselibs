@@ -8,6 +8,7 @@ namespace Fuse.Controls.Native
 	extern(!Android && !iOS)
 	public class ViewHandle { }
 
+	[Require("gradle.dependency.implementation", "androidx.core:core:1.9.0")]
 	extern(Android)
 	public class ViewHandle : IDisposable
 	{
@@ -153,6 +154,58 @@ namespace Fuse.Controls.Native
 		@{
 			java.lang.Object handle = @{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
 			return handle.toString();
+		@}
+
+		[Foreign(Language.Java)]
+		public void ApplyEffect(bool hasBlur, bool hasSaturate, bool hasDuotone, float radius, float saturationAmount, int lightColor, int shadowColor)
+		@{
+			if (!hasBlur && !hasSaturate)
+				return;
+
+			android.view.View handle = (android.view.View)@{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
+			if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+				android.graphics.RenderEffect blurEffect = null;
+				android.graphics.RenderEffect saturateEffect = null;
+				android.graphics.RenderEffect duotoneEffect = null;
+				android.graphics.RenderEffect combinedEffect = null;
+
+				if (hasBlur && radius > 0) {
+					blurEffect = android.graphics.RenderEffect.createBlurEffect(radius, radius, android.graphics.Shader.TileMode.CLAMP);
+					combinedEffect = blurEffect;
+				}
+				if (hasSaturate) {
+					android.graphics.ColorMatrix desatMatrix = new android.graphics.ColorMatrix();
+					desatMatrix.setSaturation(saturationAmount);
+					saturateEffect = android.graphics.RenderEffect.createColorFilterEffect(new android.graphics.ColorMatrixColorFilter(desatMatrix));
+					combinedEffect = saturateEffect;
+				}
+				if (hasDuotone) {
+					duotoneEffect = android.graphics.RenderEffect.createColorFilterEffect(new android.graphics.PorterDuffColorFilter(
+						androidx.core.graphics.ColorUtils.blendARGB(lightColor, shadowColor, 1.0f), android.graphics.PorterDuff.Mode.MULTIPLY
+					));
+					combinedEffect = duotoneEffect;
+				}
+
+				if (blurEffect != null && saturateEffect != null) {
+					combinedEffect = android.graphics.RenderEffect.createChainEffect(saturateEffect, blurEffect);
+					if (duotoneEffect != null)
+						combinedEffect = android.graphics.RenderEffect.createChainEffect(combinedEffect, duotoneEffect);
+				}
+				if (blurEffect != null && duotoneEffect != null)
+					combinedEffect = android.graphics.RenderEffect.createChainEffect(blurEffect, duotoneEffect);
+				if (saturateEffect != null && duotoneEffect != null)
+					combinedEffect = android.graphics.RenderEffect.createChainEffect(saturateEffect, duotoneEffect);
+				handle.setRenderEffect(combinedEffect);
+			}
+		@}
+
+		[Foreign(Language.Java)]
+		public void RemoveEffect()
+		@{
+			android.view.View handle = (android.view.View)@{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
+			if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+				handle.setRenderEffect(null);
+			}
 		@}
 
 		public void UpdateViewRect(float4x4 transform, float2 size, float density)

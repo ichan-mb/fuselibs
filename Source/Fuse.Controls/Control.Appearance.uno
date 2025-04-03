@@ -32,6 +32,11 @@ namespace Fuse.Controls
 				{
 					ViewHandle.Invalidate();
 				}
+				var t = TreeRenderer;
+				if (t != null)
+				{
+					t.RenderBoundsChanged(this);
+				}
 			}
 		}
 

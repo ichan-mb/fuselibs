@@ -31,7 +31,7 @@
     "../Fuse.Elements/Fuse.Elements.unoproj",
     "../Fuse.Gestures/Fuse.Gestures.unoproj",
     "../Fuse.Motion/Fuse.Motion.unoproj",
-    "../Fuse.Motion/Fuse.Motion.unoproj",
+    "../Fuse.Effects/Fuse.Effects.unoproj",
     "../Fuse.Navigation/Fuse.Navigation.unoproj",
     "../Fuse.Nodes/Fuse.Nodes.unoproj",
     "../Fuse.Platform/Fuse.Platform.unoproj",
