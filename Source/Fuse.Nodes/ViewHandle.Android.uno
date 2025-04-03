@@ -155,6 +155,42 @@ namespace Fuse.Controls.Native
 			return handle.toString();
 		@}
 
+		[Foreign(Language.Java)]
+		public void ApplyEffect(bool hasBlur, bool hasSaturate, float radius, float saturationAmount)
+		@{
+			if (!hasBlur && !hasSaturate)
+				return;
+
+			android.view.View handle = (android.view.View)@{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
+			if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+			android.graphics.RenderEffect blurEffect = null;
+			android.graphics.RenderEffect saturateEffect = null;
+			android.graphics.RenderEffect combinedEffect = null;
+
+			if (hasBlur && radius > 0) {
+				blurEffect = android.graphics.RenderEffect.createBlurEffect(radius, radius, android.graphics.Shader.TileMode.CLAMP);
+				combinedEffect = blurEffect;
+			} if (hasSaturate) {
+				android.graphics.ColorMatrix desatMatrix = new android.graphics.ColorMatrix();
+				desatMatrix.setSaturation(saturationAmount);
+				saturateEffect = android.graphics.RenderEffect.createColorFilterEffect(new android.graphics.ColorMatrixColorFilter(desatMatrix));
+				combinedEffect = saturateEffect;
+			}
+			if (blurEffect != null && saturateEffect != null)
+				combinedEffect = android.graphics.RenderEffect.createChainEffect(saturateEffect, blurEffect);
+			handle.setRenderEffect(combinedEffect);
+		}
+		@}
+
+		[Foreign(Language.Java)]
+		public void RemoveEffect()
+		@{
+			android.view.View handle = (android.view.View)@{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
+			if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+				handle.setRenderEffect(null);
+			}
+		@}
+
 		public void UpdateViewRect(float4x4 transform, float2 size, float density)
 		{
 			float3 scale;

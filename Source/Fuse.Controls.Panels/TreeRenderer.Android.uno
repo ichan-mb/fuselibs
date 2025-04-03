@@ -3,6 +3,7 @@ using Uno.UX;
 using Uno.Collections;
 using Fuse;
 using Fuse.Drawing;
+using Fuse.Effects;
 using Fuse.Elements;
 using Fuse.Controls;
 using Fuse.Controls.Native;
@@ -101,6 +102,8 @@ namespace Fuse.Controls
 			if (!v.HandlesInput)
 				Fuse.Controls.Native.Android.InputDispatch.RemoveListener(v);
 
+			RemoveEffect(e);
+
 			if (e is Control)
 			{
 				var c = (Control)e;
@@ -138,9 +141,14 @@ namespace Fuse.Controls
 			var actualPosition = (int2)(e.ActualPosition * density);
 			var actualSize = (int2)(e.ActualSize * density);
 			_elements[e].UpdateViewRect(actualPosition.X, actualPosition.Y, actualSize.X, actualSize.Y);
+
+			ApplyEffect(e);
 		}
 
-		void ITreeRenderer.RenderBoundsChanged(Element e) {}
+		void ITreeRenderer.RenderBoundsChanged(Element e)
+		{
+			ApplyEffect(e);
+		}
 
 		void ITreeRenderer.IsVisibleChanged(Element e, bool isVisible)
 		{
@@ -233,6 +241,30 @@ namespace Fuse.Controls
 			return null;
 		}
 
+		void ApplyEffect(Element e)
+		{
+			var blur = e.FirstChild<Blur>();
+			var desaturate = e.FirstChild<Desaturate>();
+			var viewHandle = e.ViewHandle;
+			if (viewHandle != null && (blur != null || desaturate != null))
+			{
+				var blurRadius = 0.0f;
+				var saturationAmount = 1.0f;
+
+				if (blur != null) blurRadius = blur.Radius;
+				if (desaturate != null) saturationAmount = 1.0f - desaturate.Amount;
+				viewHandle.ApplyEffect(blur != null, desaturate != null, blurRadius, saturationAmount);
+			}
+		}
+
+		void RemoveEffect(Element e)
+		{
+			var viewHandle = e.ViewHandle;
+			if (viewHandle != null)
+			{
+				viewHandle.RemoveEffect();
+			}
+		}
 	}
 
 	extern(Android) static class Extensions
