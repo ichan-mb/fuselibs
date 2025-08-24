@@ -1,0 +1,20 @@
+{
+  "copyright": "Copyright (c) Fuse Open",
+  "description": "Native navigation controls for iOS and Android",
+  "publisher": "Fuse Open",
+  "outputType": "library",
+  "internalsVisibleTo": [
+    "Fuse.Android",
+    "Fuse.iOS"
+  ],
+  "references": [
+    "Uno.Collections",
+    "Uno.Threading"
+  ],
+  "projects": [
+    "../Fuse/Fuse.unoproj"
+  ],
+  "includes": [
+    "*"
+  ]
+}

@@ -1,0 +1,289 @@
+<App>
+	<NativeNavigationView ux:Name="nav" DefaultTemplate="Home">
+		<!-- Home Page Template -->
+		<Panel ux:Template="Home">
+			<NavigationBarConfig
+				Navigation="nav"
+				Title="Home"
+				BackgroundColor="0.13, 0.59, 0.95, 1"
+				ForegroundColor="1, 1, 1, 1"
+				LargeTitle="true"
+			/>
+
+			<StackPanel Alignment="Center" ItemSpacing="20">
+				<Text Value="Welcome to Home" FontSize="24" TextAlignment="Center" />
+				<Text Value="NavigationBarConfig Demo" FontSize="18" TextAlignment="Center" />
+
+				<Button Text="Go to Settings">
+					<Clicked>
+						<PushView To="Settings" Navigation="nav" />
+					</Clicked>
+				</Button>
+
+				<Button Text="Go to Profile">
+					<Clicked>
+						<PushView To="Profile" Navigation="nav" />
+					</Clicked>
+				</Button>
+
+				<Button Text="Go to Photo Viewer">
+					<Clicked>
+						<PushView To="PhotoViewer" Navigation="nav" />
+					</Clicked>
+				</Button>
+
+				<Button Text="Go to Hidden Bar Example">
+					<Clicked>
+						<PushView To="HiddenBar" Navigation="nav" />
+					</Clicked>
+				</Button>
+
+				<Button Text="Custom Tint Color Demo">
+					<Clicked>
+						<PushView To="TintColorDemo" Navigation="nav" />
+					</Clicked>
+				</Button>
+			</StackPanel>
+		</Panel>
+
+		<!-- Settings Page Template -->
+		<Panel ux:Template="Settings">
+			<NavigationBarConfig
+				Navigation="nav"
+				Title="Settings"
+				BackgroundColor="0.30, 0.69, 0.31, 1"
+				ForegroundColor="1, 1, 1, 1"
+				BackButtonTitle="Back"
+			/>
+
+			<StackPanel Alignment="Center" ItemSpacing="20">
+				<Text Value="Settings Page" FontSize="24" TextAlignment="Center" />
+				<Text
+					Value="Green navigation bar with custom back button"
+					FontSize="16"
+					TextAlignment="Center"
+				/>
+
+				<Button Text="Advanced Settings">
+					<Clicked>
+						<PushView To="AdvancedSettings" Navigation="nav" />
+					</Clicked>
+				</Button>
+
+				<Button Text="Back to Home">
+					<Clicked>
+						<PopView Navigation="nav" />
+					</Clicked>
+				</Button>
+			</StackPanel>
+		</Panel>
+
+		<!-- Profile Page Template -->
+		<Panel ux:Template="Profile">
+			<NavigationBarConfig
+				Navigation="nav"
+				Title="Profile"
+				BackgroundColor="1.00, 0.60, 0.00, 1"
+				ForegroundColor="1, 1, 1, 1"
+			/>
+
+			<StackPanel Alignment="Center" ItemSpacing="20">
+				<Circle Width="100" Height="100" Color="#E91E63" Alignment="HorizontalCenter" />
+				<Text Value="John Doe" FontSize="24" TextAlignment="Center" />
+				<Text Value="Software Developer" FontSize="16" TextAlignment="Center" />
+				<Text Value="Orange navigation bar" FontSize="14" TextAlignment="Center" />
+
+				<Button Text="Edit Profile">
+					<Clicked>
+						<PushView To="EditProfile" Navigation="nav" />
+					</Clicked>
+				</Button>
+
+				<Button Text="Back to Home">
+					<Clicked>
+						<PopView Navigation="nav" />
+					</Clicked>
+				</Button>
+			</StackPanel>
+		</Panel>
+
+		<!-- Photo Viewer Page Template -->
+		<Panel ux:Template="PhotoViewer">
+			<NavigationBarConfig
+				Navigation="nav"
+				Title="Photo Viewer"
+				BackgroundColor="0, 0, 0, 0.8"
+				ForegroundColor="1, 1, 1, 1"
+				Translucent="true"
+			/>
+
+			<Panel Color="#222">
+				<StackPanel Alignment="Center" ItemSpacing="20">
+					<Rectangle
+						Width="200"
+						Height="200"
+						Color="#444"
+						CornerRadius="10"
+						Alignment="HorizontalCenter"
+					>
+						<Text Value="📷" FontSize="48" Alignment="Center" />
+					</Rectangle>
+					<Text
+						Value="Dark translucent navigation bar"
+						FontSize="16"
+						TextAlignment="Center"
+						Color="#fff"
+					/>
+					<Text
+						Value="Good for photo viewing apps"
+						FontSize="14"
+						TextAlignment="Center"
+						Color="#ccc"
+					/>
+
+					<Button Text="Back to Home">
+						<Clicked>
+							<PopView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</Panel>
+		</Panel>
+
+		<!-- Hidden Navigation Bar Example -->
+		<Panel ux:Template="HiddenBar">
+			<NavigationBarConfig Navigation="nav" Hidden="true" />
+
+			<Panel Color="#f0f0f0">
+				<StackPanel Alignment="Center" ItemSpacing="20">
+					<Text Value="Hidden Navigation Bar" FontSize="24" TextAlignment="Center" />
+					<Text
+						Value="The navigation bar is hidden on this page"
+						FontSize="16"
+						TextAlignment="Center"
+					/>
+					<Text
+						Value="Good for immersive experiences"
+						FontSize="14"
+						TextAlignment="Center"
+					/>
+
+					<Button Text="Back to Home">
+						<Clicked>
+							<PopView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</Panel>
+		</Panel>
+
+		<!-- Advanced Settings Page Template -->
+		<Panel ux:Template="AdvancedSettings">
+			<NavigationBarConfig
+				Navigation="nav"
+				Title="Advanced"
+				BackgroundColor="0.47, 0.33, 0.28, 1"
+				ForegroundColor="1, 1, 1, 1"
+				BackButtonTitle="Settings"
+			/>
+
+			<StackPanel Alignment="Center" ItemSpacing="20">
+				<Text Value="Advanced Settings" FontSize="24" TextAlignment="Center" />
+				<Text Value="Brown navigation bar" FontSize="16" TextAlignment="Center" />
+				<Text
+					Value="Custom back button text: 'Settings'"
+					FontSize="14"
+					TextAlignment="Center"
+				/>
+
+				<Button Text="Reset Everything">
+					<Clicked>
+						<!-- Could add reset functionality here -->
+					</Clicked>
+				</Button>
+
+				<Button Text="Back to Settings">
+					<Clicked>
+						<PopView Navigation="nav" />
+					</Clicked>
+				</Button>
+			</StackPanel>
+		</Panel>
+
+		<!-- Edit Profile Page Template -->
+		<Panel ux:Template="EditProfile">
+			<NavigationBarConfig
+				Navigation="nav"
+				Title="Edit Profile"
+				BackgroundColor="0.91, 0.12, 0.39, 1"
+				ForegroundColor="1, 1, 1, 1"
+				BackButtonTitle="Cancel"
+			/>
+
+			<StackPanel Alignment="Center" ItemSpacing="20">
+				<Text Value="Edit Your Profile" FontSize="24" TextAlignment="Center" />
+				<Text
+					Value="Pink navigation bar with 'Cancel' back button"
+					FontSize="16"
+					TextAlignment="Center"
+				/>
+
+				<TextInput PlaceholderText="Enter your name" Margin="20,0" />
+				<TextInput PlaceholderText="Enter your title" Margin="20,0" />
+
+				<StackPanel
+					Orientation="Horizontal"
+					Alignment="HorizontalCenter"
+					ItemSpacing="10"
+				>
+					<Button Text="Save">
+						<Clicked>
+							<PopView Navigation="nav" />
+						</Clicked>
+					</Button>
+
+					<Button Text="Cancel">
+						<Clicked>
+							<PopView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</StackPanel>
+		</Panel>
+
+		<!-- Custom Tint Color Example -->
+		<Panel ux:Template="TintColorDemo">
+			<NavigationBarConfig
+				Navigation="nav"
+				Title="Custom Tint Color"
+				BackgroundColor="0.1, 0.1, 0.1, 1"
+				ForegroundColor="1, 1, 1, 1"
+				TintColor="0.2, 0.8, 0.3, 1"
+			/>
+
+			<StackPanel Alignment="Center" ItemSpacing="20">
+				<Text Value="Custom Tint Color Demo" FontSize="24" TextAlignment="Center" />
+				<Text
+					Value="Dark background with white text and green interactive elements"
+					FontSize="16"
+					TextAlignment="Center"
+					TextWrapping="Wrap"
+					Margin="20,0"
+				/>
+				<Text
+					Value="Notice the back button is green while the title remains white"
+					FontSize="14"
+					TextAlignment="Center"
+					TextWrapping="Wrap"
+					Margin="20,0"
+				/>
+
+				<Button Text="Back to Home">
+					<Clicked>
+						<PopView Navigation="nav" />
+					</Clicked>
+				</Button>
+			</StackPanel>
+		</Panel>
+	</NativeNavigationView>
+</App>

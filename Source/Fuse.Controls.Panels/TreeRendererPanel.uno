@@ -12,7 +12,7 @@ namespace Fuse.Controls
 		void Remove(ViewHandle viewHandle);
 	}
 
-	extern(Android || iOS) class TreeRendererPanel : Fuse.Controls.Panel
+	extern(Android || iOS) internal class TreeRendererPanel : Fuse.Controls.Panel
 	{
 		public override VisualContext VisualContext
 		{
