@@ -76,22 +76,31 @@ namespace Fuse.Controls.iOS
 			if (isPop)
 			{
 				PopViewController(_navigationController);
+				// After pop, apply the navigation bar config for the now-visible view
+				UpdateManager.PerformNextFrame(() => {
+					RestoreNavigationBarForTopViewController();
+				});
 			}
 			else if (isPush)
 			{
 				PushViewController(_navigationController, viewController);
+				// Apply navigation bar configuration if it exists for this template
+				if (_navigationBarConfigs.ContainsKey(templateName))
+				{
+					var config = _navigationBarConfigs[templateName];
+					ApplyNavigationBarConfiguration(viewController, config);
+				}
 			}
 			else
 			{
 				// Initial navigation - set as root
 				SetRootViewController(_navigationController, viewController);
-			}
-
-			// Apply navigation bar configuration if it exists for this template
-			if (_navigationBarConfigs.ContainsKey(templateName))
-			{
-				var config = _navigationBarConfigs[templateName];
-				ApplyNavigationBarConfiguration(viewController, config);
+				// Apply navigation bar configuration if it exists for this template
+				if (_navigationBarConfigs.ContainsKey(templateName))
+				{
+					var config = _navigationBarConfigs[templateName];
+					ApplyNavigationBarConfiguration(viewController, config);
+				}
 			}
 		}
 
@@ -159,6 +168,20 @@ namespace Fuse.Controls.iOS
 				config.ForegroundColor.X, config.ForegroundColor.Y, config.ForegroundColor.Z, config.ForegroundColor.W,
 				config.TintColor.X, config.TintColor.Y, config.TintColor.Z, config.TintColor.W,
 				config.LargeTitle, config.Translucent, config.Hidden, config.BackButtonTitle ?? "");
+		}
+
+		void RestoreNavigationBarForTopViewController()
+		{
+			var currentViewController = GetCurrentViewController(_navigationController);
+			if (currentViewController != null)
+			{
+				var currentTitle = GetViewControllerTitle(currentViewController);
+				if (_navigationBarConfigs.ContainsKey(currentTitle))
+				{
+					var config = _navigationBarConfigs[currentTitle];
+					ApplyNavigationBarConfiguration(currentViewController, config);
+				}
+			}
 		}
 
 		[Foreign(Language.ObjC)]
