@@ -1,35 +1,22 @@
 using Uno;
 using Uno.Collections;
 using Uno.Compiler.ExportTargetInterop;
-using Fuse;
-using Fuse.Controls;
 using Fuse.Controls.Native;
-
-using Fuse.Elements;
 
 namespace Fuse.Controls.iOS
 {
-	// extern(!iOS) public class NativeNavigationViewImpl : INativeNavigationView
-	// {
-	// 	// Empty stub for non-iOS platforms
-	// 	public NativeNavigationViewImpl()  {}
-
-	// 	public void NavigateToView(object nativeHandle, string templateName, bool isPush, bool isPop) { }
-	// 	public void SetHost(NativeNavigationView host) { }
-	// 	public Visual CreateTemplateInstance(string templateName) { return null; }
-	// 	public object GetNavigationController() { return null; }
-	// 	public void PresentInWindow() { }
-	// }
-
-	[Require("source.include", "UIKit/UIKit.h")]
 	extern(iOS) public class NativeNavigationViewImpl : Fuse.Controls.Native.iOS.LeafView, INativeNavigationView
 	{
 		ObjC.Object _navigationController;
 		ObjC.Object _containerView;
+		ObjC.Object _navigationDelegate;
 		Fuse.Controls.NativeNavigationView _fuseHost;
 
 		// Store navigation bar configurations for each template
 		Dictionary<string, NavigationBarProps> _navigationBarConfigs = new Dictionary<string, NavigationBarProps>();
+
+		// Callback to notify the main NativeNavigationView of navigation changes
+		Action<string, int> _navigationChangeCallback;
 
 		public NativeNavigationViewImpl() : base(CreateContainer())
 		{
@@ -46,15 +33,28 @@ namespace Fuse.Controls.iOS
 			// Create the native navigation controller without initial root controller
 			_navigationController = CreateNavigationController();
 
+			// Create and set up navigation delegate to handle stack synchronization
+			_navigationDelegate = NativeNavigationDelegate.Create(
+				OnViewWillAppear,
+				OnViewDidAppear,
+				OnViewWillDisappear,
+				OnViewDidDisappear
+			);
+			NativeNavigationDelegate.SetAsDelegate(_navigationController, _navigationDelegate);
+
 			// Get the navigation view to embed in Fuse
 			_containerView = GetNavigationView(_navigationController);
-
-			// Add the navigation controller's view to our container
 			AddNavigationViewToContainer(Handle, _containerView);
 		}
 
 		public override void Dispose()
 		{
+			if (_navigationDelegate != null)
+			{
+				NativeNavigationDelegate.Destroy(_navigationDelegate);
+				_navigationDelegate = null;
+			}
+
 			if (_navigationController != null)
 			{
 				ReleaseNavigationController(_navigationController);
@@ -62,7 +62,6 @@ namespace Fuse.Controls.iOS
 			}
 
 			_containerView = null;
-			base.Dispose();
 		}
 
 		public void NavigateToView(object nativeHandle, string templateName, bool isPush, bool isPop)
@@ -75,71 +74,99 @@ namespace Fuse.Controls.iOS
 
 			if (isPop)
 			{
-				PopViewController(_navigationController);
-				// After pop, apply the navigation bar config for the now-visible view
-				UpdateManager.PerformNextFrame(() => {
-					RestoreNavigationBarForTopViewController();
-				});
+				// Check native iOS stack count
+				var nativeStackCount = GetNativeStackCount();
+				if (nativeStackCount > 1) // Allow pop if iOS has more than 1 view controller
+				{
+					PopViewController(_navigationController);
+				}
 			}
 			else if (isPush)
 			{
 				PushViewController(_navigationController, viewController);
-				// Apply navigation bar configuration if it exists for this template
-				if (_navigationBarConfigs.ContainsKey(templateName))
-				{
-					var config = _navigationBarConfigs[templateName];
-					ApplyNavigationBarConfiguration(viewController, config);
-				}
 			}
 			else
 			{
 				// Initial navigation - set as root
 				SetRootViewController(_navigationController, viewController);
-				// Apply navigation bar configuration if it exists for this template
-				if (_navigationBarConfigs.ContainsKey(templateName))
+			}
+		}
+
+		public int GetNativeStackCount()
+		{
+			if (_navigationController != null)
+			{
+				return GetNavigationStackCount(_navigationController);
+			}
+			return 0;
+		}
+
+		public string[] GetNativeStackTemplates()
+		{
+			if (_navigationController != null)
+			{
+				ObjC.Object[] templateNames = GetNavigationStackTemplateNames(_navigationController);
+				var result = new string[templateNames.Length];
+				for (int i = 0; i < templateNames.Length; ++i)
 				{
-					var config = _navigationBarConfigs[templateName];
-					ApplyNavigationBarConfiguration(viewController, config);
+					result[i] = GetTemplateName(templateNames[i]);
+				}
+				return result;
+			}
+			return new string[0];
+		}
+
+		public void PopFromNativeStack()
+		{
+			if (_navigationController != null)
+			{
+				var stackCount = GetNativeStackCount();
+				if (stackCount > 1)
+				{
+					PopViewController(_navigationController);
 				}
 			}
 		}
 
-		// Helper method for host to create templates
+		public void SetNavigationChangeCallback(Action<string, int> callback)
+		{
+			_navigationChangeCallback = callback;
+		}
+
 		public Visual CreateTemplateInstance(string templateName)
 		{
 			if (_fuseHost == null)
 				return null;
 
-			var template = _fuseHost.FindTemplate(templateName);
-			if (template == null)
+			var tpl = _fuseHost.FindTemplate(templateName);
+			if (tpl == null)
 				return null;
 
-			var instance = template.New() as Visual;
-			if (instance != null)
-			{
-				instance.Name = templateName;
-			}
+			return tpl.New() as Visual;
+		}
 
-			return instance;
+		public object GetNavigationController()
+		{
+			return _navigationController;
 		}
 
 		ObjC.Object CreateViewControllerWithNativeHandle(object nativeHandle, string templateName)
 		{
-			if (nativeHandle == null)
-			{
-				// Fallback: create a placeholder view controller
-				return CreatePlaceholderViewController(templateName, "Native handle is null - rendering context may not be properly established");
-			}
-
-			// Cast to ObjC.Object for iOS
 			var nativeView = nativeHandle as ObjC.Object;
 			if (nativeView == null)
 			{
-				return CreatePlaceholderViewController(templateName, "Native handle is not an ObjC.Object on iOS");
+				return CreatePlaceholderViewController(templateName, "Native handle is null");
 			}
 
-			// Create a view controller that wraps the native view from separate rendering context
-			return CreateViewControllerWithNativeView(nativeView, templateName);
+			try
+			{
+				return CreateViewControllerWithNativeView(nativeView, templateName);
+			}
+			catch (Exception e)
+			{
+				Fuse.Diagnostics.UserError("Failed to create view controller: " + e.Message, _fuseHost);
+				return CreatePlaceholderViewController(templateName, "Failed to create view controller: " + e.Message);
+			}
 		}
 
 		public void ConfigureNavigationBar(string templateName, NavigationBarProps config)
@@ -160,30 +187,81 @@ namespace Fuse.Controls.iOS
 
 		void ApplyNavigationBarConfiguration(ObjC.Object viewController, NavigationBarProps config)
 		{
-			if (_navigationController == null || viewController == null || config == null)
+			if (viewController == null || config == null)
 				return;
 
 			SetNavigationBarAppearance(_navigationController, viewController, config.Title ?? "",
-				config.BackgroundColor.X, config.BackgroundColor.Y, config.BackgroundColor.Z, config.BackgroundColor.W,
-				config.ForegroundColor.X, config.ForegroundColor.Y, config.ForegroundColor.Z, config.ForegroundColor.W,
-				config.TintColor.X, config.TintColor.Y, config.TintColor.Z, config.TintColor.W,
-				config.LargeTitle, config.Translucent, config.Hidden, config.BackButtonTitle ?? "");
+							config.BackgroundColor.X, config.BackgroundColor.Y, config.BackgroundColor.Z, config.BackgroundColor.W,
+							config.ForegroundColor.X, config.ForegroundColor.Y, config.ForegroundColor.Z, config.ForegroundColor.W,
+							config.TintColor.X, config.TintColor.Y, config.TintColor.Z, config.TintColor.W,
+							config.LargeTitle, config.Translucent, config.Hidden, config.BackButtonTitle ?? "");
 		}
 
-		void RestoreNavigationBarForTopViewController()
+		void OnViewWillAppear(string templateName)
 		{
-			var currentViewController = GetCurrentViewController(_navigationController);
-			if (currentViewController != null)
+			// Apply navigation bar configuration when view will appear
+			if (_navigationBarConfigs.ContainsKey(templateName))
 			{
-				var currentTitle = GetViewControllerTitle(currentViewController);
-				if (_navigationBarConfigs.ContainsKey(currentTitle))
+				var config = _navigationBarConfigs[templateName];
+				var viewController = GetCurrentViewController(_navigationController);
+				if (viewController != null)
 				{
-					var config = _navigationBarConfigs[currentTitle];
-					ApplyNavigationBarConfiguration(currentViewController, config);
+					ApplyNavigationBarConfiguration(viewController, config);
 				}
 			}
 		}
 
+		void OnViewDidAppear(string templateName)
+		{
+			// Notify the main NativeNavigationView of the change
+			if (_navigationChangeCallback != null)
+			{
+				var stackCount = GetNativeStackCount();
+				_navigationChangeCallback(templateName, stackCount);
+			}
+		}
+
+		void OnViewWillDisappear(string templateName)
+		{
+			// Apply navigation bar configuration for the view that's about to appear
+			var stackTemplates = GetNativeStackTemplates();
+			if (stackTemplates.Length >= 2)
+			{
+				// Get the template that will be visible after this one disappears
+				var previousTemplate = stackTemplates[stackTemplates.Length - 2];
+				if (_navigationBarConfigs.ContainsKey(previousTemplate))
+				{
+					var config = _navigationBarConfigs[previousTemplate];
+					var viewController = GetViewControllerAtIndex(_navigationController, stackTemplates.Length - 2);
+					if (viewController != null)
+					{
+						ApplyNavigationBarConfiguration(viewController, config);
+					}
+				}
+			}
+		}
+
+		void OnViewDidDisappear(string templateName)
+		{
+			// Notify the main NativeNavigationView of the change
+			if (_navigationChangeCallback != null)
+			{
+				var stackTemplates = GetNativeStackTemplates();
+				var currentTemplate = stackTemplates.Length > 0 ? stackTemplates[stackTemplates.Length - 1] : "";
+				var stackCount = GetNativeStackCount();
+				_navigationChangeCallback(currentTemplate, stackCount);
+			}
+		}
+
+		public void PresentInWindow()
+		{
+			if (_navigationController != null)
+			{
+				PresentInWindow(_navigationController);
+			}
+		}
+
+		// Foreign code interface methods
 		[Foreign(Language.ObjC)]
 		static ObjC.Object CreateContainer()
 		@{
@@ -213,18 +291,16 @@ namespace Fuse.Controls.iOS
 		[Foreign(Language.ObjC)]
 		static ObjC.Object CreateNavigationController()
 		@{
-			// Create navigation controller without initial root view controller
 			UINavigationController* navController = [[UINavigationController alloc] init];
 
-			// Configure navigation bar appearance for proper content layout
+			// Set default navigation bar appearance
 			navController.navigationBar.barStyle = UIBarStyleDefault;
-			navController.navigationBar.translucent = NO; // Make non-translucent to avoid content overlap
-			navController.navigationBar.backgroundColor = [UIColor whiteColor];
+			navController.navigationBar.translucent = NO;
+			navController.navigationBar.backgroundColor = [UIColor clearColor];
 
-			// Enable automatic content inset adjustments
-			if (@available(iOS 11.0, *)) {
-				// Modern iOS versions handle safe areas automatically
-				navController.navigationBar.prefersLargeTitles = NO;
+			// Enable swipe back gesture
+			if ([navController respondsToSelector:@selector(interactivePopGestureRecognizer)]) {
+				navController.interactivePopGestureRecognizer.enabled = YES;
 			}
 
 			return navController;
@@ -233,9 +309,7 @@ namespace Fuse.Controls.iOS
 		[Foreign(Language.ObjC)]
 		static void ReleaseNavigationController(ObjC.Object handle)
 		@{
-			UINavigationController* navController = (UINavigationController*)handle;
-			// Clean up if needed
-			[navController setViewControllers:@[] animated:NO];
+			// ARC will handle cleanup automatically
 		@}
 
 		[Foreign(Language.ObjC)]
@@ -249,12 +323,10 @@ namespace Fuse.Controls.iOS
 		static ObjC.Object CreateViewControllerWithNativeView(ObjC.Object nativeView, string templateName)
 		@{
 			UIView* fuseView = (UIView*)nativeView;
-
-			// Create a view controller
 			UIViewController* viewController = [[UIViewController alloc] init];
 			viewController.title = templateName;
 
-			// Create container view for the view controller that respects safe areas
+			// Create container view that respects safe areas
 			UIView* containerView = [[UIView alloc] init];
 			containerView.backgroundColor = [UIColor whiteColor];
 			viewController.view = containerView;
@@ -262,7 +334,7 @@ namespace Fuse.Controls.iOS
 			// Add the Fuse view to the container
 			[containerView addSubview:fuseView];
 
-			// Set up constraints to make the Fuse view respect the navigation bar and safe areas
+			// Set up constraints to make the Fuse view respect safe areas
 			fuseView.translatesAutoresizingMaskIntoConstraints = NO;
 			return viewController;
 		@}
@@ -271,53 +343,23 @@ namespace Fuse.Controls.iOS
 		static ObjC.Object CreatePlaceholderViewController(string templateName, string errorMessage)
 		@{
 			UIViewController* viewController = [[UIViewController alloc] init];
-			viewController.view.backgroundColor = [UIColor colorWithRed:0.95 green:0.95 blue:0.95 alpha:1.0];
 			viewController.title = templateName;
+			viewController.view.backgroundColor = [UIColor lightGrayColor];
 
-			// Create error message display
-			UIStackView* stackView = [[UIStackView alloc] init];
-			stackView.axis = UILayoutConstraintAxisVertical;
-			stackView.alignment = UIStackViewAlignmentCenter;
-			stackView.distribution = UIStackViewDistributionEqualSpacing;
-			stackView.spacing = 20;
-			stackView.translatesAutoresizingMaskIntoConstraints = NO;
-
-			// Template name label
-			UILabel* titleLabel = [[UILabel alloc] init];
-			titleLabel.text = [NSString stringWithFormat:@"Template: %@", templateName];
-			titleLabel.font = [UIFont systemFontOfSize:24 weight:UIFontWeightBold];
-			titleLabel.textAlignment = NSTextAlignmentCenter;
-			titleLabel.textColor = [UIColor darkGrayColor];
-			[stackView addArrangedSubview:titleLabel];
-
-			// Error message label
+			// Create error label
 			UILabel* errorLabel = [[UILabel alloc] init];
-			errorLabel.text = errorMessage;
-			errorLabel.numberOfLines = 0;
+			errorLabel.text = [NSString stringWithFormat:@"Error loading template: %@\n\n%@", templateName, errorMessage];
 			errorLabel.textAlignment = NSTextAlignmentCenter;
+			errorLabel.numberOfLines = 0;
 			errorLabel.textColor = [UIColor redColor];
-			errorLabel.font = [UIFont systemFontOfSize:16];
-			[stackView addArrangedSubview:errorLabel];
+			errorLabel.translatesAutoresizingMaskIntoConstraints = NO;
 
-			// Instruction label
-			UILabel* instructionLabel = [[UILabel alloc] init];
-			instructionLabel.text = @"Make sure your template renders properly in a native context.";
-			instructionLabel.numberOfLines = 0;
-			instructionLabel.textAlignment = NSTextAlignmentCenter;
-			instructionLabel.textColor = [UIColor grayColor];
-			instructionLabel.font = [UIFont systemFontOfSize:14];
-			[stackView addArrangedSubview:instructionLabel];
+			[viewController.view addSubview:errorLabel];
 
-			// Add the stack view to the view controller
-			[viewController.view addSubview:stackView];
-
-			// Center the stack view
-			[NSLayoutConstraint activateConstraints:@[
-				[stackView.centerXAnchor constraintEqualToAnchor:viewController.view.centerXAnchor],
-				[stackView.centerYAnchor constraintEqualToAnchor:viewController.view.centerYAnchor],
-				[stackView.leadingAnchor constraintGreaterThanOrEqualToAnchor:viewController.view.leadingAnchor constant:20],
-				[stackView.trailingAnchor constraintLessThanOrEqualToAnchor:viewController.view.trailingAnchor constant:-20]
-			]];
+			[errorLabel.centerXAnchor constraintEqualToAnchor:viewController.view.centerXAnchor].active = YES;
+			[errorLabel.centerYAnchor constraintEqualToAnchor:viewController.view.centerYAnchor].active = YES;
+			[errorLabel.leadingAnchor constraintGreaterThanOrEqualToAnchor:viewController.view.leadingAnchor constant:20].active = YES;
+			[errorLabel.trailingAnchor constraintLessThanOrEqualToAnchor:viewController.view.trailingAnchor constant:-20].active = YES;
 
 			return viewController;
 		@}
@@ -345,21 +387,14 @@ namespace Fuse.Controls.iOS
 			[navController setViewControllers:@[vc] animated:NO];
 		@}
 
-		// Public method to get the native navigation controller
-		public object GetNavigationController()
-		{
-			return _navigationController;
-		}
-
-		// Method to show the navigation controller modally or in a window
 		[Foreign(Language.ObjC)]
-		public void PresentInWindow()
+		static void PresentInWindow(ObjC.Object navigationController)
 		@{
-			UINavigationController* navController = (UINavigationController*)_navigationController;
+			UINavigationController* navController = (UINavigationController*)navigationController;
 
 			// Get the key window
 			UIWindow* keyWindow = nil;
-			for (UIWindow* window in [[UIApplication sharedApplication] windows]) {
+			for (UIWindow* window in [UIApplication sharedApplication].windows) {
 				if (window.isKeyWindow) {
 					keyWindow = window;
 					break;
@@ -372,6 +407,13 @@ namespace Fuse.Controls.iOS
 		@}
 
 		[Foreign(Language.ObjC)]
+		static int GetNavigationStackCount(ObjC.Object navigationController)
+		@{
+			UINavigationController* navController = (UINavigationController*)navigationController;
+			return (int)[navController.viewControllers count];
+		@}
+
+		[Foreign(Language.ObjC)]
 		static ObjC.Object GetCurrentViewController(ObjC.Object navigationController)
 		@{
 			UINavigationController* navController = (UINavigationController*)navigationController;
@@ -379,10 +421,46 @@ namespace Fuse.Controls.iOS
 		@}
 
 		[Foreign(Language.ObjC)]
+		static ObjC.Object GetViewControllerAtIndex(ObjC.Object navigationController, int index)
+		@{
+			UINavigationController* navController = (UINavigationController*)navigationController;
+			NSArray<UIViewController*>* viewControllers = navController.viewControllers;
+			if (index >= 0 && index < viewControllers.count) {
+				return viewControllers[index];
+			}
+			return nil;
+		@}
+
+		[Foreign(Language.ObjC)]
 		static string GetViewControllerTitle(ObjC.Object viewController)
 		@{
 			UIViewController* vc = (UIViewController*)viewController;
 			return vc.title ?: @"";
+		@}
+
+		[Foreign(Language.ObjC)]
+		static ObjC.Object[] GetNavigationStackTemplateNames(ObjC.Object navigationController)
+		@{
+			UINavigationController* navController = (UINavigationController*)navigationController;
+			NSArray<UIViewController*>* viewControllers = navController.viewControllers;
+
+			NSUInteger count = [viewControllers count];
+			id<UnoArray> result = @{ObjC.Object[]:new(count)};
+
+			NSUInteger i = 0;
+			for (UIViewController* vc in viewControllers) {
+				NSString* title = vc.title ?: @"";
+				@{ObjC.Object[]:of(result).Set(i, title)};
+				i++;
+			}
+
+			return result;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static string GetTemplateName(ObjC.Object templateName)
+		@{
+			return [templateName description];
 		@}
 
 		[Foreign(Language.ObjC)]
@@ -403,6 +481,7 @@ namespace Fuse.Controls.iOS
 
 			// Set translucency
 			navBar.translucent = translucent;
+			vc.extendedLayoutIncludesOpaqueBars = translucent;
 
 			// Set hidden state
 			[navController setNavigationBarHidden:hidden animated:YES];
@@ -420,8 +499,10 @@ namespace Fuse.Controls.iOS
 				if (@available(iOS 13.0, *)) {
 					// Modern appearance API
 					UINavigationBarAppearance* appearance = [[UINavigationBarAppearance alloc] init];
-					[appearance configureWithOpaqueBackground];
-					appearance.backgroundColor = backgroundColor;
+					if (!translucent) {
+                        [appearance configureWithOpaqueBackground];
+                        appearance.backgroundColor = backgroundColor;
+                    }
 					appearance.titleTextAttributes = attributes;
 					appearance.largeTitleTextAttributes = attributes;
 
@@ -454,35 +535,13 @@ namespace Fuse.Controls.iOS
 		@}
 	}
 
-	// Factory class to create the native implementation
 	extern(iOS) public static class NativeNavigationViewFactory
 	{
 		public static Fuse.Controls.Native.IView Create(Fuse.Controls.NativeNavigationView host)
 		{
-			if defined(iOS)
-			{
-				var impl = new NativeNavigationViewImpl();
-				impl.SetHost(host);
-				return impl;
-			}
-			else
-			{
-				return null;
-			}
-		}
-
-		public static INativeNavigationView CreateNativeImpl(Fuse.Controls.NativeNavigationView host)
-		{
-			if defined(iOS)
-			{
-				var impl = new NativeNavigationViewImpl();
-				impl.SetHost(host);
-				return impl;
-			}
-			else
-			{
-				return null;
-			}
+			var impl = new NativeNavigationViewImpl();
+			impl.SetHost(host);
+			return impl;
 		}
 	}
 }

@@ -60,6 +60,30 @@ namespace Fuse.Controls
 			@param config Configuration object containing navigation bar settings
 		*/
 		void ConfigureNavigationBar(string templateName, NavigationBarProps config);
+
+		void SetNavigationChangeCallback(Action<string,int> callback);
+
+		/**
+			Get the current native navigation stack count.
+			This is the authoritative count from the platform-specific navigation controller.
+
+			@return The number of view controllers in the native navigation stack
+		*/
+		int GetNativeStackCount();
+
+		/**
+			Get the template names for all view controllers in the native navigation stack.
+			The array is ordered from bottom to top (first element is root, last is current).
+
+			@return Array of template names representing the current navigation stack
+		*/
+		string[] GetNativeStackTemplates();
+
+		/**
+			Pop the top view controller from the native navigation stack.
+			This directly manipulates the native navigation controller.
+		*/
+		void PopFromNativeStack();
 	}
 
 	/**

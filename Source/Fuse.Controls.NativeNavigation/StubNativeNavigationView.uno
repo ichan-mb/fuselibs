@@ -60,6 +60,29 @@ namespace Fuse.Controls
 		{
 			// Stub implementation - no navigation bar customization on this platform
 		}
+
+		public void SetNavigationChangeCallback(Action<string,int> callback)
+		{
+			// Stub implementation - no navigation bar customization on this platform
+		}
+
+		public int GetNativeStackCount()
+		{
+			// Stub implementation - no native stack on this platform
+			return 0;
+		}
+
+		public string[] GetNativeStackTemplates()
+		{
+			// Stub implementation - no native stack on this platform
+			return new string[0];
+		}
+
+		public void PopFromNativeStack()
+		{
+			// Stub implementation - no native navigation on this platform
+		}
+
 	}
 
 	// Factory class to create the appropriate native implementation

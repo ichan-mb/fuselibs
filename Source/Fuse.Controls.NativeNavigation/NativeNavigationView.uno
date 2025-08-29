@@ -40,10 +40,11 @@ namespace Fuse.Controls
 	{
 		static readonly Selector _templateSelector = "Template";
 
-		Stack<string> _navigationStack = new Stack<string>();
-		Stack<ViewControllerContext> _viewControllerStack = new Stack<ViewControllerContext>();
-		string _currentTemplate;
-		ViewControllerContext _currentViewController;
+		// Mapping from template names to view controller contexts
+		Dictionary<string, ViewControllerContext> _viewControllerContexts = new Dictionary<string, ViewControllerContext>();
+
+		// Flag to prevent recursive navigation updates
+		bool _isUpdatingFromDelegate = false;
 		INativeNavigationView _nativeImpl;
 
 		/**
@@ -95,6 +96,10 @@ namespace Fuse.Controls
 
 			// Initialize native implementation
 			_nativeImpl = (INativeNavigationView)NativeView;
+			if defined(iOS)
+			{
+				_nativeImpl.SetNavigationChangeCallback(OnNativeNavigationChanged);
+			}
 
 			// Show default template or first available template
 			var initialTemplate = GetInitialTemplate();
@@ -144,7 +149,10 @@ namespace Fuse.Controls
 		*/
 		public void PushTemplate(string templateName)
 		{
-			NavigateToTemplate(templateName, true);
+			if (!_isUpdatingFromDelegate)
+			{
+				NavigateToTemplate(templateName, true);
+			}
 		}
 
 		/**
@@ -152,37 +160,77 @@ namespace Fuse.Controls
 		*/
 		public void PopTemplate()
 		{
-			if (_navigationStack.Count > 0)
+			if (_isUpdatingFromDelegate)
 			{
-				_navigationStack.Pop(); // Remove current
+				return;
+			}
 
-				if (_navigationStack.Count > 0)
+			// Get current native stack count as source of truth
+			var nativeStackCount = _nativeImpl.GetNativeStackCount();
+
+			if (nativeStackCount <= 1)
+			{
+				return;
+			}
+
+			// Use native implementation to pop
+			_nativeImpl.PopFromNativeStack();
+		}
+
+		/**
+			Called by native implementation when navigation stack changes due to native back button
+		*/
+		public void OnNativeNavigationChanged(string currentTemplateName, int nativeStackCount)
+		{
+			_isUpdatingFromDelegate = true;
+
+			try
+			{
+				// Synchronize our contexts based on native stack
+				SynchronizeWithNativeStack(currentTemplateName, nativeStackCount);
+			}
+			finally
+			{
+				_isUpdatingFromDelegate = false;
+			}
+		}
+
+		/**
+			Synchronize our view controller contexts with the native stack.
+			The native stack is the single source of truth.
+		*/
+		void SynchronizeWithNativeStack(string currentTemplateName, int nativeStackCount)
+		{
+			// Get the current navigation stack from native implementation
+			var nativeStack = _nativeImpl.GetNativeStackTemplates();
+
+			// Clean up contexts that are no longer in the native stack
+			var contextsToRemove = new List<string>();
+			foreach (var kvp in _viewControllerContexts)
+			{
+				var templateName = kvp.Key;
+				if (!nativeStack.Contains(templateName))
 				{
-					var previousTemplate = _navigationStack.Peek();
-					NavigateToTemplate(previousTemplate, false, true);
+					contextsToRemove.Add(templateName);
 				}
+			}
+
+			foreach (var templateName in contextsToRemove)
+			{
+				var context = _viewControllerContexts[templateName];
+				context.Dispose();
+				_viewControllerContexts.Remove(templateName);
 			}
 		}
 
 		void CleanupAllTemplateInstances()
 		{
-			// Clean up current view controller
-			if (_currentViewController != null)
+			// Clean up all view controller contexts
+			foreach (var kvp in _viewControllerContexts)
 			{
-				_currentViewController.Dispose();
-				_currentViewController = null;
+				kvp.Value.Dispose();
 			}
-
-			// Clean up all stacked view controllers
-			while (_viewControllerStack.Count > 0)
-			{
-				var viewController = _viewControllerStack.Pop();
-				viewController.Dispose();
-			}
-
-			// Clear stacks
-			_navigationStack.Clear();
-			_viewControllerStack.Clear();
+			_viewControllerContexts.Clear();
 		}
 
 		void NavigateToTemplate(string templateName, bool isPush, bool isPop = false)
@@ -190,23 +238,29 @@ namespace Fuse.Controls
 			var tpl = FindTemplate(templateName);
 			if (tpl == null)
 			{
-				Fuse.Diagnostics.UserError("Template '{templateName}' not found in NativeNavigationView", this);
+				Fuse.Diagnostics.UserError("Template '" + templateName + "' not found in NativeNavigationView", this);
 				return;
 			}
 
-			var instance = tpl.New() as Visual;
-			if (instance == null)
+			// Check if we already have a context for this template
+			ViewControllerContext viewControllerContext;
+			if (!_viewControllerContexts.TryGetValue(templateName, out viewControllerContext))
 			{
-				Fuse.Diagnostics.UserError("Template '{templateName}' did not produce a Visual", this);
-				return;
+				// Create new context
+				var instance = tpl.New() as Visual;
+				if (instance == null)
+				{
+					Fuse.Diagnostics.UserError("Template '" + templateName + "' did not produce a Visual", this);
+					return;
+				}
+
+				// Set the template name on the instance for identification
+				instance.Name = templateName;
+
+				// Create separate rendering context for this view controller
+				viewControllerContext = new ViewControllerContext(templateName, instance);
+				_viewControllerContexts[templateName] = viewControllerContext;
 			}
-
-			// Set the template name on the instance for identification
-			instance.Name = templateName;
-
-			// Create separate rendering context for this view controller
-			// This avoids the double-parent issue by not adding to NativeNavigationView.Children
-			var viewControllerContext = new ViewControllerContext(templateName, instance);
 
 			// Defer navigation to ensure rendering context is properly established
 			UpdateManager.AddDeferredAction(() => {
@@ -216,32 +270,6 @@ namespace Fuse.Controls
 
 		void CompleteNavigation(ViewControllerContext viewControllerContext, bool isPush, bool isPop)
 		{
-			// Update navigation stacks
-			if (isPush && !isPop)
-			{
-				_navigationStack.Push(viewControllerContext.TemplateName);
-				if (_currentViewController != null)
-					_viewControllerStack.Push(_currentViewController);
-			}
-			else if (isPop && _viewControllerStack.Count > 0)
-			{
-				// Clean up current view controller
-				if (_currentViewController != null)
-				{
-					_currentViewController.Dispose();
-				}
-
-				// Restore previous view controller
-				_currentViewController = _viewControllerStack.Pop();
-			}
-
-			if (!isPop)
-			{
-				_currentViewController = viewControllerContext;
-			}
-
-			_currentTemplate = viewControllerContext.TemplateName;
-
 			// Use native implementation with the isolated native view
 			if (_nativeImpl != null)
 			{
@@ -262,21 +290,6 @@ namespace Fuse.Controls
 			}
 		}
 
-		// Internal method to get or create the native implementation
-		INativeNavigationView GetOrCreateNativeImpl()
-		{
-			if defined(iOS)
-			{
-				_nativeImpl = Fuse.Controls.iOS.NativeNavigationViewFactory.CreateNativeImpl(this);
-				return _nativeImpl;
-			}
-			else
-			{
-				_nativeImpl = NativeNavigationViewFactory.CreateNativeImpl(this);
-				return _nativeImpl;
-			}
-		}
-
 		/**
 			Get the native implementation for advanced customization.
 			This is used by behaviors like NavigationBar to customize native appearance.
@@ -284,6 +297,43 @@ namespace Fuse.Controls
 		public INativeNavigationView GetNativeImplementation()
 		{
 			return _nativeImpl;
+		}
+
+		/**
+			Get current navigation stack (derived from native stack)
+		*/
+		public string[] GetNavigationStack()
+		{
+			if (_nativeImpl != null)
+			{
+				return _nativeImpl.GetNativeStackTemplates();
+			}
+			return new string[0];
+		}
+
+		/**
+			Get current navigation stack count (from native stack)
+		*/
+		public int GetNavigationStackCount()
+		{
+			if (_nativeImpl != null)
+			{
+				return _nativeImpl.GetNativeStackCount();
+			}
+			return 0;
+		}
+
+		/**
+			Get current template (top of native stack)
+		*/
+		public string GetCurrentTemplate()
+		{
+			var stack = GetNavigationStack();
+			if (stack.Length > 0)
+			{
+				return stack[stack.Length - 1];
+			}
+			return null;
 		}
 	}
 }
