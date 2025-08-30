@@ -16,7 +16,7 @@ namespace Fuse.Controls.iOS
 		Dictionary<string, NavigationBarProps> _navigationBarConfigs = new Dictionary<string, NavigationBarProps>();
 
 		// Callback to notify the main NativeNavigationView of navigation changes
-		Action<string, int> _navigationChangeCallback;
+		Action<string, int, bool> _navigationChangeCallback;
 
 		public NativeNavigationViewImpl() : base(CreateContainer())
 		{
@@ -128,7 +128,7 @@ namespace Fuse.Controls.iOS
 			}
 		}
 
-		public void SetNavigationChangeCallback(Action<string, int> callback)
+		public void SetNavigationChangeCallback(Action<string, int, bool> callback)
 		{
 			_navigationChangeCallback = callback;
 		}
@@ -217,7 +217,7 @@ namespace Fuse.Controls.iOS
 			if (_navigationChangeCallback != null)
 			{
 				var stackCount = GetNativeStackCount();
-				_navigationChangeCallback(templateName, stackCount);
+				_navigationChangeCallback(templateName, stackCount, true);
 			}
 		}
 
@@ -249,7 +249,7 @@ namespace Fuse.Controls.iOS
 				var stackTemplates = GetNativeStackTemplates();
 				var currentTemplate = stackTemplates.Length > 0 ? stackTemplates[stackTemplates.Length - 1] : "";
 				var stackCount = GetNativeStackCount();
-				_navigationChangeCallback(currentTemplate, stackCount);
+				_navigationChangeCallback(currentTemplate, stackCount, false);
 			}
 		}
 

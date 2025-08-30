@@ -61,7 +61,7 @@ namespace Fuse.Controls
 			// Stub implementation - no navigation bar customization on this platform
 		}
 
-		public void SetNavigationChangeCallback(Action<string,int> callback)
+		public void SetNavigationChangeCallback(Action<string,int,bool> callback)
 		{
 			// Stub implementation - no navigation bar customization on this platform
 		}

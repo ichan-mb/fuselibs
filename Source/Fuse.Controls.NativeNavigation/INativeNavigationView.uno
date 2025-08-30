@@ -61,7 +61,7 @@ namespace Fuse.Controls
 		*/
 		void ConfigureNavigationBar(string templateName, NavigationBarProps config);
 
-		void SetNavigationChangeCallback(Action<string,int> callback);
+		void SetNavigationChangeCallback(Action<string,int,bool> callback);
 
 		/**
 			Get the current native navigation stack count.

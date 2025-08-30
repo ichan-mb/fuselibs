@@ -195,7 +195,7 @@ namespace Fuse.Controls
 		/**
 			Called by native implementation when navigation stack changes due to native back button
 		*/
-		public void OnNativeNavigationChanged(string currentTemplateName, int nativeStackCount)
+		public void OnNativeNavigationChanged(string currentTemplateName, int nativeStackCount, bool appear)
 		{
 			_isUpdatingFromDelegate = true;
 
@@ -209,7 +209,7 @@ namespace Fuse.Controls
 				if (!string.IsNullOrEmpty(currentTemplateName) &&
 					_viewControllerContexts.TryGetValue(currentTemplateName, out activeContext))
 				{
-					if (activeContext != null)
+					if (activeContext != null && appear)
 					{
 						SetActivePage(activeContext.TemplateInstance);
 					}
@@ -219,10 +219,12 @@ namespace Fuse.Controls
 					SetActivePage(null);
 				}
 
-				// Synchronize our contexts based on native stack
-				SynchronizeWithNativeStack(currentTemplateName, nativeStackCount);
 				// Fire page count changed event
 				FirePageCountChanged();
+				UpdateManager.AddDeferredAction(() => {
+					// Synchronize our contexts based on native stack
+					SynchronizeWithNativeStack(currentTemplateName, nativeStackCount);
+				});
 			}
 			finally
 			{
@@ -252,7 +254,6 @@ namespace Fuse.Controls
 
 			foreach (var templateName in contextsToRemove)
 			{
-				debug_log "Cleaning up context for removed template: " + templateName;
 				var context = _viewControllerContexts[templateName];
 				context.Dispose();
 				_viewControllerContexts.Remove(templateName);
@@ -404,9 +405,9 @@ namespace Fuse.Controls
 			// For native navigation, pages are either fully active (1.0) or inactive (0.0)
 			if (page == _activePage)
 			{
-				return new NavigationPageState { Progress = 1.0f, PreviousProgress = 0.0f };
+				return new NavigationPageState { Progress = 0.0f, PreviousProgress = 1.0f };
 			}
-			return new NavigationPageState { Progress = 0.0f, PreviousProgress = 1.0f };
+			return new NavigationPageState { Progress = 1.0f, PreviousProgress = 0.0f };
 		}
 
 		public NavigationState State
@@ -500,7 +501,7 @@ namespace Fuse.Controls
 
 				// Update page progress
 				var oldProgress = _pageProgress;
-				_pageProgress = newActivePage != null ? 1.0 : 0.0;
+				_pageProgress = newActivePage != null ? 0.0 : 1.0;
 				if (PageProgressChanged != null)
 				{
 					PageProgressChanged(this, new NavigationArgs(_pageProgress, oldProgress, NavigationMode.Switch));
