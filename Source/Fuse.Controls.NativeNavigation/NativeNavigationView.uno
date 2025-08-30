@@ -4,6 +4,7 @@ using Uno.UX;
 using Fuse.Controls;
 using Fuse.Controls.Native;
 using Fuse.Elements;
+using Fuse.Navigation;
 using Fuse.Triggers;
 
 namespace Fuse.Controls
@@ -36,7 +37,7 @@ namespace Fuse.Controls
 		</NativeNavigationView>
 		```
 	*/
-	public partial class NativeNavigationView : Panel
+	public partial class NativeNavigationView : Panel, INavigation
 	{
 		static readonly Selector _templateSelector = "Template";
 
@@ -46,6 +47,10 @@ namespace Fuse.Controls
 		// Flag to prevent recursive navigation updates
 		bool _isUpdatingFromDelegate = false;
 		INativeNavigationView _nativeImpl;
+		// Navigation state for INavigation interface
+		NavigationState _navigationState = NavigationState.Stable;
+		Visual _activePage;
+		double _pageProgress = 0.0;
 
 		/**
 			Internal class to manage each view controller's rendering context
@@ -56,7 +61,7 @@ namespace Fuse.Controls
 			public Visual TemplateInstance { get; set; }
 			public ViewControllerRoot RenderingRoot { get; set; }
 
-			public ViewControllerContext(string templateName, Visual templateInstance)
+			public ViewControllerContext(string templateName, Visual templateInstance, NativeNavigationView navigation)
 			{
 				TemplateName = templateName;
 				TemplateInstance = templateInstance;
@@ -107,6 +112,11 @@ namespace Fuse.Controls
 			{
 				NavigateToTemplate(initialTemplate, false);
 			}
+
+			// Fire initial navigation events
+			UpdateManager.AddDeferredAction(() => {
+				FirePageCountChanged();
+			});
 		}
 
 		protected override void OnUnrooted()
@@ -152,6 +162,11 @@ namespace Fuse.Controls
 			if (!_isUpdatingFromDelegate)
 			{
 				NavigateToTemplate(templateName, true);
+				// Fire history changed event for programmatic navigation
+				if (HistoryChanged != null)
+				{
+					HistoryChanged(this);
+				}
 			}
 		}
 
@@ -186,8 +201,28 @@ namespace Fuse.Controls
 
 			try
 			{
+				// Update navigation state and fire events
+				SetNavigationState(NavigationState.Stable);
+
+				// Update active page
+				ViewControllerContext activeContext = null;
+				if (!string.IsNullOrEmpty(currentTemplateName) &&
+					_viewControllerContexts.TryGetValue(currentTemplateName, out activeContext))
+				{
+					if (activeContext != null)
+					{
+						SetActivePage(activeContext.TemplateInstance);
+					}
+				}
+				else
+				{
+					SetActivePage(null);
+				}
+
 				// Synchronize our contexts based on native stack
 				SynchronizeWithNativeStack(currentTemplateName, nativeStackCount);
+				// Fire page count changed event
+				FirePageCountChanged();
 			}
 			finally
 			{
@@ -217,6 +252,7 @@ namespace Fuse.Controls
 
 			foreach (var templateName in contextsToRemove)
 			{
+				debug_log "Cleaning up context for removed template: " + templateName;
 				var context = _viewControllerContexts[templateName];
 				context.Dispose();
 				_viewControllerContexts.Remove(templateName);
@@ -257,8 +293,13 @@ namespace Fuse.Controls
 				// Set the template name on the instance for identification
 				instance.Name = templateName;
 
+				// Set navigation property BEFORE creating the context
+				// This ensures triggers can find navigation during rooting
+				SetActivePage(instance);
+				Fuse.Navigation.Navigation.SetNativeNavigation(instance, this);
+
 				// Create separate rendering context for this view controller
-				viewControllerContext = new ViewControllerContext(templateName, instance);
+				viewControllerContext = new ViewControllerContext(templateName, instance, this);
 				_viewControllerContexts[templateName] = viewControllerContext;
 			}
 
@@ -270,6 +311,10 @@ namespace Fuse.Controls
 
 		void CompleteNavigation(ViewControllerContext viewControllerContext, bool isPush, bool isPop)
 		{
+			// Set navigation state to transitioning
+			SetNavigationState(NavigationState.Transition);
+			SetActivePage(viewControllerContext.TemplateInstance);
+
 			// Use native implementation with the isolated native view
 			if (_nativeImpl != null)
 			{
@@ -323,17 +368,163 @@ namespace Fuse.Controls
 			return 0;
 		}
 
-		/**
-			Get current template (top of native stack)
-		*/
-		public string GetCurrentTemplate()
+		// INavigation interface implementation
+		public int PageCount
+		{
+			get { return GetNavigationStackCount(); }
+		}
+
+		public double PageProgress
+		{
+			get { return _pageProgress; }
+		}
+
+		public Visual GetPage(int index)
 		{
 			var stack = GetNavigationStack();
-			if (stack.Length > 0)
+			if (index >= 0 && index < stack.Length)
 			{
-				return stack[stack.Length - 1];
+				var templateName = stack[index];
+				ViewControllerContext context;
+				if (_viewControllerContexts.TryGetValue(templateName, out context))
+				{
+					return context.TemplateInstance;
+				}
 			}
 			return null;
 		}
+
+		public Visual ActivePage
+		{
+			get { return _activePage; }
+		}
+
+		public NavigationPageState GetPageState(Visual page)
+		{
+			// For native navigation, pages are either fully active (1.0) or inactive (0.0)
+			if (page == _activePage)
+			{
+				return new NavigationPageState { Progress = 1.0f, PreviousProgress = 0.0f };
+			}
+			return new NavigationPageState { Progress = 0.0f, PreviousProgress = 1.0f };
+		}
+
+		public NavigationState State
+		{
+			get { return _navigationState; }
+		}
+
+		// Navigation events
+		public event NavigationPageCountHandler PageCountChanged;
+		public event NavigationHandler PageProgressChanged;
+		public event NavigatedHandler Navigated;
+		public event ActivePageChangedHandler ActivePageChanged;
+		public event ValueChangedHandler<NavigationState> StateChanged;
+		public event HistoryChangedHandler HistoryChanged;
+
+		// IBaseNavigation implementation
+		public void GoForward()
+		{
+			// Native navigation doesn't have a concept of "forward" - no-op
+		}
+
+		public void GoBack()
+		{
+			PopTemplate();
+		}
+
+		public bool CanGoBack
+		{
+			get { return GetNavigationStackCount() > 1; }
+		}
+
+		public bool CanGoForward
+		{
+			get { return false; } // Native navigation doesn't support forward
+		}
+
+		public void Goto(Visual node, NavigationGotoMode mode = NavigationGotoMode.Transition)
+		{
+			// Find the template name for this node
+			var templateName = node.Name;
+			if (!string.IsNullOrEmpty(templateName))
+			{
+				PushTemplate(templateName);
+			}
+		}
+
+		public void Toggle(Visual node)
+		{
+			// For native navigation, toggle means go to the page if not active, or go back if active
+			if (node == _activePage)
+			{
+				GoBack();
+			}
+			else
+			{
+				Goto(node);
+			}
+		}
+
+		// Internal methods to fire navigation events
+		void SetNavigationState(NavigationState newState)
+		{
+			if (_navigationState != newState)
+			{
+				_navigationState = newState;
+				if (StateChanged != null)
+				{
+					StateChanged(this, new ValueChangedArgs<NavigationState>(newState));
+				}
+			}
+		}
+
+		void SetActivePage(Visual newActivePage)
+		{
+			if (_activePage != newActivePage)
+			{
+				_activePage = newActivePage;
+
+				// Fire events
+				if (ActivePageChanged != null)
+				{
+					ActivePageChanged(this, newActivePage);
+				}
+				if (newActivePage != null)
+				{
+					if (Navigated != null)
+					{
+						Navigated(this, new NavigatedArgs(newActivePage));
+					}
+				}
+
+				// Update page progress
+				var oldProgress = _pageProgress;
+				_pageProgress = newActivePage != null ? 1.0 : 0.0;
+				if (PageProgressChanged != null)
+				{
+					PageProgressChanged(this, new NavigationArgs(_pageProgress, oldProgress, NavigationMode.Switch));
+				}
+			}
+		}
+
+		void FirePageCountChanged()
+		{
+			if (PageCountChanged != null)
+			{
+				PageCountChanged(this);
+			}
+			if (HistoryChanged != null)
+			{
+				HistoryChanged(this);
+			}
+		}
+
+		// Static method to help with navigation discovery for template instances
+		public static NativeNavigationView GetNavigationFromTemplate(Visual tpl)
+		{
+			return Fuse.Navigation.Navigation.GetNativeNavigation(tpl) as NativeNavigationView;
+		}
+
 	}
 }
