@@ -14,11 +14,39 @@ namespace Fuse.Controls.iOS
 	*/
 	extern(!iOS) internal class ViewControllerRoot : IViewControllerRoot
 	{
+		DataContextTreeRendererPanel _renderPanel;
+		[WeakReference]
+		NativeNavigationView _navigationView;
+
+		public ViewControllerRoot(NativeNavigationView navigationView = null)
+		{
+			_navigationView = navigationView;
+			_renderPanel = new DataContextTreeRendererPanel(this, _navigationView);
+		}
+
 		// Stub implementation for non-iOS platforms
-		public void SetContent(Visual content) { }
+		public void SetContent(Visual content)
+		{
+			// For non-iOS, we still need to manage content for potential data binding
+			if (_renderPanel != null)
+			{
+				_renderPanel.Children.Clear();
+				if (content != null)
+				{
+					_renderPanel.Children.Add(content);
+				}
+			}
+		}
 		public ViewHandle GetViewHandle() { return null; }
 		public object GetNativeHandle() { return null; }
-		public void Dispose() { }
+		public void Dispose()
+		{
+			if (_renderPanel != null)
+			{
+				_renderPanel.Children.Clear();
+				_renderPanel = null;
+			}
+		}
 		void INativeViewRoot.Add(ViewHandle handle) { }
 		void INativeViewRoot.Remove(ViewHandle handle) { }
 	}
@@ -28,19 +56,24 @@ namespace Fuse.Controls.iOS
 	{
 		ViewHandle _rootViewHandle;
 		NativeRootViewport _viewport;
-		TreeRendererPanel _renderPanel;
+		DataContextTreeRendererPanel _renderPanel;
 		Visual _content;
+		[WeakReference]
+		NativeNavigationView _navigationView;
 
-		public ViewControllerRoot()
+		public ViewControllerRoot(NativeNavigationView navigationView = null)
 		{
+			_navigationView = navigationView;
+
 			// Create a native UIView container for this view controller context
 			_rootViewHandle = new ViewHandle(CreateiOSContainer());
 
 			// Create viewport to manage the TreeRendererPanel (like iOSApp does)
 			_viewport = new NativeRootViewport(_rootViewHandle);
 
-			// Create the tree renderer panel that will manage native rendering
-			_renderPanel = new TreeRendererPanel(this);
+			// Create the data-context aware tree renderer panel that will manage native rendering
+			// and forward data provider requests back to the navigation view
+			_renderPanel = new DataContextTreeRendererPanel(this, _navigationView);
 
 			// Add TreeRendererPanel to viewport - CRITICAL for proper rendering!
 			// This follows the same pattern as iOSApp.uno

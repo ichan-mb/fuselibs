@@ -6,6 +6,7 @@ using Fuse.Controls.Native;
 using Fuse.Elements;
 using Fuse.Navigation;
 using Fuse.Triggers;
+using Fuse.Reactive;
 
 namespace Fuse.Controls
 {
@@ -37,7 +38,7 @@ namespace Fuse.Controls
 		</NativeNavigationView>
 		```
 	*/
-	public partial class NativeNavigationView : Panel, INavigation
+	public class NativeNavigationView : Panel, INavigation, Fuse.Reactive.IObserver, Node.ISubtreeDataProvider
 	{
 		static readonly Selector _templateSelector = "Template";
 
@@ -47,6 +48,10 @@ namespace Fuse.Controls
 		// Flag to prevent recursive navigation updates
 		bool _isUpdatingFromDelegate = false;
 		INativeNavigationView _nativeImpl;
+
+		// Pages array support for FuseJS models
+		IArray _pages;
+		int _curPageIndex = -1;
 		// Navigation state for INavigation interface
 		NavigationState _navigationState = NavigationState.Stable;
 		Visual _activePage;
@@ -86,6 +91,47 @@ namespace Fuse.Controls
 		*/
 		public string DefaultTemplate { get; set; }
 
+		/**
+			The stack of pages that controls the navigation history for this NativeNavigationView.
+
+			This should be bound to a JavaScript observable array. The highest index page will always be the active page.
+			As pages are added/removed from this array the navigation state will change.
+
+			The items in the array are objects that should contain the `$path` property which specifies
+			the template name to use. The object itself will be added to the data context for the page.
+
+			Example JavaScript:
+			```javascript
+			exports.pages = Observable({
+				$path: "Home",
+				title: "Welcome"
+			});
+
+			// Navigate to details
+			exports.pages.add({
+				$path: "Details",
+				item: selectedItem
+			});
+			```
+		*/
+		public IArray Pages
+		{
+			get { return _pages; }
+			set
+			{
+				if (_pages != value)
+				{
+					DetachPages();
+					_pages = value;
+					if (IsRootingStarted)
+					{
+						AttachPages();
+						UpdatePagesNavigation(true);
+					}
+				}
+			}
+		}
+
 		public override VisualContext VisualContext
 		{
 			get { return VisualContext.Native; }
@@ -106,11 +152,22 @@ namespace Fuse.Controls
 				_nativeImpl.SetNavigationChangeCallback(OnNativeNavigationChanged);
 			}
 
-			// Show default template or first available template
-			var initialTemplate = GetInitialTemplate();
-			if (!string.IsNullOrEmpty(initialTemplate))
+			// Initialize Pages array if set
+			AttachPages();
+
+			// Show default template or first available template (if no Pages array)
+			if (_pages == null)
 			{
-				NavigateToTemplate(initialTemplate, false);
+				var initialTemplate = GetInitialTemplate();
+				if (!string.IsNullOrEmpty(initialTemplate))
+				{
+					NavigateToTemplate(initialTemplate, false);
+				}
+			}
+			else
+			{
+				// Use Pages array for navigation
+				UpdatePagesNavigation(true);
 			}
 
 			// Fire initial navigation events
@@ -121,6 +178,8 @@ namespace Fuse.Controls
 
 		protected override void OnUnrooted()
 		{
+			// Detach from Pages array
+			DetachPages();
 			// Clean up all template instances
 			CleanupAllTemplateInstances();
 			base.OnUnrooted();
@@ -519,6 +578,246 @@ namespace Fuse.Controls
 			{
 				HistoryChanged(this);
 			}
+		}
+
+
+
+		// Pages array management
+		IDisposable _subscription;
+		void AttachPages()
+		{
+			if (_pages == null)
+				return;
+
+			var obs = _pages as IObservableArray;
+			if (obs != null)
+			{
+				_subscription = obs.Subscribe(this);
+			}
+			else
+			{
+				Fuse.Diagnostics.UserWarning("Pages expects an observable array. Navigation may not work correctly otherwise.", this);
+			}
+		}
+
+		void DetachPages()
+		{
+			if (_pages == null || _subscription == null)
+				return;
+
+			_subscription.Dispose();
+			_subscription = null;
+		}
+
+		void UpdatePagesNavigation(bool isInitial = false)
+		{
+			if (_pages == null || _pages.Length == 0)
+			{
+				_curPageIndex = -1;
+				return;
+			}
+
+			int targetIndex = _pages.Length - 1;
+			var pageObj = _pages[targetIndex];
+
+			// Extract $path from the page object
+			string templateName = ExtractTemplatePath(pageObj);
+			if (string.IsNullOrEmpty(templateName))
+			{
+				Fuse.Diagnostics.UserError("Page object must contain a '$path' property specifying the template name", this);
+				return;
+			}
+
+			bool isPush = targetIndex > _curPageIndex;
+			bool isPop = targetIndex < _curPageIndex;
+
+			// Navigate to the template with the page object as data context
+			NavigateToTemplateWithContext(templateName, pageObj, isPush, isPop, isInitial);
+
+			_curPageIndex = targetIndex;
+		}
+
+		string ExtractTemplatePath(object pageObj)
+		{
+			// Try to get the $path property from the page object
+			var obj = pageObj as IObject;
+			if (obj != null && obj.ContainsKey("$path"))
+			{
+				return obj["$path"] as string;
+			}
+
+			if (obj != null && obj.ContainsKey("$__fuse_classname"))
+			{
+				return obj["$__fuse_classname"] as string;
+			}
+
+			// Fallback: try dynamic property access
+			var dict = pageObj as IDictionary<string, object>;
+			if (dict != null && dict.ContainsKey("$path"))
+			{
+				return dict["$path"] as string;
+			}
+
+			if (dict != null && dict.ContainsKey("$__fuse_classname"))
+			{
+				return dict["$__fuse_classname"] as string;
+			}
+
+			return null;
+		}
+
+		void NavigateToTemplateWithContext(string templateName, object context, bool isPush, bool isPop, bool isInitial)
+		{
+			var tpl = FindTemplate(templateName);
+			if (tpl == null)
+			{
+				Fuse.Diagnostics.UserError("Template '" + templateName + "' not found in NativeNavigationView", this);
+				return;
+			}
+
+			ViewControllerContext viewControllerContext;
+			if (!_viewControllerContexts.TryGetValue(templateName, out viewControllerContext))
+			{
+				// Create new context
+				var instance = tpl.New() as Visual;
+				if (instance == null)
+				{
+					Fuse.Diagnostics.UserError("Template '" + templateName + "' did not produce a Visual", this);
+					return;
+				}
+
+				// Set the template name on the instance for identification
+				instance.Name = templateName;
+
+				// Set data context BEFORE creating the rendering context
+				SetDataContext(instance, context);
+
+				// Set navigation property BEFORE creating the context
+				SetActivePage(instance);
+				Fuse.Navigation.Navigation.SetNativeNavigation(instance, this);
+
+				// Create separate rendering context for this view controller
+				viewControllerContext = new ViewControllerContext(templateName, instance, this);
+				_viewControllerContexts[templateName] = viewControllerContext;
+			}
+			else
+			{
+				// Update existing context's data
+				SetDataContext(viewControllerContext.TemplateInstance, context);
+			}
+
+			// Defer navigation to ensure rendering context is properly established
+			if (isInitial)
+			{
+				// For initial navigation, bypass animation
+				CompleteNavigation(viewControllerContext, false, false);
+			}
+			else
+			{
+				UpdateManager.AddDeferredAction(() => {
+					CompleteNavigation(viewControllerContext, isPush, isPop);
+				});
+			}
+		}
+
+		void SetDataContext(Visual visual, object context)
+		{
+			if (context != null)
+			{
+				// Use PageData system to attach context to the visual
+				var pageData = PageData.GetOrCreate(visual);
+				pageData.SetContext(context);
+			}
+		}
+
+		// IObserver implementation for Pages array monitoring
+		void Fuse.Reactive.IObserver.OnSet(object newValue)
+		{
+			UpdatePagesNavigation();
+		}
+
+		void Fuse.Reactive.IObserver.OnFailed(string message)
+		{
+			Fuse.Diagnostics.UserError("Pages binding failed: " + message, this);
+		}
+
+		void Fuse.Reactive.IObserver.OnAdd(object value)
+		{
+			UpdatePagesNavigation();
+		}
+
+		void Fuse.Reactive.IObserver.OnRemoveAt(int index)
+		{
+			if (index <= _curPageIndex)
+			{
+				if (index == _curPageIndex && _pages.Length > 0)
+				{
+					// Current page was removed, navigate to new top page
+					UpdatePagesNavigation();
+				}
+				else
+				{
+					// Page before current was removed, adjust index
+					_curPageIndex--;
+				}
+			}
+		}
+
+		void Fuse.Reactive.IObserver.OnInsertAt(int index, object value)
+		{
+			if (index <= _curPageIndex)
+			{
+				_curPageIndex++;
+			}
+			else
+			{
+				// New page added at top, navigate to it
+				UpdatePagesNavigation();
+			}
+		}
+
+		void Fuse.Reactive.IObserver.OnNewAt(int index, object value)
+		{
+			if (index == _curPageIndex || index == _pages.Length - 1)
+			{
+				// Current page or top page was replaced
+				UpdatePagesNavigation();
+			}
+		}
+
+		void Fuse.Reactive.IObserver.OnNewAll(IArray values)
+		{
+			UpdatePagesNavigation();
+		}
+
+		void Fuse.Reactive.IObserver.OnClear()
+		{
+			_curPageIndex = -1;
+			// Navigate back to default or clear navigation
+			var initialTemplate = GetInitialTemplate();
+			if (!string.IsNullOrEmpty(initialTemplate))
+			{
+				NavigateToTemplate(initialTemplate, false);
+			}
+		}
+
+		// ISubtreeDataProvider implementation to provide data context
+		Node.ContextDataResult ISubtreeDataProvider.TryGetDataProvider(Node n, Node.DataType type, out object provider)
+		{
+			provider = null;
+			var v = n as Visual;
+			if (v == null)
+				return Node.ContextDataResult.Continue;
+
+			// Check if this visual has a data context from Pages
+			var pd = PageData.Get(v);
+			if (pd != null)
+			{
+				provider = pd.Context;
+				return type == Node.DataType.Prime ? Node.ContextDataResult.NullProvider : Node.ContextDataResult.Continue;
+			}
+
+			return Node.ContextDataResult.Continue;
 		}
 
 		// Static method to help with navigation discovery for template instances

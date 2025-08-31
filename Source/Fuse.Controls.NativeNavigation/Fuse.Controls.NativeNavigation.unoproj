@@ -12,7 +12,8 @@
     "Uno.Threading"
   ],
   "projects": [
-    "../Fuse/Fuse.unoproj"
+    "../Fuse/Fuse.unoproj",
+    "../Fuse.Reactive/Fuse.Reactive.unoproj"
   ],
   "includes": [
     "*",

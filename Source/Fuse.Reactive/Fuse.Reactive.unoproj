@@ -10,6 +10,7 @@
     "Fuse.Common.Test.Helpers",
     "Fuse.Common.Test.Helpers",
     "Fuse.Controls.Navigation",
+    "Fuse.Controls.NativeNavigation",
     "Fuse.Controls.Navigation.Test",
     "Fuse.Expressions.Test",
     "Fuse.Navigation",

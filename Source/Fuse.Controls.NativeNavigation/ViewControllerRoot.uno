@@ -18,10 +18,10 @@ namespace Fuse.Controls
 	{
 		readonly IViewControllerRoot _platformImpl;
 
-		public ViewControllerRoot()
+		public ViewControllerRoot(NativeNavigationView navigationView = null)
 		{
 			// Create platform-specific implementation through factory
-			_platformImpl = ViewControllerRootFactory.Create();
+			_platformImpl = ViewControllerRootFactory.Create(navigationView);
 		}
 
 		// Delegate all interface methods to platform implementation

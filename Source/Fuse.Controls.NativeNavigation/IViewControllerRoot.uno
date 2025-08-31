@@ -46,14 +46,14 @@ namespace Fuse.Controls
 			Creates a platform-specific ViewControllerRoot implementation.
 			Returns the appropriate implementation for the current platform.
 		*/
-		public static IViewControllerRoot Create()
+		public static IViewControllerRoot Create(NativeNavigationView navigationView = null)
 		{
 			if defined(iOS)
-				return new iOS.ViewControllerRoot();
+				return new iOS.ViewControllerRoot(navigationView);
 			// else if defined(Android)
-			// 	return new Android.ViewControllerRoot();
+			// 	return new Android.ViewControllerRoot(navigationView);
 			else
-				return new ViewControllerRootStub();
+				return new ViewControllerRootStub(navigationView);
 		}
 	}
 
@@ -63,6 +63,13 @@ namespace Fuse.Controls
 	*/
 	internal class ViewControllerRootStub : IViewControllerRoot
 	{
+		[WeakReference]
+		NativeNavigationView _navigationView;
+
+		public ViewControllerRootStub(NativeNavigationView navigationView = null)
+		{
+			_navigationView = navigationView;
+		}
 		public void SetContent(Visual content) { }
 		public ViewHandle GetViewHandle() { return null; }
 		public object GetNativeHandle() { return null; }
