@@ -179,7 +179,7 @@ namespace Fuse.Controls.iOS
 
 			// If this template is currently visible, apply the configuration immediately
 			var currentViewController = GetCurrentViewController(_navigationController);
-			if (currentViewController != null && GetViewControllerTitle(currentViewController) == templateName)
+			if (currentViewController != null && GetViewControllerAccessibilityIdentifier(currentViewController) == templateName)
 			{
 				ApplyNavigationBarConfiguration(currentViewController, config);
 			}
@@ -329,6 +329,7 @@ namespace Fuse.Controls.iOS
 			// Create container view that respects safe areas
 			UIView* containerView = [[UIView alloc] init];
 			containerView.backgroundColor = [UIColor whiteColor];
+			containerView.accessibilityIdentifier = templateName;
 			viewController.view = containerView;
 
 			// Add the Fuse view to the container
@@ -345,6 +346,7 @@ namespace Fuse.Controls.iOS
 			UIViewController* viewController = [[UIViewController alloc] init];
 			viewController.title = templateName;
 			viewController.view.backgroundColor = [UIColor lightGrayColor];
+			viewController.view.accessibilityIdentifier = templateName;
 
 			// Create error label
 			UILabel* errorLabel = [[UILabel alloc] init];
@@ -432,10 +434,10 @@ namespace Fuse.Controls.iOS
 		@}
 
 		[Foreign(Language.ObjC)]
-		static string GetViewControllerTitle(ObjC.Object viewController)
+		static string GetViewControllerAccessibilityIdentifier(ObjC.Object viewController)
 		@{
 			UIViewController* vc = (UIViewController*)viewController;
-			return vc.title ?: @"";
+			return vc.view.accessibilityIdentifier ?: @"";
 		@}
 
 		[Foreign(Language.ObjC)]
@@ -449,8 +451,8 @@ namespace Fuse.Controls.iOS
 
 			NSUInteger i = 0;
 			for (UIViewController* vc in viewControllers) {
-				NSString* title = vc.title ?: @"";
-				@{ObjC.Object[]:of(result).Set(i, title)};
+				NSString* accessibilityIdentifier = vc.view.accessibilityIdentifier ?: @"";
+				@{ObjC.Object[]:of(result).Set(i, accessibilityIdentifier)};
 				i++;
 			}
 

@@ -2,9 +2,9 @@
 
 @implementation FuseNavigationDelegate
 
-- (instancetype)initWithCallbacks:(void (^)(NSString*))willAppear 
-                       didAppear:(void (^)(NSString*))didAppear 
-                   willDisappear:(void (^)(NSString*))willDisappear 
+- (instancetype)initWithCallbacks:(void (^)(NSString*))willAppear
+                       didAppear:(void (^)(NSString*))didAppear
+                   willDisappear:(void (^)(NSString*))willDisappear
                     didDisappear:(void (^)(NSString*))didDisappear
 {
     self = [super init];
@@ -19,21 +19,21 @@
 
 #pragma mark - UINavigationControllerDelegate
 
-- (void)navigationController:(UINavigationController *)navigationController 
-      willShowViewController:(UIViewController *)viewController 
+- (void)navigationController:(UINavigationController *)navigationController
+      willShowViewController:(UIViewController *)viewController
                     animated:(BOOL)animated
 {
-    if (_onViewWillAppear && viewController.title) {
-        _onViewWillAppear(viewController.title);
+    if (_onViewWillAppear && viewController.view.accessibilityIdentifier) {
+        _onViewWillAppear(viewController.view.accessibilityIdentifier);
     }
 }
 
-- (void)navigationController:(UINavigationController *)navigationController 
-       didShowViewController:(UIViewController *)viewController 
+- (void)navigationController:(UINavigationController *)navigationController
+       didShowViewController:(UIViewController *)viewController
                     animated:(BOOL)animated
 {
-    if (_onViewDidAppear && viewController.title) {
-        _onViewDidAppear(viewController.title);
+    if (_onViewDidAppear && viewController.view.accessibilityIdentifier) {
+        _onViewDidAppear(viewController.view.accessibilityIdentifier);
     }
 }
 

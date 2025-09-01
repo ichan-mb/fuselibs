@@ -194,9 +194,11 @@ namespace Fuse.Controls
 		{
 			base.OnRooted();
 
+			_navigation = Fuse.Navigation.Navigation.GetNativeNavigation(Parent) as NativeNavigationView;
+
 			if (_navigation == null)
 			{
-				Fuse.Diagnostics.UserError("NavigationBarConfig requires a Navigation property to be set", this);
+				Fuse.Diagnostics.UserError("NativeNavigationView is required as a direct parent of NavigationBarConfig", this);
 				return;
 			}
 
