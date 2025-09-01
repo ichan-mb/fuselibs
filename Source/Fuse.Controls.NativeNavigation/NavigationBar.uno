@@ -2,7 +2,7 @@ using Uno;
 using Uno.UX;
 using Fuse;
 using Fuse.Scripting;
-
+using Fuse.Elements;
 namespace Fuse.Controls
 {
 	/**
@@ -145,6 +145,20 @@ namespace Fuse.Controls
 			}
 		}
 
+		bool _applyInsets = true;
+		public bool ApplyInsets
+		{
+			get { return _applyInsets; }
+			set
+			{
+				if (_applyInsets != value)
+				{
+					_applyInsets = value;
+					OnPropertyChanged();
+				}
+			}
+		}
+
 		float4 _tintColor;
 		bool _hasTintColor = false;
 		/**
@@ -198,7 +212,7 @@ namespace Fuse.Controls
 
 			if (_navigation == null)
 			{
-				Fuse.Diagnostics.UserError("NativeNavigationView is required as a direct parent of NavigationBarConfig", this);
+				Fuse.Diagnostics.UserError("NativeNavigationView is not found", this);
 				return;
 			}
 
@@ -208,6 +222,9 @@ namespace Fuse.Controls
 			{
 				Fuse.Diagnostics.UserWarning("Could not determine template name for NavigationBarConfig", this);
 			}
+
+			var visualParent = Parent as Element;
+			_currentParentPadding = visualParent.Padding;
 
 			// Apply initial navigation bar settings
 			ApplyNavigationBarSettings();
@@ -238,6 +255,7 @@ namespace Fuse.Controls
 			return null;
 		}
 
+		float4 _currentParentPadding = float4(0);
 		/**
 			Apply navigation bar settings to the native implementation
 		*/
@@ -251,6 +269,15 @@ namespace Fuse.Controls
 			if (nativeImpl != null)
 			{
 				nativeImpl.ConfigureNavigationBar(_templateName, CreateNavigationBarConfig());
+
+				var visualParent = Parent as Element;
+				visualParent.Padding = _currentParentPadding;
+
+				if (!_hidden && _applyInsets)
+				{
+					var insets = nativeImpl.GetNavigationSafeInsets();
+					visualParent.Padding = float4(_currentParentPadding.X + insets.X, _currentParentPadding.Y + insets.Y, _currentParentPadding.Z + insets.Z, _currentParentPadding.W + insets.W);
+				}
 			}
 		}
 

@@ -416,6 +416,15 @@ namespace Fuse.Controls
 			return new string[0];
 		}
 
+		public float4 GetNavigationSafeInsets()
+		{
+			if (_nativeImpl != null)
+			{
+				return _nativeImpl.GetNavigationSafeInsets();
+			}
+			return float4(0);
+		}
+
 		/**
 			Get current navigation stack count (from native stack)
 		*/

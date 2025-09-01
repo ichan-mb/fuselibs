@@ -69,9 +69,6 @@ namespace Fuse.Controls.iOS
 			if (_navigationController == null || nativeHandle == null)
 				return;
 
-			// Create a view controller using the native handle from separate rendering context
-			var viewController = CreateViewControllerWithNativeHandle(nativeHandle, templateName);
-
 			if (isPop)
 			{
 				// Check native iOS stack count
@@ -83,11 +80,15 @@ namespace Fuse.Controls.iOS
 			}
 			else if (isPush)
 			{
+				// Create a view controller using the native handle from separate rendering context
+				var viewController = CreateViewControllerWithNativeHandle(nativeHandle, templateName);
 				PushViewController(_navigationController, viewController);
 			}
 			else
 			{
 				// Initial navigation - set as root
+				// Create a view controller using the native handle from separate rendering context
+				var viewController = CreateViewControllerWithNativeHandle(nativeHandle, templateName);
 				SetRootViewController(_navigationController, viewController);
 			}
 		}
@@ -261,7 +262,51 @@ namespace Fuse.Controls.iOS
 			}
 		}
 
+		public float4 GetNavigationSafeInsets()
+		{
+			float l, t, r, b;
+			GetSafeAreaInsets(out l, out t, out r, out b);
+
+			// Add navigation bar height to top inset if we're in a navigation controller
+			float navBarHeight = GetNavigationBarHeight(_navigationController);
+
+			return float4(l, t + navBarHeight, r, b);
+		}
+
 		// Foreign code interface methods
+
+		[Foreign(Language.ObjC)]
+		static void GetSafeAreaInsets(out float l, out float t, out float r, out float b)
+		@{
+			*l = *t = *r = *b = 0;
+
+			UIView* view = [UIApplication sharedApplication].keyWindow.rootViewController.view;
+			if (view) {
+				if (@available(iOS 11.0, *)) {
+					UIEdgeInsets insets = view.safeAreaInsets;
+					*l = insets.left;
+					*t = insets.top;
+					*r = insets.right;
+					*b = insets.bottom;
+				} else {
+					// Fallback for iOS < 11.0 - just handle status bar
+					*t = 20; // Standard status bar height
+				}
+			}
+		@}
+
+		[Foreign(Language.ObjC)]
+		static float GetNavigationBarHeight(ObjC.Object navCtrl)
+		@{
+			UINavigationController* navController = (UINavigationController*)navCtrl;
+
+			if (navController && !navController.navigationBarHidden) {
+				return navController.navigationBar.frame.size.height;
+			}
+
+			return 44; // Standard navigation bar height fallback
+		@}
+
 		[Foreign(Language.ObjC)]
 		static ObjC.Object CreateContainer()
 		@{
@@ -325,6 +370,7 @@ namespace Fuse.Controls.iOS
 			UIView* fuseView = (UIView*)nativeView;
 			UIViewController* viewController = [[UIViewController alloc] init];
 			viewController.title = templateName;
+			viewController.extendedLayoutIncludesOpaqueBars = YES;
 
 			// Create container view that respects safe areas
 			UIView* containerView = [[UIView alloc] init];
@@ -483,7 +529,6 @@ namespace Fuse.Controls.iOS
 
 			// Set translucency
 			navBar.translucent = translucent;
-			vc.extendedLayoutIncludesOpaqueBars = translucent;
 
 			// Set hidden state
 			[navController setNavigationBarHidden:hidden animated:YES];

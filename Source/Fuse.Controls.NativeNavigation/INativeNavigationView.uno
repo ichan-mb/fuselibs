@@ -84,6 +84,13 @@ namespace Fuse.Controls
 			This directly manipulates the native navigation controller.
 		*/
 		void PopFromNativeStack();
+
+		/**
+			Get the height of the navigation bar.
+
+			@return The height of the navigation bar in pixels
+		*/
+		float4 GetNavigationSafeInsets();
 	}
 
 	/**

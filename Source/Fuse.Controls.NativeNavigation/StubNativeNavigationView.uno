@@ -83,6 +83,11 @@ namespace Fuse.Controls
 			// Stub implementation - no native navigation on this platform
 		}
 
+		public float4 GetNavigationSafeInsets()
+		{
+			return float4(0);
+		}
+
 	}
 
 	// Factory class to create the appropriate native implementation
