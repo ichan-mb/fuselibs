@@ -56,6 +56,9 @@ namespace Fuse.Controls
 		NavigationState _navigationState = NavigationState.Stable;
 		Visual _activePage;
 		double _pageProgress = 0.0;
+		bool _isInternallyUpdating = false;
+
+
 
 		/**
 			Internal class to manage each view controller's rendering context
@@ -256,6 +259,7 @@ namespace Fuse.Controls
 		*/
 		public void OnNativeNavigationChanged(string currentTemplateName, int nativeStackCount, bool appear)
 		{
+
 			_isUpdatingFromDelegate = true;
 
 			try
@@ -277,17 +281,15 @@ namespace Fuse.Controls
 				{
 					SetActivePage(null);
 				}
-
+			}
+			finally
+			{
 				// Fire page count changed event
 				FirePageCountChanged();
 				UpdateManager.AddDeferredAction(() => {
 					// Synchronize our contexts based on native stack
 					SynchronizeWithNativeStack(currentTemplateName, nativeStackCount);
 				});
-			}
-			finally
-			{
-				_isUpdatingFromDelegate = false;
 			}
 		}
 
@@ -317,7 +319,136 @@ namespace Fuse.Controls
 				context.Dispose();
 				_viewControllerContexts.Remove(templateName);
 			}
+
+			// Update current page index to match native stack
+			SynchronizePageIndexWithNativeStack(nativeStack);
 		}
+
+		/**
+			Synchronize the current page index with the native stack.
+			This ensures internal state stays consistent when users navigate using native gestures.
+			The Pages array itself should be updated by the JavaScript side to maintain proper data binding.
+		*/
+		void SynchronizePageIndexWithNativeStack(string[] nativeStack)
+		{
+			if (_pages == null || _isUpdatingFromDelegate == false)
+				return;
+
+			// Update _curPageIndex to match the native stack size
+			// This prevents inconsistencies when native navigation occurs
+			_curPageIndex = Math.Max(-1, nativeStack.Length - 1);
+
+			// If the Pages array is longer than the native stack, it means pages were popped
+			// We should trigger an event to notify JavaScript that pages need to be removed
+			if (_pages.Length > nativeStack.Length)
+			{
+				NotifyPagesNeedSynchronization(nativeStack.Length);
+				_isUpdatingFromDelegate = false;
+			}
+		}
+
+		/**
+			Automatically synchronize the Pages array with the native stack.
+			This happens automatically without requiring JavaScript setup.
+		*/
+		void NotifyPagesNeedSynchronization(int expectedLength)
+		{
+			// Automatically synchronize Pages array
+			if (_pages != null && _pages.Length > expectedLength)
+			{
+				AutoSynchronizePages(expectedLength);
+			}
+		}
+
+		/**
+			Automatically synchronizes the Pages array with the native navigation stack.
+			Uses complete observer detachment to prevent any callback interference.
+		*/
+		void AutoSynchronizePages(int expectedLength)
+		{
+			if (_pages == null || _isUpdatingFromDelegate == false || expectedLength >= _pages.Length || _isInternallyUpdating)
+				return;
+
+			// Set flag to block observers
+			_isInternallyUpdating = true;
+
+			// Schedule the sync operation for the next update cycle
+			UpdateManager.AddDeferredAction(() => {
+				PerformDeferredSync(expectedLength);
+			});
+		}
+
+		/**
+			Performs the actual synchronization by completely detaching and reattaching the observer.
+		*/
+		void PerformDeferredSync(int expectedLength)
+		{
+			if (_pages == null || expectedLength >= _pages.Length || !_isInternallyUpdating)
+			{
+				_isInternallyUpdating = false;
+				return;
+			}
+
+			try
+			{
+
+				// Use subscription to replace the array cleanly
+				if (_subscription is Fuse.Reactive.ISubscription)
+				{
+					var  subscription = _subscription as Fuse.Reactive.ISubscription;
+					// Create a truncated array with only the expected pages
+					var synchronizedPages = new object[expectedLength];
+					for (int i = 0; i < expectedLength && i < _pages.Length; i++)
+					{
+						synchronizedPages[i] = _pages[i];
+					}
+
+					var newArray = new SynchronizedPagesArray(synchronizedPages);
+					subscription.ReplaceAllExclusive(newArray);
+				}
+
+				// Update our internal state to match
+				_curPageIndex = Math.Max(-1, expectedLength - 1);
+
+				// Schedule flag clearing for multiple update cycles to handle async callbacks
+				Timer.Wait(0.5, ()=> {
+					_isInternallyUpdating = false;
+				});
+			}
+			catch (Exception ex)
+			{
+				Fuse.Diagnostics.InternalError("Deferred auto-sync failed: " + ex.Message, this);
+				_curPageIndex = Math.Max(-1, expectedLength - 1);
+				_isInternallyUpdating = false;
+			}
+		}
+
+		/**
+			Simple IArray wrapper for synchronized pages array.
+		*/
+		class SynchronizedPagesArray : IArray
+		{
+			readonly object[] _pages;
+
+			public SynchronizedPagesArray(object[] pages)
+			{
+				_pages = pages;
+			}
+
+			public int Length { get { return _pages.Length; } }
+
+			public object this[int index]
+			{
+				get
+				{
+					if (index < 0 || index >= _pages.Length)
+						throw new ArgumentOutOfRangeException("index");
+					return _pages[index];
+				}
+			}
+		}
+
+
 
 		void CleanupAllTemplateInstances()
 		{
@@ -742,21 +873,27 @@ namespace Fuse.Controls
 		// IObserver implementation for Pages array monitoring
 		void Fuse.Reactive.IObserver.OnSet(object newValue)
 		{
+			if (_isInternallyUpdating)
+				return;
 			UpdatePagesNavigation();
 		}
 
 		void Fuse.Reactive.IObserver.OnFailed(string message)
 		{
-			Fuse.Diagnostics.UserError("Pages binding failed: " + message, this);
 		}
 
 		void Fuse.Reactive.IObserver.OnAdd(object value)
 		{
+			if (_isInternallyUpdating)
+				return;
 			UpdatePagesNavigation();
 		}
 
 		void Fuse.Reactive.IObserver.OnRemoveAt(int index)
 		{
+			if (_isInternallyUpdating)
+				return;
+
 			if (index <= _curPageIndex)
 			{
 				if (index == _curPageIndex && _pages.Length > 0)
@@ -774,34 +911,41 @@ namespace Fuse.Controls
 
 		void Fuse.Reactive.IObserver.OnInsertAt(int index, object value)
 		{
+			if (_isInternallyUpdating)
+				return;
+
 			if (index <= _curPageIndex)
 			{
 				_curPageIndex++;
 			}
-			else
-			{
-				// New page added at top, navigate to it
-				UpdatePagesNavigation();
-			}
+			UpdatePagesNavigation();
 		}
 
 		void Fuse.Reactive.IObserver.OnNewAt(int index, object value)
 		{
-			if (index == _curPageIndex || index == _pages.Length - 1)
-			{
-				// Current page or top page was replaced
-				UpdatePagesNavigation();
-			}
+			if (_isInternallyUpdating)
+				return;
+			UpdatePagesNavigation();
 		}
 
 		void Fuse.Reactive.IObserver.OnNewAll(IArray values)
 		{
-			UpdatePagesNavigation();
+			if (_isInternallyUpdating)
+				return;
+			UpdatePagesNavigation(true);
 		}
 
 		void Fuse.Reactive.IObserver.OnClear()
 		{
+			if (_isInternallyUpdating)
+				return;
+
+			// Clear all pages - navigate to empty state
+			CleanupAllTemplateInstances();
+			SetActivePage(null);
 			_curPageIndex = -1;
+			FirePageCountChanged();
+
 			// Navigate back to default or clear navigation
 			var initialTemplate = GetInitialTemplate();
 			if (!string.IsNullOrEmpty(initialTemplate))
