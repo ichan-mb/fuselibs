@@ -1,5 +1,6 @@
 using Uno;
 using Uno.UX;
+using Uno.IO;
 using Uno.Compiler.ExportTargetInterop;
 using Uno.Collections;
 using Uno.Graphics;
@@ -104,6 +105,32 @@ namespace Fuse.Controls.Native.Android
 			}
 		}
 
+		string _symbols;
+		public string Symbols
+		{
+			set
+			{
+				if (_symbols != value)
+				{
+					_symbols = value;
+					UpdateImage();
+				}
+			}
+		}
+
+		bool _isFilled;
+		public bool IsFilled
+		{
+			set
+			{
+				if (_isFilled != value)
+				{
+					_isFilled = value;
+					UpdateImage();
+				}
+			}
+		}
+
 		void OnMultiDensityImageSourceActiveChanged()
 		{
 			if (ImageSource is MultiDensityImageSource)
@@ -147,14 +174,21 @@ namespace Fuse.Controls.Native.Android
 
 		public void UpdateImageTransform(float density, float2 origin, float2 scale, float2 drawSize)
 		{
-			var imagePos = (int2)Math.Ceil(origin * density);
-			var imageScale = scale * density;
-			UpdateImageTransform(
-				_imageView,
-				imagePos.X,
-				imagePos.Y,
-				imageScale.X,
-				imageScale.Y);
+			if (!string.IsNullOrEmpty(_symbols))
+			{
+				UpdateImage();
+			}
+			else
+			{
+				var imagePos = (int2)Math.Ceil(origin * density);
+				var imageScale = scale * density;
+				UpdateImageTransform(
+					_imageView,
+					imagePos.X,
+					imagePos.Y,
+					imageScale.X,
+					imageScale.Y);
+			}
 		}
 
 		IDisposable _imageHandle;
@@ -178,6 +212,67 @@ namespace Fuse.Controls.Native.Android
 				}
 			}
 		}
+
+		void UpdateImage()
+		{
+			if (!string.IsNullOrEmpty(_symbols) && Size.X > 0)
+			{
+				ImageHandle = null;
+				var colorArgb = (int)Color.ToArgb(_tintColor);
+				var bitmap = GetBitmapFromSymbol(_symbols, colorArgb, Size.X, _isFilled);
+				SetBitmap(_imageView, bitmap);
+			}
+		}
+
+		internal protected override void OnSizeChanged()
+		{
+			UpdateImage();
+		}
+
+		static Java.Object GetMaterialSymbolsTypeface()
+		{
+			var bundleFileSource = GetMaterialSymbolsBundleFileSource();
+			if (bundleFileSource != null)
+				return LoadTypefaceFromBundle(bundleFileSource.BundleFile);
+			else
+				return GetDefaultTypeface();
+		}
+
+		static BundleFileSource GetMaterialSymbolsBundleFileSource()
+		{
+			// Find the MaterialSymbols.ttf in the bundle
+			foreach (var file in Uno.IO.Bundle.AllFiles)
+			{
+				if (file.SourcePath.EndsWith("MaterialSymbols.ttf"))
+				{
+					return new BundleFileSource(file);
+				}
+			}
+			return null;
+		}
+
+		[Foreign(Language.Java)]
+		static Java.Object LoadTypefaceFromBundle(BundleFile bundleFile)
+		@{
+			try
+			{
+				String uri = @{BundleFile:of(bundleFile).BundlePath:get()};
+				android.content.res.AssetManager assetManager = com.fuse.Activity.getRootActivity().getAssets();
+				android.graphics.Typeface typeface = android.graphics.Typeface.createFromAsset(assetManager, uri);
+				return typeface;
+			}
+			catch (Exception e)
+			{
+				android.util.Log.e("ImageView", "Failed to load MaterialSymbols font: " + e.getMessage());
+				return @{GetDefaultTypeface():call()};
+			}
+		@}
+
+		[Foreign(Language.Java)]
+		static Java.Object GetDefaultTypeface()
+		@{
+			return android.graphics.Typeface.DEFAULT;
+		@}
 
 		void UpdateImage(FileImageSource fileImageSource)
 		{
@@ -221,6 +316,37 @@ namespace Fuse.Controls.Native.Android
 			GetImageSize(_imageView, wh);
 			return float2((float)wh[0], (float)wh[1]);
 		}
+
+		[Foreign(Language.Java)]
+		static Java.Object GetBitmapFromSymbol(string symbol, int colorArgb, int size, bool isFilled)
+		@{
+			android.graphics.Typeface typeface = (android.graphics.Typeface)@{GetMaterialSymbolsTypeface():call()};
+			android.text.TextPaint paint = new android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG | android.graphics.Paint.SUBPIXEL_TEXT_FLAG);
+			paint.setTypeface(typeface);
+			paint.setColor(colorArgb);
+			paint.setTextSize(size);
+			paint.setTextAlign(android.graphics.Paint.Align.CENTER);
+
+			// Set font variation for filled style
+			if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+				try {
+					if (isFilled) {
+						paint.setFontVariationSettings("'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' " + size);
+					} else {
+						paint.setFontVariationSettings("'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' " + size);
+					}
+				} catch (Exception e) {
+					android.util.Log.w("ImageView", "Font variations not supported: " + e.getMessage());
+				}
+			}
+
+			android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888);
+			android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
+			float y = (size / 2.0f) - ((paint.descent() + paint.ascent()) / 2.0f);
+			canvas.drawText(symbol, size / 2.0f, y, paint);
+
+			return bitmap;
+		@}
 
 		[Foreign(Language.Java)]
 		static void GetImageSize(Java.Object handle, int[] wh)

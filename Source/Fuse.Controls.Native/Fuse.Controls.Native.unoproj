@@ -51,6 +51,7 @@
     "Android/Java/CanvasViewGroup.java:java:Android",
     "Android/Java/VideoView.java:java:Android",
     "Android/Java/ScalableType.java:java:Android",
-    "Android/Java/ShadowDrawable.java:java:Android"
+    "Android/Java/ShadowDrawable.java:java:Android",
+    "Android/Fonts/MaterialSymbols.ttf:bundle:Android"
   ]
 }

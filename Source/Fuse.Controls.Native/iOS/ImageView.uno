@@ -54,7 +54,7 @@ namespace Fuse.Controls.Native.iOS
 			}
 		}
 
-		float4 _tintColor = float4(1.0f);
+		float4 _tintColor = Uno.Color.FromRgba(0x000000FF);
 		public float4 TintColor
 		{
 			set
@@ -70,13 +70,48 @@ namespace Fuse.Controls.Native.iOS
 			set { _isLoad = value; }
 		}
 
+		string _symbols;
+		public string Symbols
+		{
+			set
+			{
+				if (_symbols != value)
+				{
+					_symbols = value;
+					UpdateImage();
+				}
+			}
+		}
+
+		bool _isFilled;
+		public bool IsFilled
+		{
+			set
+			{
+				_isFilled = value;
+				UpdateImage();
+			}
+		}
+
 		void UpdateImage()
 		{
-			var c = _tintColor;
-			var imageHandle = _uiImageHandle != null
-				? TintImage(_uiImageHandle, c.X, c.Y, c.Z, c.W)
-				: null;
-			SetImage(_uiImageView, imageHandle);
+			if (_uiImageView == null) return;
+
+			if (!string.IsNullOrEmpty(_symbols) && Size.X > 0)
+			{
+				var systemImage = GetSystemImage(_symbols, Size.X);
+				var tintedSystemImage = TintImage(systemImage, _tintColor.X, _tintColor.Y, _tintColor.Z, _tintColor.W);
+				SetImage(_uiImageView, tintedSystemImage);
+				SetContentMode(_uiImageView);
+			}
+			else
+			{
+				if (_uiImageHandle != null)
+				{
+					var tintedImage = TintImage(_uiImageHandle, _tintColor.X, _tintColor.Y, _tintColor.Z, _tintColor.W);
+					SetImage(_uiImageView, tintedImage);
+				}
+			}
 		}
 
 		ObjC.Object _uiImageView;
@@ -95,6 +130,7 @@ namespace Fuse.Controls.Native.iOS
 
 		public override void Dispose()
 		{
+			_uiImageView = null;
 			ImageHandle = null;
 			if (ImageSource != null && ImageSource is MultiDensityImageSource)
 			{
@@ -164,11 +200,24 @@ namespace Fuse.Controls.Native.iOS
 
 		public void UpdateImageTransform(float density, float2 origin, float2 scale, float2 drawSize)
 		{
-			SetTransform(_uiImageView, float4x4.Identity);
 			var imageSize = GetImageSize();
 			SetBounds(_uiImageView, 0.0f, 0.0f, imageSize.X, imageSize.Y);
-			var imageTransform = Matrix.Compose(float3(scale, 0.0f), float4.Identity, float3(origin, 0.0f));
-			SetTransform(_uiImageView, imageTransform);
+			if (!string.IsNullOrEmpty(_symbols))
+			{
+				UpdateImage();
+			}
+			else
+			{
+				SetTransform(_uiImageView, float4x4.Identity);
+				var imageTransform = Matrix.Compose(float3(scale, 0.0f), float4.Identity, float3(origin, 0.0f));
+				SetTransform(_uiImageView, imageTransform);
+			}
+		}
+
+		internal protected override void OnSizeChanged()
+		{
+			SetBounds(_uiImageView, 0.0f, 0.0f, Size.X, Size.Y);
+			UpdateImage();
 		}
 
 		static void SetTransform(ObjC.Object handle, float4x4 t)
@@ -238,26 +287,6 @@ namespace Fuse.Controls.Native.iOS
 		@}
 
 		[Foreign(Language.ObjC)]
-		static ObjC.Object TintImage(ObjC.Object handle, float r, float g, float b, float a)
-		@{
-			UIImage* image = (UIImage*)handle;
-			UIGraphicsBeginImageContextWithOptions(image.size, NO, image.scale);
-			CGRect imageRect = CGRectMake(0.0f, 0.0f, image.size.width, image.size.height);
-			CGContextRef ctx = UIGraphicsGetCurrentContext();
-			[[UIColor colorWithRed:r green:g blue:b alpha:a] setFill];
-			CGContextTranslateCTM(ctx, 0, image.size.height);
-			CGContextScaleCTM(ctx, 1.0, -1.0);
-			CGContextSetBlendMode(ctx, kCGBlendModeMultiply);
-			CGContextDrawImage(ctx, imageRect, image.CGImage);
-			CGContextClipToMask(ctx, imageRect, image.CGImage);
-			CGContextAddRect(ctx, imageRect);
-			CGContextDrawPath(ctx, kCGPathFill);
-			UIImage* result = UIGraphicsGetImageFromCurrentImageContext();
-			UIGraphicsEndImageContext();
-			return result;
-		@}
-
-		[Foreign(Language.ObjC)]
 		static void ClearImage(ObjC.Object imageViewHandle)
 		@{
 			UIImageView* imageView = (UIImageView*)imageViewHandle;
@@ -281,6 +310,54 @@ namespace Fuse.Controls.Native.iOS
 			UIImageView* imageView = [[UIImageView alloc] init];
 			[container addSubview:imageView];
 			return imageView;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static ObjC.Object GetSystemImage(string symbolName, float size)
+		@{
+			if (@available(iOS 13.0, *)) {
+				UIImage* image = [UIImage systemImageNamed:symbolName];
+				UIImageSymbolConfiguration* config = [UIImageSymbolConfiguration configurationWithPointSize:size];
+				image = [image imageByApplyingSymbolConfiguration:config];
+				return image;
+			}
+			return nil;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetContentMode(ObjC.Object imageViewHandle)
+		@{
+			UIImageView* imageView = (UIImageView*)imageViewHandle;
+			imageView.contentMode = UIViewContentModeScaleAspectFit;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static ObjC.Object TintImage(ObjC.Object imageHandle, float r, float g, float b, float a)
+		@{
+			UIImage* image = (UIImage*)imageHandle;
+			UIColor* tintColor = [UIColor colorWithRed:r green:g blue:b alpha:a];
+
+			// Use modern iOS 13+ method when available
+			if (@available(iOS 13.0, *)) {
+				UIImage* tintedImage = [image imageWithTintColor:tintColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+				return tintedImage;
+			}
+
+			// Fallback to Core Graphics for older iOS versions
+			UIGraphicsBeginImageContextWithOptions(image.size, NO, image.scale);
+			CGRect imageRect = CGRectMake(0.0f, 0.0f, image.size.width, image.size.height);
+			CGContextRef ctx = UIGraphicsGetCurrentContext();
+			[tintColor setFill];
+			CGContextTranslateCTM(ctx, 0, image.size.height);
+			CGContextScaleCTM(ctx, 1.0, -1.0);
+			CGContextSetBlendMode(ctx, kCGBlendModeMultiply);
+			CGContextDrawImage(ctx, imageRect, image.CGImage);
+			CGContextClipToMask(ctx, imageRect, image.CGImage);
+			CGContextAddRect(ctx, imageRect);
+			CGContextDrawPath(ctx, kCGPathFill);
+			UIImage* result = UIGraphicsGetImageFromCurrentImageContext();
+			UIGraphicsEndImageContext();
+			return result;
 		@}
 
 	}

@@ -139,6 +139,39 @@ namespace Fuse.Controls
 			_container.IsVisible = IsVisible;
 		}
 
+		string _symbols;
+		/**
+			Render image from SF Symbols (iOS) or Material Symbols (Android)
+			@include Docs/SymbolReference.md
+		*/
+		public string Symbols
+		{
+			get { return _symbols; }
+			set
+			{
+				if (_symbols != value)
+				{
+					_symbols = value;
+					Source = null;
+					OnParamChanged();
+				}
+			}
+		}
+
+		bool _isFilled;
+		public bool IsFilled
+		{
+			get { return _isFilled; }
+			set
+			{
+				if (_isFilled != value)
+				{
+					_isFilled = value;
+					OnParamChanged();
+				}
+			}
+		}
+
 		/**
 			Loads an image from a File.
 
@@ -433,7 +466,17 @@ namespace Fuse.Controls
 			{
 				imageView.IsLoaded = IsLoaded;
 				imageView.ImageSource = Source;
-				ImageView.TintColor = Color;
+				if (!string.IsNullOrEmpty(Symbols))
+				{
+					var platformSymbol = Fuse.Controls.Primitives.SymbolProvider.GetPlatformSymbol(Symbols, IsFilled);
+					imageView.Symbols = platformSymbol.Name;
+					imageView.IsFilled = platformSymbol.IsFilled;
+				}
+				else
+				{
+					imageView.Symbols = null;
+				}
+				imageView.TintColor = Color;
 			}
 		}
 
