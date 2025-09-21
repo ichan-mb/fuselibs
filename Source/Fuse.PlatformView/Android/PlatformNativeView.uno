@@ -15,6 +15,13 @@ namespace Fuse.Controls.Native.Android
 		public PlatformNativeView([UXParameter("Host")]PlatformView host) { }
 	}
 
+	/**
+		Android-specific implementation that integrates Jetpack Compose views into Fuse applications.
+
+		Acts as a bridge between Fuse's UI system and Jetpack Compose, handling view creation,
+		data binding, and event communication. Uses ComposeContainer to host Compose views
+		and manages view registration through the viewRegistration system.
+	*/
 	extern(Android) class PlatformNativeView : LeafView, IPlatformView
 	{
 
@@ -42,6 +49,10 @@ namespace Fuse.Controls.Native.Android
 		}
 
 		string _data;
+		/**
+			JSON object data to pass to the Jetpack Compose view.
+			Changes are automatically synchronized with the Compose view through ComposeContainer.
+		*/
 		public string Data
 		{
 			get { return _data; }
@@ -56,6 +67,10 @@ namespace Fuse.Controls.Native.Android
 		}
 
 		string _dataArray;
+		/**
+			JSON array data to pass to the Jetpack Compose view.
+			Changes are automatically synchronized with the Compose view.
+		*/
 		public string DataArray
 		{
 			get { return _dataArray; }
@@ -70,6 +85,10 @@ namespace Fuse.Controls.Native.Android
 		}
 
 		float _dataFloat;
+		/**
+			Float data to pass to the Jetpack Compose view.
+			Changes are automatically synchronized with the Compose view.
+		*/
 		public float DataFloat
 		{
 			get { return _dataFloat; }
@@ -84,6 +103,10 @@ namespace Fuse.Controls.Native.Android
 		}
 
 		int _dataInteger;
+		/**
+			Integer data to pass to the Jetpack Compose view.
+			Changes are automatically synchronized with the Compose view.
+		*/
 		public int DataInteger
 		{
 			get { return _dataInteger; }
@@ -98,6 +121,10 @@ namespace Fuse.Controls.Native.Android
 		}
 
 		bool _dataBool;
+		/**
+			Boolean data to pass to the Jetpack Compose view.
+			Changes are automatically synchronized with the Compose view.
+		*/
 		public bool DataBool
 		{
 			get { return _dataBool; }
@@ -112,6 +139,10 @@ namespace Fuse.Controls.Native.Android
 		}
 
 		string _dataString;
+		/**
+			String data to pass to the Jetpack Compose view.
+			Changes are automatically synchronized with the Compose view.
+		*/
 		public string DataString
 		{
 			get { return _dataString; }
@@ -126,6 +157,12 @@ namespace Fuse.Controls.Native.Android
 		}
 
 		string _source;
+		/**
+			The name of the Jetpack Compose view to display.
+
+			Should correspond to a view registered with the ComposeViewFactory.
+			Changing the source will replace the current Compose view with the new one.
+		*/
 		public string Source
 		{
 			get { return _source; }
@@ -185,6 +222,10 @@ namespace Fuse.Controls.Native.Android
 			);
 		@}
 
+		/**
+			Creates a ComposeContainer configured for hosting Jetpack Compose views.
+			The container is configured for proper focus handling and layout behavior.
+		*/
 		[Foreign(Language.Java)]
 		static Java.Object Create()
 		@{

@@ -15,6 +15,14 @@ namespace Fuse.Controls.Native.iOS
 		public PlatformNativeView([UXParameter("Host")]PlatformView host) { }
 	}
 
+	/**
+		iOS-specific implementation that integrates SwiftUI views into Fuse applications.
+
+		Acts as a bridge between Fuse's UI system and SwiftUI, handling view creation,
+		data binding, and event communication. Uses SwiftUIHostingContainer to host
+		SwiftUI views and SwiftUIViewFactory to manage view registration and data
+		synchronization.
+	*/
 	[ForeignInclude(Language.ObjC, "@(Project.Name)-Swift.h")]
 	[Require("source.include", "UIKit/UIKit.h")]
 	[Require("source.include", "iOS/SwiftUIHostingContainer.h")]
@@ -47,6 +55,10 @@ namespace Fuse.Controls.Native.iOS
 		}
 
 		string _data;
+		/**
+			JSON object data to pass to the SwiftUI view.
+			Changes are automatically synchronized with the SwiftUI view through SwiftUIViewFactory.
+		*/
 		public string Data
 		{
 			get { return _data; }
@@ -61,6 +73,10 @@ namespace Fuse.Controls.Native.iOS
 		}
 
 		string _dataArray;
+		/**
+			JSON array data to pass to the SwiftUI view.
+			Array changes are automatically synchronized with the SwiftUI view.
+		*/
 		public string DataArray
 		{
 			get { return _dataArray; }
@@ -75,6 +91,10 @@ namespace Fuse.Controls.Native.iOS
 		}
 
 		float _dataFloat;
+		/**
+			Float data to pass to the SwiftUI view.
+			Changes are automatically synchronized with the SwiftUI view.
+		*/
 		public float DataFloat
 		{
 			get { return _dataFloat; }
@@ -89,6 +109,10 @@ namespace Fuse.Controls.Native.iOS
 		}
 
 		int _dataInteger;
+		/**
+			Integer data to pass to the SwiftUI view.
+			Changes are automatically synchronized with the SwiftUI view.
+		*/
 		public int DataInteger
 		{
 			get { return _dataInteger; }
@@ -103,6 +127,10 @@ namespace Fuse.Controls.Native.iOS
 		}
 
 		bool _dataBool;
+		/**
+			Boolean data to pass to the SwiftUI view.
+			Changes are automatically synchronized with the SwiftUI view.
+		*/
 		public bool DataBool
 		{
 			get { return _dataBool; }
@@ -117,6 +145,10 @@ namespace Fuse.Controls.Native.iOS
 		}
 
 		string _dataString;
+		/**
+			String data to pass to the SwiftUI view.
+			Changes are automatically synchronized with the SwiftUI view.
+		*/
 		public string DataString
 		{
 			get { return _dataString; }
@@ -131,6 +163,12 @@ namespace Fuse.Controls.Native.iOS
 		}
 
 		string _source;
+		/**
+			The name of the SwiftUI view to display.
+
+			Should correspond to a view registered with SwiftUIViewFactory.
+			Changing the source will replace the current SwiftUI view with the new one.
+		*/
 		public string Source
 		{
 			get { return _source; }
@@ -203,6 +241,10 @@ namespace Fuse.Controls.Native.iOS
 			[SwiftUIViewFactory setDataWithViewName:viewName dataString:data];
 		@}
 
+		/**
+			Creates a SwiftUIHostingContainer configured for hosting SwiftUI views.
+			The container is configured for proper touch handling, layout, and clipping behavior.
+		*/
 		[Foreign(Language.ObjC)]
 		static ObjC.Object Create()
 		@{

@@ -12,6 +12,10 @@ namespace Fuse.Controls
 	using Native.iOS;
 	using Native.Android;
 
+	/**
+		Event arguments for PlatformView events, containing event name and value data
+		that can be serialized for JavaScript consumption.
+	*/
 	public class PlatformViewArgs : EventArgs, IScriptEvent
 	{
 		string _eventName;
@@ -36,6 +40,10 @@ namespace Fuse.Controls
 
 	public delegate void PlatformViewHandler(object sender, PlatformViewArgs args);
 
+	/**
+		Interface defining the contract for platform-specific native view implementations.
+		Provides data binding capabilities for various data types.
+	*/
 	interface IPlatformView
 	{
 		string Source { set; }
@@ -47,12 +55,42 @@ namespace Fuse.Controls
 		string DataString { set; }
 	}
 
+	/**
+		Enables embedding native platform-specific UI components within Fuse applications.
+
+		PlatformView provides a bridge between Fuse and native UI frameworks:
+		- SwiftUI views on iOS
+		- Jetpack Compose views on Android
+
+		Features two-way data binding, event handling, and supports multiple data types
+		including primitives (string, bool, int, float) and complex types (objects, arrays)
+		that are JSON-serialized for native consumption.
+
+		## Example
+
+		Basic usage with data binding:
+		```xml
+			<PlatformView ViewName="MyCustomView"
+			              DataString="Hello from Fuse"
+			              DataInteger="42"
+			              EventHandler="{onNativeEvent}" />
+		```
+
+		With complex data:
+		```xml
+			<PlatformView ViewName="DataView" DataObject="{userProfile}" />
+		```
+	*/
 	public abstract partial class PlatformViewBase : Panel
 	{
 
 		static Selector _dataStringName = "DataString";
 
 		string _dataString;
+		/**
+			String value to pass to the native view.
+			Changes are automatically synchronized with the native view.
+		*/
 		[UXOriginSetter("SetDataString")]
 		public string DataString
 		{
@@ -82,6 +120,10 @@ namespace Fuse.Controls
 		static Selector _dataBoolName = "DataBool";
 
 		bool _dataBool;
+		/**
+			Boolean value to pass to the native view.
+			Changes are automatically synchronized with the native view.
+		*/
 		[UXOriginSetter("SetDataBool")]
 		public bool DataBool
 		{
@@ -111,6 +153,10 @@ namespace Fuse.Controls
 		static Selector _dataIntegerName = "DataInteger";
 
 		int _dataInteger;
+		/**
+			Integer value to pass to the native view.
+			Changes are automatically synchronized with the native view.
+		*/
 		[UXOriginSetter("SetDataInteger")]
 		public int DataInteger
 		{
@@ -140,6 +186,10 @@ namespace Fuse.Controls
 		static Selector _dataFloatName = "DataFloat";
 
 		float _dataFloat;
+		/**
+			Float value to pass to the native view.
+			Changes are automatically synchronized with the native view.
+		*/
 		[UXOriginSetter("SetDataFloat")]
 		public float DataFloat
 		{
@@ -169,6 +219,10 @@ namespace Fuse.Controls
 		static Selector _dataObjectName = "DataObject";
 
 		object _dataObject;
+		/**
+			Object to pass to the native view.
+			The object is automatically JSON-serialized before being sent to the native view.
+		*/
 		[UXOriginSetter("SetDataObject")]
 		public object DataObject
 		{
@@ -198,6 +252,10 @@ namespace Fuse.Controls
 		static Selector _dataArrayName = "DataArray";
 
 		object _dataArray;
+		/**
+			Array/list to pass to the native view.
+			The array is automatically JSON-serialized before being sent to the native view.
+		*/
 		[UXOriginSetter("SetDataArray")]
 		public object DataArray
 		{
@@ -225,6 +283,13 @@ namespace Fuse.Controls
 		static Selector _viewNameSelector = "ViewName";
 
 		string _viewName;
+		/**
+			The name/identifier of the native view to display.
+
+			This should correspond to a view registered with the platform-specific view factory:
+			- iOS: SwiftUI view registered with SwiftUIViewFactory
+			- Android: Jetpack Compose view registered with ComposeViewFactory
+		*/
 		[UXOriginSetter("SetViewName")]
 		public string ViewName
 		{
@@ -249,6 +314,10 @@ namespace Fuse.Controls
 			}
 		}
 
+		/**
+			Event triggered when the native view sends events back to Fuse.
+			Subscribe to this event to handle custom events from native views.
+		*/
 		public event PlatformViewHandler EventHandler;
 
 		internal void TriggerEvent(string eventName, string value)

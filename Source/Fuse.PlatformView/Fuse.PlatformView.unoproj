@@ -17,7 +17,7 @@
   "includes": [
     "*",
     "Android/Compose.uxl",
-    "Android/ComposeViewFactory.kt:Java:Android",
+    "Android/ComposeViewFactory.kt:Kotlin:Android",
     "iOS/SwiftUIViewFactory.swift:Swift:iOS",
     "iOS/SwiftUIHostingContainer.h:objcheader:iOS",
     "iOS/SwiftUIHostingContainer.m:objcsource:iOS"
