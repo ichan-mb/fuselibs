@@ -274,16 +274,16 @@ fun JSONArray.toArrayList(): ArrayList<Any> {
  *
  * @return Map<String, Any> containing the converted JSON object data
  */
-fun JSONObject.toMap(): Map<String, Any> =
-        keys().asSequence().associateWith {
-            when (val value = this[it]) {
-                is JSONArray -> {
-                    val map = (0 until value.length()).associate { Pair(it.toString(), value[it]) }
-                    JSONObject(map).toMap().values.toList()
-                }
-                is JSONObject -> value.toMap()
-                JSONObject.NULL -> null
-                else -> value
-            } as
-                    Any
-        }
+ fun JSONObject.toMap(): Map<String, Any> = keys().asSequence().associateWith {
+     when (val value = this[it])
+     {
+         is JSONArray ->
+         {
+             val map = (0 until value.length()).associate { Pair(it.toString(), value[it]) }
+             JSONObject(map).toMap().values.toList()
+         }
+         is JSONObject -> value.toMap()
+         JSONObject.NULL -> null
+         else  -> value
+     } as Any
+ }
