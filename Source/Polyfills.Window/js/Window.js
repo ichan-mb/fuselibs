@@ -18,9 +18,13 @@ if (typeof window == 'undefined') (function (g){
 require("js/WindowTimers.js");
 require("js/EventTarget.js");
 require("js/WindowBase64.js");
-require("js/File.js");
 require("js/Blob.js");
+require("js/File.js");
+require("js/URLSearchParams.js");
 require("js/URL.js");
+require("js/text-encoding.js");
+require("js/web-streams.js");
+require("js/FormData.js");
 require("js/XMLHttpRequest.js");
 require("js/fetch.js");
 require("js/localStorage.js");

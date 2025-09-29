@@ -1,375 +1,471 @@
 self = this;
-(function(self) {
-    'use strict';
+(function (self) {
+	"use strict";
 
-    self.URL = function(url, base) {
 
-        let _hash;
-        let _hostname;
-        let _password;
-        let _pathname;
-        let _port;
-        let _protocol;
-        let _search;
-        let _username;
+	// Ensure URLSearchParams is available
+	if (!self.URLSearchParams) {
+		throw new Error("URLSearchParams polyfill is required for URL polyfill");
+	}
 
-        Object.defineProperty(this, 'hash', {
-            get: function() {
-            return _hash;
-            },
-            set: function(value) {
-            _hash = value.length > 0 ? '#' + value.match(/^#*(.*)/)[1] : '';
-            return value;
-            }
-        });
+	// Default ports for common protocols
+	const DEFAULT_PORTS = {
+		"ftp:": "21",
+		"http:": "80",
+		"https:": "443",
+		"ws:": "80",
+		"wss:": "443",
+	};
 
-        Object.defineProperty(this, 'host', {
-            get: function() {
-            return _port.length > 0 ? _hostname + ':' + _port : _hostname;
-            },
-            set: function(value) {
-            const parts = value.split(':');
-            this.hostname = parts[0];
-            this.port = parts[1];
-            return value;
-            }
-        });
+	// Valid protocols (scheme names)
+	const VALID_PROTOCOLS = /^[a-z][a-z0-9+.-]*:$/i;
 
-        Object.defineProperty(this, 'hostname', {
-            get: function() {
-            return _hostname;
-            },
-            set: function(value) {
-            _hostname = value.length > 0 ? encodeURIComponent(value) : _hostname;
-            return value;
-            }
-        });
+	// Helper function to normalize protocol
+	function normalizeProtocol(protocol) {
+		if (typeof protocol !== "string") return "";
+		protocol = protocol.toLowerCase();
+		if (!protocol.endsWith(":")) {
+			protocol += ":";
+		}
+		return VALID_PROTOCOLS.test(protocol) ? protocol : "";
+	}
 
-        function removeUsername(match, username, password) {
-            if (password === '@') {
-            return '';
-            } else {
-            return password;
-            }
-        }
+	// Helper function to normalize port
+	function normalizePort(port, protocol) {
+		if (!port || port === "" || port === "0") {
+			return "";
+		}
 
-        Object.defineProperty(this, 'href', {
-            get: function() {
-            let hrefStr = _protocol + '//';
-            if (_username.length > 0 || _password.length > 0) {
-                if (_username.length > 0) {
-                hrefStr += _username;
-                }
-                if (_password.length > 0) {
-                hrefStr += ':' + _password;
-                }
-                hrefStr += '@'
-            }
-            hrefStr += _hostname;
-            if (_port.length > 0) {
-                hrefStr += ':' + _port;
-            }
-            hrefStr += _pathname + _search + _hash;
-            return hrefStr;
-            },
-            set: function(value) {
+		const portNum = parseInt(port, 10);
+		if (isNaN(portNum) || portNum < 0 || portNum > 65535) {
+			return "";
+		}
 
-            this.protocol = value;
-            value = value.replace(/.*?:\/*/, '');
+		const portStr = String(portNum);
 
-            const usernameMatch = value.match(/([^:]*).*@/);
-            this.username = usernameMatch ? usernameMatch[1] : '';
-            value = value.replace(/([^:]*):?(.*@)/, removeUsername);
+		// Return empty string if it's the default port for the protocol
+		if (DEFAULT_PORTS[protocol] === portStr) {
+			return "";
+		}
 
-            const passwordMatch = value.match(/.*(?=@)/);
-            this.password = passwordMatch ? passwordMatch[0] : '';
-            value = value.replace(/.*@/, '');
+		return portStr;
+	}
 
-            this.hostname = value.match(/[^:/?]*/);
+	// Helper function to normalize pathname
+	function normalizePathname(pathname) {
+		if (typeof pathname !== "string") {
+			return "/";
+		}
 
-            const portMatch = value.match(/:(\d+)/);
-            this.port = portMatch ? portMatch[1] : '';
+		// Ensure pathname starts with '/'
+		if (!pathname.startsWith("/")) {
+			pathname = "/" + pathname;
+		}
 
-            const pathnameMatch = value.match(/\/([^?#]*)/);
-            this.pathname = pathnameMatch ? pathnameMatch[1] : '';
+		// Resolve . and .. segments
+		const segments = pathname.split("/");
+		const resolved = [];
 
-            const searchMatch = value.match(/\?[^#]*/);
-            this.search = searchMatch ? searchMatch[0] : '';
+		for (let i = 0; i < segments.length; i++) {
+			const segment = segments[i];
 
-            const hashMatch = value.match(/\#.*/);
-            this.hash = hashMatch ? hashMatch[0] : '';
-            }
-        });
+			if (segment === "." || segment === "") {
+				if (i === segments.length - 1) {
+					// Keep trailing slash for paths ending with /. or //
+					continue;
+				}
+			} else if (segment === "..") {
+				if (resolved.length > 0 && resolved[resolved.length - 1] !== "..") {
+					resolved.pop();
+				}
+			} else {
+				resolved.push(segment);
+			}
+		}
 
-        Object.defineProperty(this, 'origin', {
-            get: function() {
-            const originStr = _protocol + '//' + _hostname;
-            if (_port.length > 0) {
-                originStr += ':' + _port;
-            }
-            return originStr;
-            },
-            set: function(value) {
+		let result = "/" + resolved.join("/");
 
-            this.protocol = value;
-            value = value.replace(/.*?:\/*/, '');
+		// Preserve trailing slash if original had one
+		if (pathname.endsWith("/") && !result.endsWith("/") && result !== "/") {
+			result += "/";
+		}
 
-            this.hostname = value.match(/[^:/?]*/);
+		return result;
+	}
 
-            const portMatch = value.match(/:(\d+)/);
-            this.port = portMatch ? portMatch[1] : '';
-            }
-        });
+	// Helper function to resolve relative URLs
+	function resolveURL(url, base) {
+		if (!base) {
+			throw new TypeError("Invalid base URL");
+		}
 
-        Object.defineProperty(this, 'password', {
-            get: function() {
-            return _password;
-            },
-            set: function(value) {
-            _password = encodeURIComponent(value);
-            return value;
-            }
-        });
+		// Parse base URL
+		const baseURL = typeof base === "string" ? new self.URL(base) : base;
 
-        Object.defineProperty(this, 'pathname', {
-            get: function() {
-            return _pathname;
-            },
-            set: function(value) {
-            _pathname = '/' + value.match(/\/?(.*)/)[1];
-            return value;
-            }
-        });
+		// If url is absolute, return it as-is
+		if (/^[a-z][a-z0-9+.-]*:/i.test(url)) {
+			return url;
+		}
 
-        Object.defineProperty(this, 'port', {
-            get: function() {
-            return _port;
-            },
-            set: function(value) {
-            if (isNaN(value) || value === '') {
-                _port = '';
-            } else {
-                _port = Math.min(65535, value).toString();
-            }
-            return value;
-            }
-        });
+		// Handle protocol-relative URLs
+		if (url.startsWith("//")) {
+			return baseURL.protocol + url;
+		}
 
-        Object.defineProperty(this, 'protocol', {
-            get: function() {
-            return _protocol;
-            },
-            set: function(value) {
-            _protocol = value.match(/[^/:]*/)[0] + ':';
-            return value;
-            }
-        });
+		// Handle absolute paths
+		if (url.startsWith("/")) {
+			return baseURL.protocol + "//" + baseURL.host + url;
+		}
 
-        Object.defineProperty(this, 'search', {
-            get: function() {
-            return _search;
-            },
-            set: function(value) {
-            _search = value.length > 0 ? '?' + value.match(/\??(.*)/)[1] : '';
-            return value;
-            }
-        });
+		// Handle relative paths
+		let basePath = baseURL.pathname;
+		if (!basePath.endsWith("/")) {
+			// Remove filename from base path
+			const lastSlash = basePath.lastIndexOf("/");
+			basePath = basePath.substring(0, lastSlash + 1);
+		}
 
-        Object.defineProperty(this, 'username', {
-            get: function() {
-            return _username;
-            },
-            set: function(value) {
-            _username = value;
-            }
-        });
+		return baseURL.protocol + "//" + baseURL.host + basePath + url;
+	}
 
-        // If a string is passed for url instead of location or link, then set the
-        if (typeof url === 'string') {
+	// Parse URL string into components
+	function parseURL(url) {
+		// Basic URL regex pattern
+		const urlPattern =
+			/^(?:([^:/?#]+):)?(\/\/)?([^/?#]*)?([^?#]*)(\?[^#]*)?(#.*)?$/;
+		const match = url.match(urlPattern);
 
-            const urlIsValid = /^[a-zA-z]+:\/\/.*/.test(url);
-            const baseIsValid = /^[a-zA-z]+:\/\/.*/.test(base);
+		if (!match) {
+			throw new TypeError("Invalid URL: " + url);
+		}
 
-            if (urlIsValid) {
-                this.href = url;
-            }
+		const [, protocol, slashes, authority, pathname, search, hash] = match;
 
-            // If the url isn't valid, but the base is, then prepend the base to the url.
-            else if (baseIsValid) {
-                this.href = base + url;
-            }
+		// Parse authority (user:pass@host:port)
+		let username = "";
+		let password = "";
+		let hostname = "";
+		let port = "";
 
-            // If no valid url or base is given, then throw a type error.
-            else {
-                throw new TypeError('URL string is not valid. If using a relative url, a second argument needs to be passed representing the base URL. Example: new URL("relative/path", "http://www.example.com");');
-            }
+		if (authority) {
+			const authorityPattern =
+				/^(?:([^:@]*)(?::([^@]*))?@)?([^:]+)(?::(\d+))?$/;
+			const authMatch = authority.match(authorityPattern);
 
-        } else {
+			if (authMatch) {
+				[, username, password, hostname, port] = authMatch;
+				username = username || "";
+				password = password || "";
+				hostname = hostname || "";
+				port = port || "";
+			} else {
+				hostname = authority;
+			}
+		}
 
-            // Copy all of the location or link properties to the
-            // new URL instance.
-            _hash = url.hash;
-            _hostname = url.hostname;
-            _password = url.password ? url.password : '';
-            _pathname = url.pathname;
-            _port = url.port;
-            _protocol = url.protocol;
-            _search = url.search;
-            _username = url.username ? url.username: '';
+		return {
+			protocol: protocol ? protocol.toLowerCase() + ":" : "",
+			username: username ? decodeURIComponent(username) : "",
+			password: password ? decodeURIComponent(password) : "",
+			hostname: hostname ? hostname.toLowerCase() : "",
+			port: port || "",
+			pathname: pathname || "/",
+			search: search || "",
+			hash: hash || "",
+		};
+	}
 
-        }
+	// URL constructor
+	self.URL = function URL(url, base) {
+		if (arguments.length === 0) {
+			throw new TypeError("URL constructor requires at least 1 argument");
+		}
 
-        this.toString = () => this.href;
-        this.toJSON = () => JSON.stringify({
-            hash: this.hash,
-            host: this.host,
-            hostname: this.hostname,
-            href: this.href,
-            origin: this.origin,
-            password: this.password,
-            pathname: this.pathname,
-            port: this.port,
-            protocol: this.protocol,
-            search: this.search,
-            searchParams: this.searchParams,
-            username: this.username,
-        });
+		url = String(url);
 
-        this.searchParams = (function(url) {
+		// Resolve relative URLs
+		if (base !== undefined) {
+			url = resolveURL(url, base);
+		}
 
-            // Create 2 seperate arrays for the params and values to make management and lookup easier.
-            const params = [];
-            const values = [];
-            if (url.search.length > 0) {
-                const pairs = url.search.slice(1).split('&');
-                pairs.forEach(function(pair) {
-                    const parts = pair.split('=');
-                    params.push(parts[0]);
-                    values.push(parts[1]);
-                });
-            }
+		// Parse the URL
+		const parsed = parseURL(url);
 
-            // Update the search property of the URL instance with the new params and values.
-            function updateSearchString() {
-            if (params.length === 0) {
-                url.search = '';
-            } else {
-                url.search = params.map(function(param, index) {
-                return param + '=' + values[index];
-                }).join('&');
-            }
-            }
+		// Validate required components
+		if (!parsed.protocol) {
+			throw new TypeError("Invalid URL: missing protocol");
+		}
 
-            // Expose functions to mimic the behavior of the native searchParams methods.
-            return {
+		// Private properties
+		let _protocol = normalizeProtocol(parsed.protocol);
+		let _username = parsed.username;
+		let _password = parsed.password;
+		let _hostname = parsed.hostname;
+		let _port = normalizePort(parsed.port, _protocol);
+		let _pathname = normalizePathname(parsed.pathname);
+		let _search = parsed.search;
+		let _hash = parsed.hash;
+		let _searchParams = new self.URLSearchParams(_search);
 
-            // Add a given param with a given value to the end.
-            append: function(param, value) {
-                params.push(param);
-                values.push(value);
-                updateSearchString();
-            },
+		// Update search when searchParams changes
+		const updateSearch = () => {
+			const searchString = _searchParams.toString();
+			_search = searchString ? "?" + searchString : "";
+		};
 
-            // Remove all occurances of a given param
-            delete: function(param) {
-                while(params.indexOf(param) > -1) { // Continue until the param is not found.
-                    values.splice(params.indexOf(param), 1);
-                    params.splice(params.indexOf(param), 1);
-                }
-                updateSearchString();
-            },
+		// Override searchParams methods to keep URL in sync
+		const originalAppend = _searchParams.append;
+		_searchParams.append = function (name, value) {
+			originalAppend.call(this, name, value);
+			updateSearch();
+		};
 
-            // Return an array to be structured in this way: [[param1, value1], [param2, value2]] to
-            // mimic the native method's ES6 iterator.
-            entries: function() {
-                return params.map(function(param, index) {
-                return [param, values[index]];
-                });
-            },
+		const originalSet = _searchParams.set;
+		_searchParams.set = function (name, value) {
+			originalSet.call(this, name, value);
+			updateSearch();
+		};
 
-            // Return the value matched to the first occurance of a given param.
-            get: function(param) {
-                return values[params.indexOf(param)];
-            },
+		const originalDelete = _searchParams.delete;
+		_searchParams.delete = function (name) {
+			originalDelete.call(this, name);
+			updateSearch();
+		};
 
-            // Return all values matched to all occurances of a given param.
-            getAll: function(param) {
-                return values.filter(function(value, index) {
-                return params[index] === param;
-                });
-            },
+		const originalSort = _searchParams.sort;
+		_searchParams.sort = function () {
+			originalSort.call(this);
+			updateSearch();
+		};
 
-            // Return a boolean to indicate whether a given param exists.
-            has: function(param) {
-                return params.indexOf(param) > -1;
-            },
+		// Protocol property
+		Object.defineProperty(this, "protocol", {
+			get: () => _protocol,
+			set: (value) => {
+				const normalized = normalizeProtocol(value);
+				if (normalized) {
+					_protocol = normalized;
+					_port = normalizePort(_port, _protocol);
+				}
+			},
+			enumerable: true,
+			configurable: true,
+		});
 
-            // Return an array of the param names to mimic the native method's ES6 iterator.
-            keys: function() {
-                return params;
-            },
+		// Username property
+		Object.defineProperty(this, "username", {
+			get: () => _username,
+			set: (value) => {
+				_username = String(value);
+			},
+			enumerable: true,
+			configurable: true,
+		});
 
-            // Set a given param to a given value.
-            set: function set(param, value) {
-                if (params.indexOf(param) === -1) {
-                this.append(param,value); // If the given param doesn't already exist, append it.
-                } else {
+		// Password property
+		Object.defineProperty(this, "password", {
+			get: () => _password,
+			set: (value) => {
+				_password = String(value);
+			},
+			enumerable: true,
+			configurable: true,
+		});
 
-                let first = true;
-                const newValues = [];
+		// Hostname property
+		Object.defineProperty(this, "hostname", {
+			get: () => _hostname,
+			set: (value) => {
+				_hostname = String(value).toLowerCase();
+			},
+			enumerable: true,
+			configurable: true,
+		});
 
-                // If the param already exists, change the value of the first occurance and remove any
-                // remaining occurances.
-                params = params.filter(function(currentParam, index) {
+		// Port property
+		Object.defineProperty(this, "port", {
+			get: () => _port,
+			set: (value) => {
+				_port = normalizePort(value, _protocol);
+			},
+			enumerable: true,
+			configurable: true,
+		});
 
-                    // If the currentParam isn't the one being changed keep the param and it's current value.
-                    if (currentParam !== param) {
-                    newValues.push(values[index]);
-                    return true;
-                    }
+		// Host property (hostname:port)
+		Object.defineProperty(this, "host", {
+			get: () => (_port ? _hostname + ":" + _port : _hostname),
+			set: (value) => {
+				const hostValue = String(value);
+				const colonIndex = hostValue.lastIndexOf(":");
 
-                    // If the currentParam matches the one being changed and it's the first one, keep the
-                    // param and change its value to the given one.
-                    else if (first) {
-                    first = false;
-                    newValues.push(value);
-                    return true;
-                    }
+				if (colonIndex === -1) {
+					this.hostname = hostValue;
+					this.port = "";
+				} else {
+					this.hostname = hostValue.substring(0, colonIndex);
+					this.port = hostValue.substring(colonIndex + 1);
+				}
+			},
+			enumerable: true,
+			configurable: true,
+		});
 
-                    // If the currentParam matches the one being changed, but it's not the first, remove it.
-                    return false;
-                });
-                values = newValues;
-                updateSearchString();
-                }
-            },
+		// Pathname property
+		Object.defineProperty(this, "pathname", {
+			get: () => _pathname,
+			set: (value) => {
+				_pathname = normalizePathname(String(value));
+			},
+			enumerable: true,
+			configurable: true,
+		});
 
-            // Sort all key/value pairs, if any, by their keys then by their values.
-            sort: function() {
+		// Search property
+		Object.defineProperty(this, "search", {
+			get: () => _search,
+			set: (value) => {
+				const searchValue = String(value);
+				_search =
+					searchValue && !searchValue.startsWith("?")
+						? "?" + searchValue
+						: searchValue;
+				_searchParams = new self.URLSearchParams(_search);
 
-                // Call entries to make sorting easier, then rewrite the params and values in the new order.
-                const sortedPairs = this.entries().sort();
-                params = [];
-                values = [];
-                sortedPairs.forEach(function(pair) {
-                params.push(pair[0]);
-                values.push(pair[1]);
-                })
-                updateSearchString();
-            },
+				// Re-bind the override methods
+				const originalAppend = _searchParams.append;
+				_searchParams.append = function (name, value) {
+					originalAppend.call(this, name, value);
+					updateSearch();
+				};
 
-            // Return the search string without the '?'.
-            toString: function() {
-                return url.search.slice(1);
-            },
+				const originalSet = _searchParams.set;
+				_searchParams.set = function (name, value) {
+					originalSet.call(this, name, value);
+					updateSearch();
+				};
 
-            // Return and array of the param values to mimic the native method's ES6 iterator..
-            values: function() {
-                return values;
-            }
-            };
-        })(this);
-    };
-    self.URL.polyfill = true
+				const originalDelete = _searchParams.delete;
+				_searchParams.delete = function (name) {
+					originalDelete.call(this, name);
+					updateSearch();
+				};
 
-})(typeof self !== 'undefined' ? self : this)
+				const originalSort = _searchParams.sort;
+				_searchParams.sort = function () {
+					originalSort.call(this);
+					updateSearch();
+				};
+			},
+			enumerable: true,
+			configurable: true,
+		});
+
+		// Hash property
+		Object.defineProperty(this, "hash", {
+			get: () => _hash,
+			set: (value) => {
+				const hashValue = String(value);
+				_hash =
+					hashValue && !hashValue.startsWith("#") ? "#" + hashValue : hashValue;
+			},
+			enumerable: true,
+			configurable: true,
+		});
+
+		// SearchParams property
+		Object.defineProperty(this, "searchParams", {
+			get: () => _searchParams,
+			enumerable: true,
+			configurable: true,
+		});
+
+		// Origin property (read-only)
+		Object.defineProperty(this, "origin", {
+			get: () => {
+				if (_protocol === "file:") {
+					return "null";
+				}
+				return _protocol + "//" + this.host;
+			},
+			enumerable: true,
+			configurable: true,
+		});
+
+		// Href property
+		Object.defineProperty(this, "href", {
+			get: () => {
+				let result = _protocol + "//";
+
+				if (_username || _password) {
+					if (_username) {
+						result += encodeURIComponent(_username);
+					}
+					if (_password) {
+						result += ":" + encodeURIComponent(_password);
+					}
+					result += "@";
+				}
+
+				result += _hostname;
+
+				if (_port) {
+					result += ":" + _port;
+				}
+
+				result += _pathname + _search + _hash;
+
+				return result;
+			},
+			set: (value) => {
+				const newURL = new self.URL(String(value));
+				_protocol = newURL.protocol;
+				_username = newURL.username;
+				_password = newURL.password;
+				_hostname = newURL.hostname;
+				_port = newURL.port;
+				_pathname = newURL.pathname;
+				_search = newURL.search;
+				_hash = newURL.hash;
+
+				// Update searchParams
+				this.search = _search;
+			},
+			enumerable: true,
+			configurable: true,
+		});
+
+		// ToString method
+		this.toString = () => this.href;
+
+		// ToJSON method
+		this.toJSON = () => this.href;
+	};
+
+	// Static methods and properties
+	self.URL.createObjectURL =
+		self.URL.createObjectURL ||
+		function (blob) {
+			if (!blob || typeof blob !== "object") {
+				throw new TypeError(
+					"Failed to execute 'createObjectURL' on 'URL': parameter 1 is not of type 'Blob'.",
+				);
+			}
+
+			// Simple blob URL generation
+			const id = Math.random().toString(36).substring(2, 15);
+			return (
+				"blob:" + (self.location ? self.location.origin : "null") + "/" + id
+			);
+		};
+
+	self.URL.revokeObjectURL =
+		self.URL.revokeObjectURL ||
+		function (url) {
+			// Simple revoke implementation
+			return;
+		};
+
+	// Mark as polyfill
+	self.URL.polyfill = true;
+})(typeof self !== "undefined" ? self : this);
