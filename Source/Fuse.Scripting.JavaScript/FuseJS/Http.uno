@@ -98,6 +98,7 @@ namespace Fuse.Reactive.FuseJS
 			int _cachedResponseStatus;
 			HttpResponseType _cachedResponseType;
 			HttpRequestState _finalState;
+			Function _streamingCallback; // Store the streaming callback
 
 
 			public FuseJSHttpRequest(Context context, HttpMessageHandlerRequest req)
@@ -112,6 +113,7 @@ namespace Fuse.Reactive.FuseJS
 				_req.Done += OnDone;
 				_req.StateChanged += OnStateChanged;
 				_req.Progress += OnProgress;
+				_req.StreamingData += OnStreamingData;
 
 				Obj["enableCache"] = (Callback)EnableCache;
 				Obj["setTimeout"] = JSCallback.FromAction<int>(SetTimeout);
@@ -128,6 +130,7 @@ namespace Fuse.Reactive.FuseJS
 				Obj["getResponseReasonPhrase"] = (Callback)GetResponseReasonPhrase;
 				Obj["getResponseContentString"] = (Callback)GetResponseContentString;
 				Obj["getResponseContentByteArray"] = (Callback)GetResponseContentByteArray;
+				Obj["setStreamingDataCallback"] = (Callback)SetStreamingDataCallback;
 			}
 
 			void DetachRequest()
@@ -156,6 +159,7 @@ namespace Fuse.Reactive.FuseJS
 				_req.Done -= OnDone;
 				_req.StateChanged -= OnStateChanged;
 				_req.Progress -= OnProgress;
+				_req.StreamingData -= OnStreamingData;
 
 				_req.Dispose();
 				_req = null;
@@ -297,6 +301,41 @@ namespace Fuse.Reactive.FuseJS
 					func.Call(_context, current, total, hastotal);
 			}
 
+			void OnStreamingData(HttpMessageHandlerRequest res, byte[] data, bool isComplete)
+			{
+				// Convert byte array to JavaScript array
+				object jsData = null;
+				if (data != null && data.Length > 0)
+				{
+					// Convert byte array to object array for JavaScript
+					var objArray = new object[data.Length];
+					for (int i = 0; i < data.Length; i++)
+					{
+						objArray[i] = (int)data[i];
+					}
+					jsData = _context.NewArray(objArray);
+				}
+				else
+				{
+					jsData = _context.NewArray(new object[0]);
+				}
+
+				// Use the stored streaming callback if available
+				if (_streamingCallback != null)
+				{
+					_streamingCallback.Call(_context, jsData, isComplete);
+				}
+				else
+				{
+					// Fallback: Try to find it in the JavaScript object (for backward compatibility)
+					var func = Obj["onstreamingdata"] as Function;
+					if (func != null)
+					{
+						func.Call(_context, jsData, isComplete);
+					}
+				}
+			}
+
 			object SendAsync(Context context, object[] args)
 			{
 				if (args != null && args.Length > 0)
@@ -359,7 +398,8 @@ namespace Fuse.Reactive.FuseJS
 
 			object GetResponseReasonPhrase(Context context, object[] args)
 			{
-				return HttpStatusReasonPhrase.GetFromStatusCode(GetResponseStatus());
+				var reasonPhrase = HttpStatusReasonPhrase.GetFromStatusCode(GetResponseStatus());
+				return reasonPhrase ?? "Unknown Status";
 			}
 
 			object SetResponseType(Context context, object[] args)
@@ -382,6 +422,31 @@ namespace Fuse.Reactive.FuseJS
 					return (int)_cachedResponseType;
 				}
 				return (int)_req.HttpResponseType;
+			}
+
+			object SetStreamingDataCallback(Context context, object[] args)
+			{
+				CheckIsAttached();
+
+				if (args.Length > 0 && args[0] is Function)
+				{
+					var callback = args[0] as Function;
+
+					// Store the callback as an instance variable so OnStreamingData can access it
+					_streamingCallback = callback;
+
+					// Also store it in the JavaScript object for backward compatibility
+					Obj["onstreamingdata"] = callback;
+
+					// We need to call SetStreamingDataCallback to enable streaming mode at the native level,
+					// but we use an empty delegate to avoid duplicate processing (data will flow through
+					// the event-based OnStreamingData mechanism instead)
+					_req.SetStreamingDataCallback((data, isComplete) =>
+					{
+						// Empty - data is handled via OnStreamingData event to avoid duplicates
+					});
+				}
+				return null;
 			}
 		}
 	}

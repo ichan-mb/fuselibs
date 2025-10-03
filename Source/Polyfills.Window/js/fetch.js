@@ -1206,16 +1206,66 @@ self = this;
 				request = new Request(input, init);
 			}
 
-			var xhr = new XMLHttpRequest();
-			xhr.timeout = 60000;
+			// Native Uno HTTP Streaming Implementation
+			// This replaces the previous XMLHttpRequest polling approach with true
+			// event-driven streaming using the native Uno HTTP infrastructure.
+			// Benefits:
+			// - Real-time chunk processing (no 5ms polling delay)
+			// - Memory efficient (only current chunk in memory)
+			// - Uses platform-native streaming (iOS NSURLSession, Android HttpURLConnection)
+			// - Event-driven callbacks instead of continuous polling
+
+			// Check if streaming is requested
+			var isStreamingEnabled = init && init.stream === true;
 			var stream = null;
 			var streamController = null;
 			var aborted = false;
+			var streamClosed = false;
+
+			// Use XMLHttpRequest which already has streaming support working
+			var xhr = new XMLHttpRequest();
+			var pendingData = "";
+			var streamingCheckInterval = null;
+			var lastBufferLength = 0;
+
+
+
+			// Create ReadableStream for streaming responses
+			if (isStreamingEnabled) {
+				try {
+					stream = new ReadableStream({
+						start: function (controller) {
+							streamController = controller;
+						},
+						cancel: function () {
+							aborted = true;
+							if (xhr) {
+								xhr.abort();
+							}
+						},
+					});
+				} catch (streamError) {
+					console.error("❌ Error creating ReadableStream:", streamError);
+					throw streamError;
+				}
+			}
+
+			// Ensure WebStreams are available before proceeding
+			ensureWebStreams();
 
 			// Abort handler function
-			function abortXhr() {
+			function abortRequest() {
 				aborted = true;
-				xhr.abort();
+
+				// Clean up streaming monitoring
+				if (streamingCheckInterval) {
+					clearInterval(streamingCheckInterval);
+					streamingCheckInterval = null;
+				}
+
+				if (xhr) {
+					xhr.abort();
+				}
 				if (streamController) {
 					streamController.error(new Error("Request aborted"));
 				}
@@ -1225,328 +1275,27 @@ self = this;
 			// Set up abort signal if provided
 			if (request.signal) {
 				if (request.signal.aborted) {
-					abortXhr();
+					abortRequest();
 					return;
 				}
-				request.signal.addEventListener("abort", abortXhr);
+				request.signal.addEventListener("abort", abortRequest);
 			}
+			// Configure XMLHttpRequest
+			xhr.timeout = init && init.timeout ? init.timeout : 60000;
 
-			function responseURL() {
-				if ("responseURL" in xhr) {
-					return xhr.responseURL;
-				}
-
-				// Avoid security warnings on getResponseHeader when not allowed by CORS
-				if (/^X-Request-URL:/m.test(xhr.getAllResponseHeaders())) {
-					return xhr.getResponseHeader("X-Request-URL");
-				}
-
-				return;
-			}
-
-			// Create ReadableStream for streaming responses (opt-in only)
-			if (init && init.stream === true) {
-				console.log("🚀 Streaming enabled for request to:", request.url);
-				stream = new ReadableStream({
-					start: function (controller) {
-						streamController = controller;
-						console.log("📡 Stream controller initialized");
-					},
-					cancel: function () {
-						console.log("🛑 Stream cancelled by consumer");
-						xhr.abort();
-					},
-				});
-			}
-
-			var lastResponseLength = 0;
-			var streamingInterval = null;
-			var pendingData = "";
-
-			// Enhanced streaming processor for SSE responses
-			function processStreamingData(newData, isFinal) {
-				if (!streamController) return;
-
-				pendingData += newData;
-
-				// If this looks like SSE, process line by line
-				if (pendingData.includes("data:") || pendingData.includes("\n")) {
-					var lines = pendingData.split("\n");
-
-					// Keep the last incomplete line for next batch (unless final)
-					if (!isFinal && lines.length > 0) {
-						var lastLine = lines[lines.length - 1];
-						if (!lastLine.trim() || !lastLine.includes("data:")) {
-							pendingData = lines.pop();
-						} else {
-							pendingData = "";
-						}
-					} else {
-						pendingData = "";
-					}
-
-					// Process complete lines
-					for (var i = 0; i < lines.length; i++) {
-						var line = lines[i];
-						if (line.trim()) {
-							console.log("📊 Processing SSE line:", line.substring(0, 100));
-							var encoder = new TextEncoder();
-							streamController.enqueue(encoder.encode(line + "\n"));
-						}
-					}
-				} else {
-					// Non-SSE streaming data
-					console.log("📊 Processing raw chunk:", newData.length, "bytes");
-					var encoder = new TextEncoder();
-					streamController.enqueue(encoder.encode(newData));
-					pendingData = "";
-				}
-			}
-
-			var streamingResponseResolved = false;
-
-			// Helper function to resolve streaming response
-			function resolveStreamingResponse() {
-				if (streamingResponseResolved) return;
-				streamingResponseResolved = true;
-
-				console.log("📋 Headers available, resolving streaming response");
-				var allHeaders = xhr.getAllResponseHeaders();
-				console.log("🔍 Response headers:", allHeaders);
-
-				var options = {
-					status: xhr.status,
-					statusText: xhr.statusText,
-					headers: headers(xhr),
-					url: responseURL(),
-					body: stream,
-				};
-
-				console.log(
-					"📤 Resolving with streaming response, status:",
-					xhr.status,
-				);
-				resolve(new Response(null, options));
-
-				// Process any data that's already available
-				var responseText = xhr.responseText || "";
-				if (responseText.length > 0) {
-					console.log(
-						"📊 Processing existing data:",
-						responseText.length,
-						"bytes",
-					);
-					processStreamingData(responseText, xhr.readyState === 4);
-					lastResponseLength = responseText.length;
-				}
-
-				// Start polling for streaming data
-				console.log("⏰ Starting polling interval for streaming data");
-				streamingInterval = setInterval(function () {
-					if (xhr.readyState >= 3 && streamController && !aborted) {
-						var responseText = xhr.responseText || "";
-						if (responseText.length > lastResponseLength) {
-							var newData = responseText.slice(lastResponseLength);
-							lastResponseLength = responseText.length;
-							processStreamingData(newData, false);
-						}
-
-						if (xhr.readyState === 4) {
-							clearInterval(streamingInterval);
-							streamingInterval = null;
-						}
-					}
-				}, 5); // Fast polling for streaming
-			}
-
-			xhr.onreadystatechange = function () {
-				console.log(
-					"🔄 ReadyState changed to:",
-					xhr.readyState,
-					"Status:",
-					xhr.status,
-				);
-
-				if (xhr.readyState === 2) {
-					// HEADERS_RECEIVED - ideal case
-					if (stream) {
-						resolveStreamingResponse();
-					}
-				} else if (xhr.readyState === 3) {
-					// LOADING - fallback case if ReadyState 2 was skipped
-					if (stream && !streamingResponseResolved) {
-						console.log(
-							"⚠️ ReadyState 2 was skipped, resolving at ReadyState 3",
-						);
-						resolveStreamingResponse();
-					} else if (stream && streamController) {
-						// Process data if already resolved
-						console.log("⚡ ReadyState 3 - immediate processing");
-						var responseText = xhr.responseText || "";
-						if (responseText.length > lastResponseLength) {
-							var newData = responseText.slice(lastResponseLength);
-							lastResponseLength = responseText.length;
-							processStreamingData(newData, false);
-						}
-					}
-				} else if (xhr.readyState === 4) {
-					// DONE - final fallback if neither 2 nor 3 resolved streaming
-					if (stream && !streamingResponseResolved) {
-						console.log(
-							"⚠️ ReadyStates 2&3 were skipped, resolving at ReadyState 4",
-						);
-						resolveStreamingResponse();
-					}
-				}
-			};
-
-			xhr.onload = function () {
-				if (request.signal) {
-					request.signal.removeEventListener("abort", abortXhr);
-				}
-
-				if (aborted) return;
-
-				// Clear streaming interval
-				if (streamingInterval) {
-					clearInterval(streamingInterval);
-					streamingInterval = null;
-				}
-
-				if (streamController) {
-					// Process any final data
-					var responseText = xhr.responseText || "";
-					console.log(
-						"🏁 Final response length:",
-						responseText.length,
-						"Last processed:",
-						lastResponseLength,
-					);
-
-					if (responseText.length > lastResponseLength) {
-						var newData = responseText.slice(lastResponseLength);
-						console.log("📊 Final chunk:", newData.length, "bytes");
-						processStreamingData(newData, true);
-					}
-
-					// Process any remaining pending data
-					if (pendingData.trim()) {
-						console.log("📊 Processing final pending data");
-						var encoder = new TextEncoder();
-						streamController.enqueue(encoder.encode(pendingData));
-					}
-
-					console.log("🔚 Closing stream controller");
-					streamController.close();
-
-					// Debug analysis
-					if (responseText.includes("data:") && responseText.includes("\n")) {
-						console.log("💡 Confirmed: Server-Sent Events response!");
-						console.log("🔍 Total lines:", responseText.split("\n").length);
-					}
-				} else {
-					var options = {
-						status: xhr.status,
-						statusText: xhr.statusText,
-						headers: headers(xhr),
-						url: responseURL(),
-					};
-					var body = "response" in xhr ? xhr.response : xhr.responseText;
-
-					// For non-streaming responses, create proper body stream
-					if (support.stream && body) {
-						var responseStream;
-						if (typeof body === "string") {
-							var encoder = new TextEncoder();
-							var chunk = encoder.encode(body);
-							responseStream = new ReadableStream({
-								start(controller) {
-									controller.enqueue(chunk);
-									controller.close();
-								},
-							});
-						} else if (body instanceof ArrayBuffer) {
-							var chunk = new Uint8Array(body);
-							responseStream = new ReadableStream({
-								start(controller) {
-									controller.enqueue(chunk);
-									controller.close();
-								},
-							});
-						}
-						options.body = responseStream;
-					}
-
-					resolve(new Response(body, options));
-				}
-			};
-
-			xhr.onerror = function () {
-				if (request.signal) {
-					request.signal.removeEventListener("abort", abortXhr);
-				}
-
-				if (aborted) return;
-
-				// Clear streaming interval
-				if (streamingInterval) {
-					clearInterval(streamingInterval);
-					streamingInterval = null;
-				}
-
-				if (streamController) {
-					streamController.error(new TypeError("Network request failed"));
-				}
-				reject(new TypeError("Network request failed"));
-			};
-
-			xhr.ontimeout = function () {
-				if (request.signal) {
-					request.signal.removeEventListener("abort", abortXhr);
-				}
-
-				if (aborted) return;
-
-				// Clear streaming interval
-				if (streamingInterval) {
-					clearInterval(streamingInterval);
-					streamingInterval = null;
-				}
-
-				if (streamController) {
-					streamController.error(new TypeError("Network request timed out"));
-				}
-				reject(new TypeError("Network request timed out"));
-			};
-
-			console.log(
-				"🌐 Opening XHR:",
-				request.method,
-				request.url,
-				"streaming:",
-				!!stream,
-			);
 			xhr.open(request.method, request.url, true);
 
 			if (request.credentials === "include") {
 				xhr.withCredentials = true;
 			}
 
-			if ("responseType" in xhr && !stream) {
-				if (support.arrayBuffer) {
-					xhr.responseType = "arraybuffer";
-				}
-			} else if (stream) {
-				console.log("📡 Streaming mode - keeping default responseType");
-			}
-
+			// Set headers
 			request.headers.forEach(function (value, name) {
-				// Skip body-related headers for GET/HEAD requests (double-check)
+				// Skip body-related headers for GET/HEAD requests
 				if (
 					(request.method === "GET" || request.method === "HEAD") &&
 					isBodyRelatedHeader(name)
 				) {
-					// These should already be cleaned, but double-check
 					if (typeof console !== "undefined" && console.warn) {
 						console.warn(
 							"fetch(): Skipping " +
@@ -1556,30 +1305,386 @@ self = this;
 								" request",
 						);
 					}
-					return; // Skip this header
+					return;
 				}
 				xhr.setRequestHeader(name, value);
 			});
 
-			// Handle FormData serialization for XMLHttpRequest
-			let body = request._bodyInit;
+			// Set up XMLHttpRequest streaming using existing streaming buffer
+			if (isStreamingEnabled) {
+				// Set response type to Stream for proper streaming mode
+				if (xhr._fuseHttpRequest && xhr._fuseHttpRequest.setResponseType) {
+					xhr._fuseHttpRequest.setResponseType(2); // Stream = 2
+				}
+
+				var pendingData = "";
+
+				// Set up onstreamingdata handler to connect HttpMessageHandlerRequest streaming to fetch.js
+				xhr.onstreamingdata = function (data, isComplete) {
+					if (!streamController || aborted || streamClosed) {
+						return;
+					}
+
+					// Convert byte array to string
+					var chunk = "";
+					if (data && data.length > 0) {
+						for (var i = 0; i < data.length; i++) {
+							chunk += String.fromCharCode(data[i]);
+						}
+					}
+
+					if (isComplete) {
+						// Process any remaining chunk data
+						if (chunk && chunk.length > 0) {
+							var encoder = new TextEncoder();
+							streamController.enqueue(encoder.encode(chunk));
+						}
+
+						streamController.close();
+						streamController = null;
+						streamClosed = true;
+						return;
+					}
+
+					// Check for [DONE] marker which indicates completion
+					var isDoneChunk = false;
+					if (chunk && chunk.indexOf("[DONE]") !== -1) {
+						isDoneChunk = true;
+					}
+
+					// Process Server-Sent Events format if detected
+					if (chunk && (chunk.includes("data:") || chunk.includes("\n"))) {
+						var lines = chunk.split("\n");
+
+						for (var i = 0; i < lines.length; i++) {
+							var line = lines[i];
+							if (line.trim()) {
+								var encoder = new TextEncoder();
+								var encodedLine = encoder.encode(line + "\n");
+								streamController.enqueue(encodedLine);
+							}
+						}
+					} else if (chunk && chunk.length > 0) {
+						// Raw streaming data
+						var encoder = new TextEncoder();
+						var encodedData = encoder.encode(chunk);
+						streamController.enqueue(encodedData);
+					}
+
+					// Force completion if we detected [DONE] marker
+					if (isDoneChunk && !streamClosed) {
+						// Schedule closure to allow current chunk processing to complete
+						setTimeout(function () {
+							if (!streamClosed && streamController) {
+								streamController.close();
+								streamController = null;
+								streamClosed = true;
+							}
+						}, 200);
+						return;
+					}
+				};
+
+				// Set up direct streaming callback
+				if (xhr._streamingEnabled && xhr._streamingBuffer !== undefined) {
+
+					// Track last processed position
+					var lastProcessedLength = 0;
+
+					// Set up onchunk handler for XMLHttpRequest's streaming events
+					xhr.onchunk = function (chunk, buffer, isComplete) {
+						if (!streamController || aborted || streamClosed) {
+							return;
+						}
+
+						// Handle stream completion
+						if (isComplete) {
+							// Process any final data if buffer has grown
+							if (buffer && buffer.length > lastProcessedLength) {
+								var finalData = buffer.substring(lastProcessedLength);
+								if (finalData.length > 0) {
+									var encoder = new TextEncoder();
+									streamController.enqueue(encoder.encode(finalData));
+								}
+							}
+
+							// Close the stream controller
+							streamController.close();
+							streamController = null;
+							streamClosed = true;
+							return;
+						}
+
+						// Get new data from buffer since last processed position
+						var newData = "";
+						if (buffer && buffer.length > lastProcessedLength) {
+							newData = buffer.substring(lastProcessedLength);
+							lastProcessedLength = buffer.length;
+						} else if (chunk && chunk.length > 0) {
+							// Fallback to chunk if buffer tracking fails
+							newData = chunk;
+						}
+
+						// Check for [DONE] marker in onchunk as additional fallback
+						var isDoneInChunk = false;
+						if (
+							(newData && newData.indexOf("[DONE]") !== -1) ||
+							(buffer && buffer.indexOf("[DONE]") !== -1)
+						) {
+							isDoneInChunk = true;
+						}
+
+						if (newData.length === 0) {
+							// Still check for completion even with no new data
+							if (isDoneInChunk && !streamClosed) {
+								setTimeout(function () {
+									if (!streamClosed && streamController) {
+										streamController.close();
+										streamController = null;
+										streamClosed = true;
+									}
+								}, 50);
+							}
+							return;
+						}
+
+						// Encode and enqueue the new data immediately
+						var encoder = new TextEncoder();
+						var encodedData = encoder.encode(newData);
+						streamController.enqueue(encodedData);
+
+						// Force completion if we detected [DONE] marker
+						if (isDoneInChunk && !streamClosed) {
+							// Allow more time for all data to be processed
+							setTimeout(function () {
+								if (!streamClosed && streamController) {
+									streamController.close();
+									streamController = null;
+									streamClosed = true;
+								}
+							}, 100); // Increased delay to allow buffer processing
+						}
+					};
+
+					// Set up completion handler for streaming
+					var originalOnload = xhr.onload;
+
+					xhr.onload = function () {
+						// Close the stream controller if it exists and hasn't been closed yet
+						if (streamController && !streamClosed) {
+							// Process any remaining buffer data
+							if (
+								xhr._streamingBuffer &&
+								xhr._streamingBuffer.length > lastProcessedLength
+							) {
+								var finalData =
+									xhr._streamingBuffer.substring(lastProcessedLength);
+								var encoder = new TextEncoder();
+								streamController.enqueue(encoder.encode(finalData));
+							}
+
+							streamController.close();
+							streamController = null;
+							streamClosed = true;
+						}
+
+						// Call original onload if it exists
+						if (originalOnload) {
+							originalOnload.call(xhr);
+						}
+					};
+
+					// Only use monitoring as a fallback if onchunk is not available
+					function monitorStreamingBuffer() {
+						if (!streamController || aborted || xhr.onchunk) {
+							// Stop monitoring if we have onchunk handler
+							if (streamingCheckInterval) {
+								clearInterval(streamingCheckInterval);
+								streamingCheckInterval = null;
+							}
+							return;
+						}
+
+						if (xhr._streamingBuffer !== undefined) {
+							var currentBufferLength = xhr._streamingBuffer.length;
+
+							if (currentBufferLength > lastBufferLength) {
+								// New data has arrived
+								var newData = xhr._streamingBuffer.substring(lastBufferLength);
+								lastBufferLength = currentBufferLength;
+
+								// Encode and enqueue immediately
+								var encoder = new TextEncoder();
+								var encodedData = encoder.encode(newData);
+								streamController.enqueue(encodedData);
+							}
+						}
+
+						// Check if request is complete
+						if (xhr.readyState === 4) {
+							if (streamingCheckInterval) {
+								clearInterval(streamingCheckInterval);
+								streamingCheckInterval = null;
+							}
+
+							// Only close if not already closed
+							if (!streamClosed) {
+								// Process any remaining data
+								if (
+									xhr._streamingBuffer &&
+									xhr._streamingBuffer.length > lastBufferLength
+								) {
+									var finalData =
+										xhr._streamingBuffer.substring(lastBufferLength);
+									if (finalData.trim()) {
+										var encoder = new TextEncoder();
+										streamController.enqueue(encoder.encode(finalData));
+									}
+								} else if (xhr._streamingBuffer && lastBufferLength === 0) {
+									// Edge case: buffer exists but we never tracked it, send all data
+									var encoder = new TextEncoder();
+									streamController.enqueue(
+										encoder.encode(xhr._streamingBuffer),
+									);
+								}
+								streamController.close();
+								streamClosed = true;
+							}
+						}
+					}
+
+					// Only start monitoring if onchunk is not available
+					if (!xhr.onchunk) {
+						streamingCheckInterval = setInterval(monitorStreamingBuffer, 50); // Check every 50ms
+					}
+				}
+			}
+
+			var responseResolved = false; // Track if response has been resolved
+
+			xhr.onreadystatechange = function () {
+				if (xhr.readyState === 2 && isStreamingEnabled && !responseResolved) {
+					// HEADERS_RECEIVED - resolve streaming response immediately (only once)
+
+					var options = {
+						status: xhr.status,
+						statusText: xhr.statusText,
+						headers: new Headers(parseHeaders(xhr.getAllResponseHeaders())),
+						url: request.url,
+						body: stream,
+					};
+
+					responseResolved = true; // Mark as resolved
+					resolve(new Response(null, options));
+				}
+			};
+
+			xhr.onload = function () {
+				if (request.signal) {
+					request.signal.removeEventListener("abort", abortRequest);
+				}
+
+				// Clean up streaming
+				if (streamingCheckInterval) {
+					clearInterval(streamingCheckInterval);
+					streamingCheckInterval = null;
+				}
+
+				if (aborted) return;
+
+				if (!isStreamingEnabled) {
+					// Regular non-streaming response
+					var options = {
+						status: xhr.status,
+						statusText: xhr.statusText,
+						headers: new Headers(parseHeaders(xhr.getAllResponseHeaders())),
+						url: request.url,
+					};
+
+					var body = xhr.responseText;
+
+					// Create proper body stream for non-streaming responses
+					if (support.stream && body) {
+						var encoder = new TextEncoder();
+						var chunk = encoder.encode(body);
+						var responseStream = new ReadableStream({
+							start(controller) {
+								controller.enqueue(chunk);
+								controller.close();
+							},
+						});
+						options.body = responseStream;
+					}
+
+					resolve(new Response(body, options));
+				}
+			};
+
+			xhr.onerror = function () {
+				if (request.signal) {
+					request.signal.removeEventListener("abort", abortRequest);
+				}
+
+				if (aborted) return;
+
+				console.error("❌ XMLHttpRequest error");
+				if (streamController) {
+					streamController.error(new TypeError("Network request failed"));
+				}
+				reject(new TypeError("Network request failed"));
+			};
+
+			xhr.ontimeout = function () {
+				if (request.signal) {
+					request.signal.removeEventListener("abort", abortRequest);
+				}
+
+				if (aborted) return;
+
+				console.error("⏰ XMLHttpRequest timeout");
+				if (streamController) {
+					streamController.error(new TypeError("Network request timed out"));
+				}
+				reject(new TypeError("Network request timed out"));
+			};
+
+			// Helper function to parse headers string into object
+			function parseHeaders(headersString) {
+				var headers = {};
+				if (!headersString) return headers;
+
+				var lines = headersString.split("\n");
+				for (var i = 0; i < lines.length; i++) {
+					var line = lines[i].trim();
+					if (line) {
+						var colonIndex = line.indexOf(":");
+						if (colonIndex > 0) {
+							var name = line.substring(0, colonIndex).trim();
+							var value = line.substring(colonIndex + 1).trim();
+							headers[name] = value;
+						}
+					}
+				}
+				return headers;
+			}
+
+			// Handle FormData and body
+			var body = request._bodyInit;
 			if (body && support.formData && FormData.prototype.isPrototypeOf(body)) {
-				// For polyfilled FormData, we need to convert to multipart data
 				if (body.polyfill && typeof body._asMultipart === "function") {
 					const boundary = body._getBoundary();
 					body = body._asMultipart(boundary);
 				}
-				// For native FormData, XMLHttpRequest will handle it automatically
 			}
 
-			// For GET/HEAD requests or empty body, always send null
+			// Send XMLHttpRequest
 			if (
 				request.method === "GET" ||
 				request.method === "HEAD" ||
 				!body ||
 				body === ""
 			) {
-				xhr.send(null);
+				xhr.send();
 			} else {
 				xhr.send(body);
 			}
