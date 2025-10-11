@@ -1228,8 +1228,6 @@ self = this;
 			var streamingCheckInterval = null;
 			var lastBufferLength = 0;
 
-
-
 			// Create ReadableStream for streaming responses
 			if (isStreamingEnabled) {
 				try {
@@ -1387,7 +1385,6 @@ self = this;
 
 				// Set up direct streaming callback
 				if (xhr._streamingEnabled && xhr._streamingBuffer !== undefined) {
-
 					// Track last processed position
 					var lastProcessedLength = 0;
 
@@ -1602,20 +1599,6 @@ self = this;
 					};
 
 					var body = xhr.responseText;
-
-					// Create proper body stream for non-streaming responses
-					if (support.stream && body) {
-						var encoder = new TextEncoder();
-						var chunk = encoder.encode(body);
-						var responseStream = new ReadableStream({
-							start(controller) {
-								controller.enqueue(chunk);
-								controller.close();
-							},
-						});
-						options.body = responseStream;
-					}
-
 					resolve(new Response(body, options));
 				}
 			};
