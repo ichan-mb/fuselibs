@@ -304,9 +304,11 @@ namespace Fuse.Controls
 
 		public void SetVolume(float volume, IPropertyListener origin)
 		{
-			UpdateVolume(volume, origin);
 			if (IsRootingCompleted)
+			{
+				UpdateVolume(volume, origin);
 				PushPropertiesToNativeView();
+			}
 		}
 
 		void UpdateVolume(float volume, IPropertyListener origin)
@@ -330,10 +332,9 @@ namespace Fuse.Controls
 
 		public void SetProgress(double progress, IPropertyListener origin)
 		{
-			UpdateProgress(progress, origin);
 			if (IsRootingCompleted)
 			{
-				_position = _progress * _duration;
+				UpdateProgress(progress, origin);
 				PushPropertiesToNativeView();
 			}
 		}
@@ -372,10 +373,9 @@ namespace Fuse.Controls
 
 		public void SetPlaybackPosition(double position, IPropertyListener origin)
 		{
-			UpdatePosition(position, origin);
 			if (IsRootingCompleted)
 			{
-				_position = position;
+				UpdatePosition(position, origin);
 				PushPropertiesToNativeView();
 			}
 		}

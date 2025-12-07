@@ -1,18 +1,26 @@
 {
   "copyright": "Copyright (c) Fuse Open",
-  "description": "Audio playback support",
+  "description": "Audio playback and recording support",
   "publisher": "Fuse Open",
   "outputType": "library",
   "references": [
     "Uno.Threading"
   ],
   "projects": [
+    "../Fuse.Common/Fuse.Common.unoproj",
     "../Fuse.Android.Permissions/Fuse.Android.Permissions.unoproj",
+    "../Fuse.Triggers/Fuse.Triggers.unoproj",
     "../Fuse/Fuse.unoproj"
   ],
   "includes": [
     "*",
     "Apple/AudioHelper.h:cheader:iOS",
-    "Apple/AudioHelper.m:csource:iOS"
-  ]
+    "Apple/AudioHelper.m:csource:iOS",
+    "Apple/AudioPlayerHelper.h:cheader:iOS"
+  ],
+  "iOS": {
+    "PList": {
+      "NSMicrophoneUsageDescription": "This app needs access to the microphone to record audio."
+    }
+  }
 }

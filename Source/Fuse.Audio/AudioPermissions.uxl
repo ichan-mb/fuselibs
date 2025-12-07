@@ -1,0 +1,5 @@
+<extensions backend="cplusplus" condition="ANDROID">
+	<require androidManifest.permission="android.permission.RECORD_AUDIO" />
+	<require androidManifest.permission="android.permission.READ_EXTERNAL_STORAGE" />
+	<require androidManifest.permission="android.permission.WRITE_EXTERNAL_STORAGE" />
+</extensions>
