@@ -208,16 +208,89 @@ namespace Fuse.Triggers.Actions
 				t.Resume();
 		}
 	}
-
-	/**
-		@deprecated Use @Play
+	
+	/** Trigger action to seek to a specific progress in playback
+	
+	## Video Example
+	```xml
+		<Grid Rows="3*,1*" >
+			<Video ux:Name="video" Url="http://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4" StretchMode="Uniform" />
+			<Button Text="Seek 50%">
+				<Clicked>
+					<Seek Target="video" Progress="0.5" />
+				</Clicked>
+			</Button>
+		</Grid>
 	*/
-	public sealed class Resume : Play
+	public class Seek : PlaybackAction
 	{
-		public Resume()
+		/** The progress to seek to (0.0 to 1.0) */
+		public double Progress { get; set; }
+		
+		protected override void Perform(Node target)
 		{
-			//DEPRECATED: 2017-02-27
-			Fuse.Diagnostics.Deprecated( "Use `Play` instead of `Resume`", this );
+			var t = Target ?? target.FindByType<IPlayback>();
+			if (t != null)
+				t.Progress = Progress;
+		}
+	}
+	
+	/** Trigger action to reset playback to the beginning and play
+	
+	## Video Example
+	```xml
+		<Grid Rows="3*,1*" >
+			<Video ux:Name="video" Url="http://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4" StretchMode="Uniform" />
+			<Button Text="Seek 50%">
+				<Clicked>
+					<Reset />
+				</Clicked>
+			</Button>
+		</Grid>
+	*/
+	public class Reset : PlaybackAction
+	{
+		protected override void Perform(Node target)
+		{
+			var t = Target ?? target.FindByType<IPlayback>();
+			if (t != null)
+			{
+				t.Stop();
+				t.Resume();
+			}
+		}
+	}
+	
+	/** Trigger action to set playback volume
+	
+	## Video Example
+	```xml
+		<Grid Rows="3*,1*" >
+			<Video ux:Name="video" Url="http://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4" StretchMode="Uniform" />
+			<Button Text="Seek 50%">
+				<Clicked>
+					<SetVolume Target="video" Value="0.5" />
+				</Clicked>
+			</Button>
+		</Grid>
+	*/
+	public class SetVolume : TriggerAction
+	{
+		/** The volume to set (0.0 to 1.0) */
+		public float Value { get; set; }
+		
+		public IMediaPlayback Target { get; set; }
+		
+		public SetVolume()
+		{
+			Value = 1.0f;
+		}
+		
+		protected override void Perform(Node target)
+		{
+			var t = Target ?? target.FindByType<IMediaPlayback>();
+			if (t != null)
+				t.Volume = Value;
 		}
 	}
 }
