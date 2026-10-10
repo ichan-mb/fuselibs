@@ -10,6 +10,7 @@ namespace Fuse.Controls.iOS
 		ObjC.Object _navigationController;
 		ObjC.Object _containerView;
 		ObjC.Object _navigationDelegate;
+		ObjC.Object _toolbarActionHandler;
 		Fuse.Controls.NativeNavigationView _fuseHost;
 
 		// Store navigation bar configurations for each template
@@ -42,6 +43,10 @@ namespace Fuse.Controls.iOS
 			);
 			NativeNavigationDelegate.SetAsDelegate(_navigationController, _navigationDelegate);
 
+			// Create toolbar action handler
+			_toolbarActionHandler = ToolbarActionHandler.Create(OnToolbarItemClicked);
+
+
 			// Get the navigation view to embed in Fuse
 			_containerView = GetNavigationView(_navigationController);
 			AddNavigationViewToContainer(Handle, _containerView);
@@ -54,6 +59,13 @@ namespace Fuse.Controls.iOS
 				NativeNavigationDelegate.Destroy(_navigationDelegate);
 				_navigationDelegate = null;
 			}
+
+			if (_toolbarActionHandler != null)
+			{
+				ToolbarActionHandler.Destroy(_toolbarActionHandler);
+				_toolbarActionHandler = null;
+			}
+
 
 			if (_navigationController != null)
 			{
@@ -178,6 +190,16 @@ namespace Fuse.Controls.iOS
 			// Store the configuration for this template
 			_navigationBarConfigs[templateName] = config;
 
+			// Store toolbar item configurations separately for easier access
+			if (config.ToolbarItems != null)
+			{
+				_toolbarItemConfigs[templateName] = config.ToolbarItems;
+			}
+			else if (_toolbarItemConfigs.ContainsKey(templateName))
+			{
+				_toolbarItemConfigs.Remove(templateName);
+			}
+
 			// If this template is currently visible, apply the configuration immediately
 			var currentViewController = GetCurrentViewController(_navigationController);
 			if (currentViewController != null && GetViewControllerAccessibilityIdentifier(currentViewController) == templateName)
@@ -196,6 +218,17 @@ namespace Fuse.Controls.iOS
 							config.ForegroundColor.X, config.ForegroundColor.Y, config.ForegroundColor.Z, config.ForegroundColor.W,
 							config.TintColor.X, config.TintColor.Y, config.TintColor.Z, config.TintColor.W,
 							config.LargeTitle, config.Translucent, config.Hidden, config.BackButtonTitle ?? "");
+
+			// Apply toolbar items if any
+			if (config.ToolbarItems != null && config.ToolbarItems.Length > 0)
+			{
+				SetNavigationBarButtons(viewController, config.ToolbarItems);
+			}
+			else
+			{
+				// Clear existing toolbar items
+				ClearNavigationBarButtons(viewController);
+			}
 		}
 
 		void OnViewWillAppear(string templateName)
@@ -580,6 +613,80 @@ namespace Fuse.Controls.iOS
 				}
 			}
 		@}
+
+		[Foreign(Language.ObjC)]
+		void SetNavigationBarButtons(ObjC.Object viewController, ToolbarItemProps[] toolbarItems)
+		@{
+			UIViewController* vc = (UIViewController*)viewController;
+			NSMutableArray* leftBarButtonItems = [[NSMutableArray alloc] init];
+			NSMutableArray* rightBarButtonItems = [[NSMutableArray alloc] init];
+
+			for (int i = 0; i < @{ToolbarItemProps[]:of(toolbarItems).Length:Get()}; i++) {
+				@{ToolbarItemProps} item = @{ToolbarItemProps[]:of(toolbarItems).Get(i)};
+				@{string} title = @{ToolbarItemProps:of(item).Title};
+				bool enabled = @{ToolbarItemProps:of(item).Enabled};
+				@{ToolbarItemPosition} position = @{ToolbarItemProps:of(item).Position};
+
+				if (title == nil || [title length] == 0) continue;
+
+				UIBarButtonItem* barButton = [[UIBarButtonItem alloc]
+					initWithTitle:title
+					style:UIBarButtonItemStylePlain
+					target:@{NativeNavigationViewImpl:Of(_this)._toolbarActionHandler}
+					action:@selector(handleToolbarItemAction:)];
+
+				barButton.enabled = enabled;
+				barButton.tag = i; // Use index to identify which item was clicked
+
+				if (@{ToolbarItemPosition:of(position)} == @{ToolbarItemPosition.Left}) {
+					[leftBarButtonItems addObject:barButton];
+				} else {
+					[rightBarButtonItems addObject:barButton];
+				}
+			}
+
+			// Set the button items to the navigation item
+			if ([leftBarButtonItems count] > 0) {
+				vc.navigationItem.leftBarButtonItems = leftBarButtonItems;
+			}
+			if ([rightBarButtonItems count] > 0) {
+				vc.navigationItem.rightBarButtonItems = rightBarButtonItems;
+			}
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void ClearNavigationBarButtons(ObjC.Object viewController)
+		@{
+			UIViewController* vc = (UIViewController*)viewController;
+			vc.navigationItem.leftBarButtonItems = nil;
+			vc.navigationItem.rightBarButtonItems = nil;
+		@}
+
+		Dictionary<string, ToolbarItemProps[]> _toolbarItemConfigs = new Dictionary<string, ToolbarItemProps[]>();
+
+
+
+		void OnToolbarItemClicked(int itemIndex)
+		{
+			// Find the current template and get its toolbar items
+			var currentViewController = GetCurrentViewController(_navigationController);
+			if (currentViewController != null)
+			{
+				string templateName = GetViewControllerAccessibilityIdentifier(currentViewController);
+				if (_toolbarItemConfigs.ContainsKey(templateName))
+				{
+					var toolbarItems = _toolbarItemConfigs[templateName];
+					if (toolbarItems != null && itemIndex >= 0 && itemIndex < toolbarItems.Length)
+					{
+						var toolbarItem = toolbarItems[itemIndex];
+						if (toolbarItem != null && toolbarItem.Source != null)
+						{
+							toolbarItem.Source.TriggerClicked();
+						}
+					}
+				}
+			}
+		}
 	}
 
 	extern(iOS) public static class NativeNavigationViewFactory

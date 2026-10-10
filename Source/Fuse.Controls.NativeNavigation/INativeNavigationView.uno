@@ -106,5 +106,6 @@ namespace Fuse.Controls
 		public bool Translucent { get; set; }
 		public bool Hidden { get; set; }
 		public string BackButtonTitle { get; set; }
+		public ToolbarItemProps[] ToolbarItems { get; set; }
 	}
 }

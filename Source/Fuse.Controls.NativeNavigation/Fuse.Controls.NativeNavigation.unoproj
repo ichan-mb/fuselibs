@@ -18,6 +18,8 @@
   "includes": [
     "*",
     "iOS/NativeNavigationDelegate.h:objcheader:iOS",
-    "iOS/NativeNavigationDelegate.mm:objcsource:iOS"
+    "iOS/NativeNavigationDelegate.mm:objcsource:iOS",
+    "iOS/ToolbarActionHandler.h:objcheader:iOS",
+    "iOS/ToolbarActionHandler.mm:objcsource:iOS"
   ]
 }

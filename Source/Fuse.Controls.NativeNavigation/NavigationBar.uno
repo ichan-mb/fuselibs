@@ -3,6 +3,8 @@ using Uno.UX;
 using Fuse;
 using Fuse.Scripting;
 using Fuse.Elements;
+using Uno.Collections;
+
 namespace Fuse.Controls
 {
 	/**
@@ -10,12 +12,16 @@ namespace Fuse.Controls
 
 		This behavior should be placed inside a template that is used with NativeNavigationView.
 		It will automatically configure the navigation bar appearance when the template is displayed.
+		You can also add ToolbarItem children to add clickable buttons to the navigation bar.
 
 		Usage:
 		```xml
 		<NativeNavigationView ux:Name="nav">
 			<Panel ux:Template="Home">
-				<NavigationBarConfig Navigation="nav" Title="Home" BackgroundColor="#333" ForegroundColor="#fff" LargeTitle="true" />
+				<NavigationBarConfig Navigation="nav" Title="Home" BackgroundColor="#333" ForegroundColor="#fff" LargeTitle="true">
+					<ToolbarItem Title="New" Clicked="{newClicked}" />
+					<ToolbarItem Title="Edit" Clicked="{editClicked}" />
+				</NavigationBarConfig>
 				<Text>Home Page</Text>
 				<!-- ... -->
 			</Panel>
@@ -188,6 +194,22 @@ namespace Fuse.Controls
 		}
 
 		NativeNavigationView _navigation;
+
+		List<ToolbarItem> _toolbarItems;
+
+		[UXContent]
+		public IList<ToolbarItem> ToolbarItems
+		{
+			get
+			{
+				if (_toolbarItems == null)
+				{
+					_toolbarItems = new List<ToolbarItem>();
+				}
+				return _toolbarItems;
+			}
+		}
+
 		/**
 			The NativeNavigationView to configure.
 			This is required since NavigationBarConfig is rendered in a separate context.
@@ -207,6 +229,8 @@ namespace Fuse.Controls
 		protected override void OnRooted()
 		{
 			base.OnRooted();
+
+
 
 			_navigation = Fuse.Navigation.Navigation.GetNativeNavigation(Parent) as NativeNavigationView;
 
@@ -232,9 +256,20 @@ namespace Fuse.Controls
 
 		protected override void OnUnrooted()
 		{
+
+
 			_templateName = null;
 			base.OnUnrooted();
 		}
+
+		/**
+			Called by ToolbarItem when its properties change
+		*/
+		internal void OnToolbarItemChanged()
+		{
+			OnPropertyChanged();
+		}
+
 
 
 
@@ -297,6 +332,22 @@ namespace Fuse.Controls
 		*/
 		NavigationBarProps CreateNavigationBarConfig()
 		{
+			// Convert ToolbarItems to ToolbarItemProps
+			var toolbarItemCount = _toolbarItems != null ? _toolbarItems.Count : 0;
+			var toolbarItemProps = new ToolbarItemProps[toolbarItemCount];
+			for (int i = 0; i < toolbarItemCount; i++)
+			{
+				var item = _toolbarItems[i];
+				item.VisualParent = Parent;
+				toolbarItemProps[i] = new ToolbarItemProps
+				{
+					Title = item.Title,
+					Enabled = item.Enabled,
+					Position = item.Position,
+					Source = item
+				};
+			}
+
 			return new NavigationBarProps
 			{
 				Title = _title,
@@ -306,7 +357,8 @@ namespace Fuse.Controls
 				LargeTitle = _largeTitle,
 				Translucent = _translucent,
 				Hidden = _hidden,
-				BackButtonTitle = _backButtonTitle
+				BackButtonTitle = _backButtonTitle,
+				ToolbarItems = toolbarItemProps
 			};
 		}
 	}
