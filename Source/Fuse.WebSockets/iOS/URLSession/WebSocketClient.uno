@@ -3,17 +3,10 @@ using Uno.Collections;
 using Uno.Compiler.ExportTargetInterop;
 using Fuse.WebSocket;
 
-namespace SocketRocket
+namespace URLSession
 {
-	[Require("includeDirectory", "@('include/':path)")]
-	[Require("linkDirectory", "@('lib/':path)")]
-	[Require("linkLibrary", "SocketRocket")]
-	[Require("source.include", "SRWebSocket.h")]
-	[Require("xcode.framework", "Security.framework")]
-	[Require("xcode.framework", "CFNetwork.framework")]
 	[Require("xcode.framework", "Foundation.framework")]
-	[Require("linkLibrary", "icucore")]
-	[ForeignInclude(Language.ObjC, "iOS/SocketRocket/WebSocketClientObjc.h")]
+	[ForeignInclude(Language.ObjC, "iOS/URLSession/WebSocketClientObjc.h")]
 	extern(iOS) public class WebSocketClient : IWebSocketClient, IDisposable
 	{
 		ObjC.Object _webSocket;

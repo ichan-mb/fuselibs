@@ -11,7 +11,6 @@ Source/Fuse.Scripting.JavaScript/FuseJS/Tests/node_modules/**   linguist-vendore
 Source/Fuse.Scripting.JavaScript/JavaScriptCore/3rdparty/**     linguist-vendored
 Source/Fuse.Text/harfbuzz/include/**                            linguist-vendored
 Source/Fuse.Text/icu/**                                         linguist-vendored
-Source/Fuse.WebSockets/iOS/SocketRocket/include/**              linguist-vendored
 
 # Mark vendored files
 jquery.js       linguist-vendored
