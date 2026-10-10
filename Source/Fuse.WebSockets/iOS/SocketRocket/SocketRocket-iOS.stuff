@@ -1,3 +1,0 @@
-if iOS {
-  lib: "https://www.nuget.org/api/v2/package/SocketRocket-iOS-static/0.4.2"
-}
