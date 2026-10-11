@@ -22,6 +22,7 @@
     "AppAlerts.uno:source",
     "InterApp.uno:source",
     "Lifecycle.uno:source",
+    "WindowEvents.uno:source",
     "SystemUI.uno:source",
     "Android/SystemUI.uno:source",
     "iOS/SystemUI.uno:source",

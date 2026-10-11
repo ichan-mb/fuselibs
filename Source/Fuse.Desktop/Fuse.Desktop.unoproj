@@ -9,7 +9,8 @@
     "../Fuse.Controls.Primitives/Fuse.Controls.Primitives.unoproj",
     "../Fuse.Controls/Fuse.Controls.unoproj",
     "../Fuse.Elements/Fuse.Elements.unoproj",
-    "../Fuse.Nodes/Fuse.Nodes.unoproj"
+    "../Fuse.Nodes/Fuse.Nodes.unoproj",
+    "../Fuse.Triggers/Fuse.Triggers.unoproj"
   ],
   "includes": [
     "*"

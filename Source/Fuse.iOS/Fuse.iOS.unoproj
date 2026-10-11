@@ -33,6 +33,9 @@
     "iOSApp.uno:source",
     "iOSInterop.uno:source",
     "StatusBarConfig.uno:source",
-    "Support.uno:source"
+    "Support.uno:source",
+    "Window.uno:source",
+    "WindowActions.uno:source",
+    "Windows.uno:source"
   ]
 }

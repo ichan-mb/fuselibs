@@ -28,6 +28,7 @@
   "includes": [
     "Globals.uno:source",
     "Lifecycle.uno:source",
+    "Windows.uno:source",
     "Environment.uno:source",
     "Base64.uno:source",
     "Latin1Helpers.uno:source",
