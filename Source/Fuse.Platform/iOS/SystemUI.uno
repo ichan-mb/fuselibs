@@ -265,10 +265,10 @@ namespace Fuse.Platform
 
 		static Rect GetStatusBarFrame()
 		{
-			return Uno.Platform.iOS.Support.CGRectToUnoRect(
-				Uno.Platform.iOS.Support.Pre_iOS8_HandleDeviceOrientation_Rect(
-					extern<Uno.Platform.iOS.uCGRect>"[UIApplication sharedApplication].statusBarFrame", null),
-				1);
+			// [UIApplication sharedApplication].statusBarFrame is deprecated and a
+			// no-op on iOS 27; on modern devices the status bar height equals the
+			// top safe-area inset. The margins derive that from the safe frame.
+			return new Uno.Rect(0, 0, 0, GetSafeFrame().Y);
 		}
 
 		static float4 GetSafeFrame()
@@ -290,7 +290,32 @@ namespace Fuse.Platform
 		[Foreign(Language.ObjC)]
 		static void GetSafeArea(out float l, out float t, out float r, out float b)
 		@{
-			UIView* view = [UIApplication sharedApplication].keyWindow.rootViewController.view;
+			UIWindow* window = nil;
+
+			if (@available(iOS 13.0, *))
+			{
+				// Scene life cycle: [UIApplication sharedApplication].keyWindow is
+				// deprecated and nil; the key window of the foreground-active
+				// scene takes its place.
+				for (UIScene* scene in [UIApplication sharedApplication].connectedScenes)
+				{
+					if ([scene isKindOfClass:[UIWindowScene class]] &&
+						scene.activationState == UISceneActivationStateForegroundActive)
+					{
+						window = ((UIWindowScene*)scene).keyWindow;
+						if (window != nil)
+							break;
+					}
+				}
+			}
+
+			if (window == nil)
+				window = [UIApplication sharedApplication].keyWindow;
+
+			if (window == nil) { *l = 0; *t = 0; *r = 0; *b = 0; return; }
+
+			UIView* view = window.rootViewController.view;
+			if (view == nil) { *l = 0; *t = 0; *r = 0; *b = 0; return; }
 
 		#if defined(__IPHONE_11_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_11_0
 			//Only on iOS11, taken care of in the GetSafeFrame code (we don't use @available in order to support older Xcode version)
