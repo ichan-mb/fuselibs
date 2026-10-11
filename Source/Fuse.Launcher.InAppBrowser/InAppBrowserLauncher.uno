@@ -49,7 +49,7 @@ namespace Fuse.LauncherImpl
 			NSURL* u = [[NSURL alloc] initWithString: url];
 			SFSafariViewController* vc = [[SFSafariViewController alloc] initWithURL: u entersReaderIfAvailable:NO];
 			dispatch_async(dispatch_get_main_queue(), ^{
-				[[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:vc animated:YES completion:nil];
+			[(::uAppDelegate*)[[UIApplication sharedApplication] delegate] presentViewController:vc animated:YES completion:nil];
 			});
 		@}
 
