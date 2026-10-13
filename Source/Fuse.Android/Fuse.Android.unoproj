@@ -34,6 +34,7 @@
     "StatusBarConfig.uno:source",
     "Window.uno:source",
     "WindowActions.uno:source",
+    "Windows.uno:source",
     "AndroidApp.uno:source",
     "RootGraphicsView.ux:ux",
     "AndroidProperties.uno:source",
