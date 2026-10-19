@@ -197,7 +197,9 @@ namespace Fuse.Platform
 					animationDuration = 0;
 
 				_statusBarWillChangeFrame(endFrame, animationDuration);
-				extern(!value)"[UIApplication sharedApplication].statusBarHidden = $0";
+				// `UIApplication.statusBarHidden` is deprecated. The app delegate is the root view
+				// controller and returns this state from `prefersStatusBarHidden` (see
+				// AppDelegateStatusBar.mm), so the appearance update below applies it.
 
 				extern(animationDuration)"[UIView animateWithDuration:$0 animations:^{ [(::uAppDelegate*)[UIApplication sharedApplication].delegate setNeedsStatusBarAppearanceUpdate]; }]";
 			}
@@ -294,23 +296,50 @@ namespace Fuse.Platform
 
 			if (@available(iOS 13.0, *))
 			{
-				// Scene life cycle: [UIApplication sharedApplication].keyWindow is
-				// deprecated and nil; the key window of the foreground-active
-				// scene takes its place.
+				// `UIApplication.keyWindow` is deprecated; use the window scenes' windows. Prefer the
+				// key window of the foreground-active scene, then any connected scene (early launch).
+				UIWindow* (^windowOfScene)(UIWindowScene*) = ^UIWindow*(UIWindowScene* windowScene) {
+					for (UIWindow* candidate in windowScene.windows)
+					{
+						if (candidate.isKeyWindow)
+							return candidate;
+					}
+					return windowScene.windows.firstObject;
+				};
+
 				for (UIScene* scene in [UIApplication sharedApplication].connectedScenes)
 				{
-					if ([scene isKindOfClass:[UIWindowScene class]] &&
-						scene.activationState == UISceneActivationStateForegroundActive)
+					if (![scene isKindOfClass:[UIWindowScene class]] ||
+						scene.activationState != UISceneActivationStateForegroundActive)
+						continue;
+
+					window = windowOfScene((UIWindowScene*)scene);
+					if (window != nil)
+						break;
+				}
+
+				if (window == nil)
+				{
+					for (UIScene* scene in [UIApplication sharedApplication].connectedScenes)
 					{
-						window = ((UIWindowScene*)scene).keyWindow;
+						if (![scene isKindOfClass:[UIWindowScene class]])
+							continue;
+
+						window = windowOfScene((UIWindowScene*)scene);
 						if (window != nil)
 							break;
 					}
 				}
 			}
-
-			if (window == nil)
+			#if __IPHONE_OS_VERSION_MIN_REQUIRED < 130000
+			else
+			{
+				#pragma clang diagnostic push
+				#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 				window = [UIApplication sharedApplication].keyWindow;
+				#pragma clang diagnostic pop
+			}
+			#endif
 
 			if (window == nil) { *l = 0; *t = 0; *r = 0; *b = 0; return; }
 
@@ -440,35 +469,45 @@ namespace Fuse.Platform
 		[Foreign(Language.ObjC)]
 		static int GetCurrentScreenOrientation()
 		@{
-			UIInterfaceOrientation mask;
-			#if defined(__IPHONE_13_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_13_0
-			if (@available(iOS 13.0, *)) {
-				mask = [[UIApplication sharedApplication].windows firstObject].windowScene.interfaceOrientation;
-				switch (mask)
+			UIInterfaceOrientation orientation = UIInterfaceOrientationUnknown;
+
+			#if __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000
+			// `UIApplication.windows` is deprecated in iOS 15; the scene owns the windows now.
+			UIWindowScene* scene = nil;
+			for (UIScene* s in [UIApplication sharedApplication].connectedScenes)
+			{
+				if (![s isKindOfClass:[UIWindowScene class]])
+					continue;
+
+				// Prefer the active scene, but accept any window scene as an early-launch fallback.
+				if (scene == nil)
+					scene = (UIWindowScene*)s;
+
+				if (s.activationState == UISceneActivationStateForegroundActive)
 				{
-					case UIInterfaceOrientationPortrait:
-						return 0;
-					case UIInterfaceOrientationLandscapeLeft:
-						return 1;
-					case UIInterfaceOrientationLandscapeRight:
-						return 2;
-					case UIInterfaceOrientationPortraitUpsideDown:
-						return 3;
-					case UIInterfaceOrientationUnknown:
-						return 4;
+					scene = (UIWindowScene*)s;
+					break;
 				}
 			}
+
+			if (scene != nil)
+				orientation = scene.interfaceOrientation;
+			#else
+			#pragma clang diagnostic push
+			#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+			orientation = [[UIApplication sharedApplication] statusBarOrientation];
+			#pragma clang diagnostic pop
 			#endif
-			mask = [[UIApplication sharedApplication] statusBarOrientation];
-			switch (mask)
+
+			switch (orientation)
 			{
-				case UIInterfaceOrientationMaskPortrait:
+				case UIInterfaceOrientationPortrait:
 					return 0;
-				case UIInterfaceOrientationMaskLandscapeLeft:
+				case UIInterfaceOrientationLandscapeLeft:
 					return 1;
-				case UIInterfaceOrientationMaskLandscapeRight:
+				case UIInterfaceOrientationLandscapeRight:
 					return 2;
-				case UIInterfaceOrientationMaskPortraitUpsideDown:
+				case UIInterfaceOrientationPortraitUpsideDown:
 					return 3;
 				default:
 					return 4;

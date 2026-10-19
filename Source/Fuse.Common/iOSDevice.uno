@@ -75,7 +75,33 @@ namespace Fuse
 		[Require("source.include", "UIKit/UIKit.h")]
 		static bool IsLandscapeOrientation()
 		@{
-			UIInterfaceOrientation o = [[UIApplication sharedApplication] statusBarOrientation];
+			UIInterfaceOrientation o = UIInterfaceOrientationUnknown;
+
+			#if __IPHONE_OS_VERSION_MIN_REQUIRED >= 130000
+			// `UIApplication.statusBarOrientation` is deprecated; the scene owns the orientation.
+			for (UIScene* scene in [UIApplication sharedApplication].connectedScenes)
+			{
+				if (![scene isKindOfClass:[UIWindowScene class]])
+					continue;
+
+				UIWindowScene* windowScene = (UIWindowScene*)scene;
+				if (scene.activationState == UISceneActivationStateForegroundActive)
+				{
+					o = windowScene.interfaceOrientation;
+					break;
+				}
+
+				// Early launch: accept any window scene if none is active yet.
+				if (o == UIInterfaceOrientationUnknown)
+					o = windowScene.interfaceOrientation;
+			}
+			#else
+			#pragma clang diagnostic push
+			#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+			o = [[UIApplication sharedApplication] statusBarOrientation];
+			#pragma clang diagnostic pop
+			#endif
+
 			return (o == UIInterfaceOrientationLandscapeLeft || o == UIInterfaceOrientationLandscapeRight);
 		@}
 	}

@@ -440,8 +440,10 @@ namespace Fuse.Platform
 			}
 
 			__block int attempts = 0;
-			__block void (^trySet)(void);
-			trySet = ^{
+			// The retry block refers to itself; capture that reference weakly so the block does not
+			// retain itself. `trySet` (strong) keeps it alive for the first dispatch.
+			__weak void (^weakTrySet)(void) = nil;
+			void (^trySet)(void) = ^{
 				UIScene* s = [(UIWindow*)w windowScene];
 				if (s != nil)
 				{
@@ -450,8 +452,9 @@ namespace Fuse.Platform
 				}
 
 				if (++attempts < 10)
-					dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), trySet);
+					dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), weakTrySet);
 			};
+			weakTrySet = trySet;
 
 			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), trySet);
 		@}

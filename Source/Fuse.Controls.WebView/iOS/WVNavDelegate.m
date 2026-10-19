@@ -43,7 +43,7 @@
 		UIApplication *app = [UIApplication sharedApplication];
 		if ([app canOpenURL:url])
 		{
-			[app openURL:url];
+			[app openURL:url options:[NSDictionary dictionary] completionHandler:nil];
 			handler(WKNavigationActionPolicyCancel);
 			return;
 		}
