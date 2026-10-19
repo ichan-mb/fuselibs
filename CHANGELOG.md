@@ -35,6 +35,20 @@
 - Android: Native Scrollview snap min/max and bounce scroll (#1509)
 - Android: Scrolling detect Improvement (#1512)
 
+### Fuse.Controls.NativeNavigation
+- Native navigation for iOS and Android (5a50aa75)
+- Add SF Symbols and Material Symbols for toolbar icons (510fc54f)
+- A template with no `NavigationBarConfig` gets no bar, including a modal (b7b3e8b9)
+- Android: Lay out an embedded view's page at the view's size, not the app frame
+- Accessibility labels for toolbar items and menu entries (`AccessibilityLabel`)
+- Dismiss presented modals when the view is unrooted or disposed, instead of leaving an orphaned dialog
+- Android: Fix modal bar items not receiving taps (the page content covered the bar)
+- `NavigationBarConfig` keeps the page's own padding and restores it when the config is removed
+- Toolbar positions are logical: `Leading`/`Trailing` (RTL-aware), with `Left`/`Right` kept as aliases
+- Android: sheets and cards resize for the soft keyboard
+- Navigation actions without a `Navigation` attribute resolve the view their page belongs to, so they work inside templates
+- Page content is edge-to-edge by default: `NavigationBarConfig.ApplyInsets` now defaults to `false`
+
 ### Fuse.Controls.Primitives
 - iOS: Fix crash when removing Shadow (#1498)
 - Fix bugs and improve native rendering for Image, Circle and Shadow (#1507)

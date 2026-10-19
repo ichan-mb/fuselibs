@@ -12,6 +12,7 @@
     "Fuse.Controls",
     "Fuse.Controls.DrawingPanel",
     "Fuse.Controls.Native",
+    "Fuse.Controls.NativeNavigation",
     "Fuse.Controls.Navigation",
     "Fuse.Controls.Navigation.Test",
     "Fuse.Controls.Panels",

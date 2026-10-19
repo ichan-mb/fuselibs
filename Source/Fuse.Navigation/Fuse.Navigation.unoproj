@@ -6,6 +6,7 @@
   "internalsVisibleTo": [
     "Fuse.Controls",
     "Fuse.Controls.Navigation",
+    "Fuse.Controls.NativeNavigation",
     "Fuse.Controls.Navigation.Test",
     "Fuse.Controls.Primitives",
     "Fuse.Navigation.Test"

@@ -9,7 +9,7 @@ namespace Fuse.Navigation
 
 		This structure is required since anything can be used as a page: there is no special page type.
 	*/
-	class PageData
+	internal class PageData
 	{
 		[WeakReference]
 		public Visual Visual { get; private set; }

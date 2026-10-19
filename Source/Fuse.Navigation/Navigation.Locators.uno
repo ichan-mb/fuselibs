@@ -103,6 +103,7 @@ namespace Fuse.Navigation
 		internal static Visual TryFindPage(Node node, out INavigation nav, out Visual pageBind)
 		{
 			var prev = node as Visual;
+			var firstVisual = node as Visual;
 			nav = null;
 			pageBind = null;
 
@@ -158,7 +159,52 @@ namespace Fuse.Navigation
 				node = node.ContextParent;
 			}
 
+			// NEW: Enhanced fallback for NativeNavigationView template instances
+			if (nav == null)
+			{
+				// First try property-based discovery on the visual and its parents
+				var currentVisual = firstVisual;
+				while (currentVisual != null)
+				{
+					// Check for stored navigation reference
+					object storedNavObj;
+					if (currentVisual.Properties.TryGet(_nativeNavigationPropertyHandle, out storedNavObj))
+					{
+						var storedNav = storedNavObj as INavigation;
+						if (storedNav != null)
+						{
+							nav = storedNav;
+							return currentVisual;
+						}
+					}
+					currentVisual = currentVisual.Parent;
+				}
+			}
 			return null;
+		}
+
+		// Property handle for storing native navigation references
+		static readonly PropertyHandle _nativeNavigationPropertyHandle = Fuse.Properties.CreateHandle();
+
+		[UXAttachedPropertySetter("Navigation.NativeNavigation")]
+		public static void SetNativeNavigation(Visual n, INavigation nav)
+		{
+			n.Properties.Set(_nativeNavigationPropertyHandle, nav);
+		}
+
+		[UXAttachedPropertyGetter("Navigation.NativeNavigation")]
+		public static INavigation GetNativeNavigation(Visual n)
+		{
+			object v;
+			if (n.Properties.TryGet(_nativeNavigationPropertyHandle, out v))
+				return (INavigation)v;
+			return null;
+		}
+
+		[UXAttachedPropertyResetter("Navigation.NativeNavigation")]
+		public static void ResetNativeNavigation(Visual n)
+		{
+			n.Properties.Clear(_nativeNavigationPropertyHandle);
 		}
 
 		static readonly PropertyHandle _contextHandle = Fuse.Properties.CreateHandle();
@@ -192,4 +238,3 @@ namespace Fuse.Navigation
 	}
 
 }
-

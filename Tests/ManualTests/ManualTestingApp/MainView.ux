@@ -119,6 +119,7 @@
 			<StrokeAndFills/>
 			<DataBindingPage/>
 			<TodoListPage/>
+			<NativeNavigationPage/>
 			<IsVisibleTest/>
 			<ChangingLayout/>
 			<TextAlignmentView/>

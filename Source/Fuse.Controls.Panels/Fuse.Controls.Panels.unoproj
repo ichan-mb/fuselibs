@@ -6,6 +6,7 @@
   "internalsVisibleTo": [
     "Fuse.Android",
     "Fuse.Charting",
+    "Fuse.Controls.NativeNavigation",
     "Fuse.Controls.Navigation.Test",
     "Fuse.Controls.Panels.Test",
     "Fuse.Controls.Primitives",

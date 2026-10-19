@@ -97,7 +97,8 @@ namespace Fuse.Controls.Native.Android
 
 		static void RaisePressed(Visual rootVisual, Visual visual, PointerEventData data)
 		{
-			if (IsPointerActive(data.PointIndex))
+			var alreadyActive = IsPointerActive(data.PointIndex);
+			if (alreadyActive && Fuse.Input.Pointer.IsPressed(data.PointIndex))
 				return;
 
 			try

@@ -202,7 +202,11 @@ namespace Fuse.Input
 
 		static Dictionary<int, PointerRecord> _pointersDown = new Dictionary<int, PointerRecord>();
 
-		internal static void ClearPointersDown()
+		/**
+			Releases all pointers that are currently down. Used when a view/window that was handling input is
+			torn down (for example a modal dialog) so any gesture it was tracking does not stay stuck.
+		*/
+		public static void ClearPointersDown()
 		{
 			_pointersDown.Clear();
 		}

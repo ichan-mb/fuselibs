@@ -1,0 +1,37 @@
+{
+  "copyright": "Copyright (c) Fuse Open",
+  "description": "Native navigation controls for iOS and Android",
+  "publisher": "Fuse Open",
+  "outputType": "library",
+  "internalsVisibleTo": [
+    "Fuse.Android",
+    "Fuse.iOS",
+    "Fuse.Controls.NativeTabNavigation"
+  ],
+  "references": [
+    "Uno.Collections",
+    "Uno.Threading"
+  ],
+  "projects": [
+    "../Fuse/Fuse.unoproj",
+    "../Fuse.Reactive/Fuse.Reactive.unoproj"
+  ],
+  "includes": [
+    "*",
+    "iOS/NativeNavigationDelegate.h:objcheader:iOS",
+    "iOS/NativeNavigationDelegate.mm:objcsource:iOS",
+    "iOS/ModalDismissHandler.h:objcheader:iOS",
+    "iOS/ModalDismissHandler.mm:objcsource:iOS",
+    "iOS/ModalNavigationController.h:objcheader:iOS",
+    "iOS/ModalNavigationController.mm:objcsource:iOS",
+    "iOS/ToolbarActionHandler.h:objcheader:iOS",
+    "iOS/ToolbarActionHandler.mm:objcsource:iOS",
+    "iOS/ViewControllerRootView.h:objcheader:iOS",
+    "iOS/ViewControllerRootView.mm:objcsource:iOS",
+    "Android/Java/FuseNavigationFragment.java:java:Android",
+    "Android/Java/LeadingToolbarItems.java:java:Android",
+    "Android/Java/NavigationIcons.java:java:Android",
+    "Android/Java/NavigationUi.java:java:Android",
+    "Android/Java/NavigationDialogFragment.java:java:Android"
+  ]
+}

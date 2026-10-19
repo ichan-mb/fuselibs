@@ -1,0 +1,651 @@
+<Page Title="Native Navigation" ux:Class="NativeNavigationPage">
+	<InfoStack ux:Key="Info">
+		<p>Scenarios for Fuse.Controls.NativeNavigation. Every page and modal here is reached with a trigger action, so nothing needs JavaScript.</p>
+		<ul>
+			<li>The start page comes from 'DefaultTemplate' -- the template path, with no 'Pages' array. Its bar carries a leading item, a symbol item and a pull-down menu.</li>
+			<li>Bar rules: push a template that declares no 'NavigationBarConfig' (no bar), one with 'Hidden="true"', a styled bar with items, one with a large title, and one that draws under a translucent bar with 'ApplyInsets="false"'.</li>
+			<li>Toolbar items: hide and show one, and watch the items after it close up. Open the pull-down menu: a hidden entry is not listed.</li>
+			<li>Modals: full screen, page sheet, form sheet, sheet (drag it down to dismiss, or up to fill the screen), sheet with 'DragToDismiss="false"', sheet with 'Expandable="false"', one with no config (no bar at all), and one whose body scrolls.</li>
+			<li>Page transitions and depth: push the same template twice, then go back with the toolbar back arrow, the system back button and the iOS swipe-back gesture.</li>
+			<li>A modal over a pushed page, two modals stacked, and 'ExpandModal' / 'SetModalExpanded' from code.</li>
+		</ul>
+		<p>On iOS a sheet also has its own medium and large detents.</p>
+	</InfoStack>
+
+	<NativeNavigationView ux:Name="nav" DefaultTemplate="Menu">
+
+		<!--
+			==================== Menu: the initial page (DefaultTemplate, template path) ====================
+			The bar carries every toolbar item shape: a leading title, a tinted right symbol, and a pull-down
+			menu with a disabled entry.
+		-->
+		<Page ux:Template="Menu">
+			<NavigationBarConfig
+				Navigation="nav"
+				Title="NativeNavigation (UX only)"
+				BackgroundColor="#1565C0"
+				ForegroundColor="#ffffff"
+			>
+				<ToolbarItem Title="Left" Position="Left" />
+				<ToolbarItem ux:Name="hideable" Title="Hide me" />
+				<ToolbarItem Symbols="plus" IsFilled="true" Color="#ffd54f" />
+				<ToolbarItem Title="Actions">
+					<ToolbarMenuItem Title="A menu entry" />
+					<ToolbarMenuItem Title="A disabled entry" Enabled="false" />
+					<ToolbarMenuItem Title="A hidden entry" Visible="false" />
+				</ToolbarItem>
+			</NavigationBarConfig>
+
+			<DockPanel Background="#fafafa">
+				<ScrollView>
+					<StackPanel Margin="10">
+						<Text Margin="5" TextWrapping="Wrap"
+							Value="The initial page is the template named by DefaultTemplate, so this is the template path. Every button below is a trigger action." />
+
+						<Text Margin="5,20,5,5" FontSize="18" Value="ToolbarItem.Visible" />
+
+						<Button Text="Hide the 'Hide me' bar item" Margin="5">
+							<Clicked>
+								<Set hideable.Visible="false" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Show it again" Margin="5">
+							<Clicked>
+								<Set hideable.Visible="true" />
+							</Clicked>
+						</Button>
+
+						<Text Margin="5,20,5,5" FontSize="18" Value="Bar rules" />
+
+						<Button Text="Push: no config (no bar)" Margin="5">
+							<Clicked>
+								<PushView To="NoConfig" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Push: Hidden=&quot;true&quot; (no bar)" Margin="5">
+							<Clicked>
+								<PushView To="HiddenBar" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Push: styled bar + items + menu" Margin="5">
+							<Clicked>
+								<PushView To="StyledBar" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Push: large title" Margin="5">
+							<Clicked>
+								<PushView To="LargeTitleBar" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Push: translucent, content under the bar" Margin="5">
+							<Clicked>
+								<PushView To="TranslucentBar" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Push: back-button title" Margin="5">
+							<Clicked>
+								<PushView To="BackTitleSource" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Push: page transitions, depth, modal over a page" Margin="5">
+							<Clicked>
+								<PushView To="Anim" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Text Margin="5,20,5,5" FontSize="18" Value="Layout" />
+
+						<Button Text="Push: embedded (in a panel)" Margin="5">
+							<Clicked>
+								<PushView To="Embedded" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Text Margin="5,20,5,5" FontSize="18" Value="Modals" />
+
+						<Button Text="Present: full screen (the default)" Margin="5">
+							<Clicked>
+								<PresentView To="ModalFullScreen" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Present: page sheet" Margin="5">
+							<Clicked>
+								<PresentView To="ModalPageSheet" Style="PageSheet" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Present: form sheet" Margin="5">
+							<Clicked>
+								<PresentView To="ModalFormSheet" Style="FormSheet" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Present: sheet (drag to dismiss)" Margin="5">
+							<Clicked>
+								<PresentView To="ModalSheet" Style="Sheet" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Present: sheet, DragToDismiss=false" Margin="5">
+							<Clicked>
+								<PresentView To="ModalSheetNoDrag" Style="Sheet" DragToDismiss="false" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Present: sheet, Expandable=false" Margin="5">
+							<Clicked>
+								<PresentView To="ModalSheetFixed" Style="Sheet" Expandable="false" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Present: no config (no bar)" Margin="5">
+							<Clicked>
+								<PresentView To="ModalNoConfig" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Present: no config, as a sheet" Margin="5">
+							<Clicked>
+								<PresentView To="ModalNoConfig" Style="Sheet" Navigation="nav" />
+							</Clicked>
+						</Button>
+
+						<Button Text="Present: scrolling content" Margin="5">
+							<Clicked>
+								<PresentView To="ModalScroll" Style="Sheet" Navigation="nav" />
+							</Clicked>
+						</Button>
+					</StackPanel>
+				</ScrollView>
+			</DockPanel>
+		</Page>
+
+		<!--
+			==================== A pushed page with no NavigationBarConfig: no bar at all ====================
+		-->
+		<Page ux:Template="NoConfig">
+			<DockPanel Background="#ffccbc">
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="No bar" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="This template declares no NavigationBarConfig, so it has no bar and inherits nothing from the page before it." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Back">
+						<Clicked>
+							<PopView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<!--
+			==================== Hidden="true": a config that asks for no bar ====================
+		-->
+		<Page ux:Template="HiddenBar">
+			<NavigationBarConfig Navigation="nav" Hidden="true" />
+			<DockPanel Background="#b3e5fc">
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="Hidden=&quot;true&quot;" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="The config is present, so the page still has a back button and the bar's height is accounted for, but the bar itself is hidden." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Back">
+						<Clicked>
+							<PopView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<!--
+			==================== Every NavigationBarConfig property, and every toolbar item shape ====================
+			On Android a Position="Left" item is a plain button placed after the back arrow.
+		-->
+		<Page ux:Template="StyledBar">
+			<NavigationBarConfig
+				Navigation="nav"
+				Title="Styled"
+				BackgroundColor="#2e1a47"
+				ForegroundColor="#ffffff"
+				TintColor="#ffb74d"
+			>
+				<ToolbarItem Title="Left" Position="Left" />
+				<ToolbarItem Symbols="ellipsis.circle" />
+				<ToolbarItem Symbols="trash" Color="#ff5252" />
+				<ToolbarItem Title="Actions">
+					<ToolbarMenuItem Title="An entry" />
+					<ToolbarMenuItem Title="Another entry" />
+					<ToolbarMenuItem Title="A disabled entry" Enabled="false" />
+				</ToolbarItem>
+			</NavigationBarConfig>
+
+			<DockPanel Background="#fafafa">
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="Styled bar" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="A dark bar with a custom TintColor: a leading item, an outlined symbol, a symbol tinted red by its own Color, and a pull-down menu. The bar will not fit many more items than this on a phone." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Back">
+						<Clicked>
+							<PopView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<!--
+			==================== LargeTitle (iOS 11+; Android ignores it) ====================
+		-->
+		<Page ux:Template="LargeTitleBar">
+			<NavigationBarConfig Navigation="nav" Title="Large title" LargeTitle="true" BackgroundColor="#004d40" ForegroundColor="#ffffff">
+				<ToolbarItem Title="Title only" />
+				<ToolbarItem Title="Off" Enabled="false" />
+			</NavigationBarConfig>
+			<DockPanel Background="#e0f2f1">
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="LargeTitle=&quot;true&quot;" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="The title should be drawn large and to the left on iOS. Android has no such style, so it is ignored there. The bar also carries a title-only item and a disabled one." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Back">
+						<Clicked>
+							<PopView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<!--
+			==================== Translucent + ApplyInsets=false: the content draws under the bar ====================
+		-->
+		<Page ux:Template="TranslucentBar">
+			<NavigationBarConfig
+				Navigation="nav"
+				Title="Translucent"
+				BackgroundColor="#ffffff"
+				ForegroundColor="#00363d"
+				Translucent="true"
+				ApplyInsets="false"
+			/>
+			<DockPanel Background="#4dd0e1">
+				<Text Dock="Top" Margin="6" Value="Docked to the very top of the page" />
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="ApplyInsets=&quot;false&quot;" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="The page is laid out edge to edge rather than inset below the bar, so the line above sits under the status bar and the bar is translucent over the page colour. With ApplyInsets left on, that line would sit below the bar instead." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Back">
+						<Clicked>
+							<PopView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<!--
+			==================== BackButtonTitle: it labels the back button of the page pushed from here ====================
+		-->
+		<Page ux:Template="BackTitleSource">
+			<NavigationBarConfig Navigation="nav" Title="Back title source" BackgroundColor="#33691e" ForegroundColor="#ffffff" />
+			<DockPanel Background="#f1f8e9">
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="BackButtonTitle" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="Push the next page. It sets BackButtonTitle, which labels the back button shown on that page -- not on this one." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Push the next page" Margin="5">
+						<Clicked>
+							<PushView To="BackTitleTarget" Navigation="nav" />
+						</Clicked>
+					</Button>
+					<Button Text="Back" Margin="5">
+						<Clicked>
+							<PopView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<Page ux:Template="BackTitleTarget">
+			<NavigationBarConfig Navigation="nav" Title="Back title target" BackButtonTitle="Custom back" BackgroundColor="#33691e" ForegroundColor="#ffffff" />
+			<DockPanel Background="#f1f8e9">
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="The back button here" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="is labelled by this page's BackButtonTitle: the text &quot;Custom back&quot; appears beside the chevron on iOS, and is the back arrow's label on Android (there is no room for text there)." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Back">
+						<Clicked>
+							<PopView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<!--
+			==================== Page transitions, depth, and a modal over a pushed page ====================
+			Pushing this template from itself puts the same template on the stack twice, which is supported (each
+			entry gets its own instance and native view).
+		-->
+		<Page ux:Template="Anim">
+			<NavigationBarConfig Navigation="nav" Title="Page transitions" BackgroundColor="#4a148c" ForegroundColor="#ffffff" />
+
+			<EnteringAnimation>
+				<Scale Factor="0.6" Duration="0.35" Easing="QuadraticOut" />
+			</EnteringAnimation>
+			<ExitingAnimation>
+				<Scale Factor="0.6" Duration="0.35" Easing="QuadraticOut" />
+			</ExitingAnimation>
+
+			<DockPanel Background="#ede7f6">
+				<ScrollView>
+					<StackPanel Margin="20" ItemSpacing="12">
+						<Text Value="Page transitions" FontSize="22" />
+						<Text TextAlignment="Center" TextWrapping="Wrap"
+							Value="The content scales up from 0.6 while entering and back down while exiting, driven by the page's progress in the native transition. Try this with the toolbar back arrow, the system back button, and the iOS swipe gesture." />
+					</StackPanel>
+				</ScrollView>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Push this page again (depth)" Margin="5">
+						<Clicked>
+							<PushView To="Anim" Navigation="nav" />
+						</Clicked>
+					</Button>
+					<Button Text="Present a modal over this page" Margin="5">
+						<Clicked>
+							<PresentView To="ModalPageSheet" Style="PageSheet" Navigation="nav" />
+						</Clicked>
+					</Button>
+					<Button Text="Back" Margin="5">
+						<Clicked>
+							<PopView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<!--
+			==================== Modals ====================
+			A modal follows the same bar rule as a page: no NavigationBarConfig means no bar and no inset for one.
+			Each of these lays itself out adaptively (centred content, a docked close button, a scrolling body)
+			rather than filling the screen, since it is laid out to the card.
+		-->
+
+		<Page ux:Template="ModalFullScreen">
+			<NavigationBarConfig Navigation="nav" Title="Full screen">
+				<ToolbarItem Title="Done" />
+			</NavigationBarConfig>
+			<DockPanel Background="#ffffff">
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="FullScreen" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="The default style: it covers the whole screen. There is no drag on either platform, so close it with Done or the button below." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Close">
+						<Clicked>
+							<DismissView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<Page ux:Template="ModalPageSheet">
+			<NavigationBarConfig Navigation="nav" Title="Page sheet">
+				<ToolbarItem Title="Left" Position="Left" />
+				<ToolbarItem Title="Done" Color="#0a84ff" />
+			</NavigationBarConfig>
+			<DockPanel Background="#ffffff">
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="PageSheet" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="A card inset from the top, reaching the bottom, over a dimmed page. Drag it down to dismiss, or use Done." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Present another modal (stacking)" Margin="5">
+						<Clicked>
+							<PresentView To="ModalSheet" Style="Sheet" Navigation="nav" />
+						</Clicked>
+					</Button>
+					<Button Text="Close" Margin="5">
+						<Clicked>
+							<DismissView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<Page ux:Template="ModalFormSheet">
+			<NavigationBarConfig Navigation="nav" Title="Form sheet">
+				<ToolbarItem Title="Done" />
+			</NavigationBarConfig>
+			<DockPanel Background="#ffffff">
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="FormSheet" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="A smaller card inset on all sides. On iOS the small card needs a regular width class (an iPad, or a Max/Plus in landscape); in portrait UIKit gives the same sheet as PageSheet." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Close">
+						<Clicked>
+							<DismissView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<Page ux:Template="ModalSheet">
+			<NavigationBarConfig Navigation="nav" Title="Sheet">
+				<ToolbarItem Title="Done" />
+			</NavigationBarConfig>
+			<DockPanel Background="#ffffff">
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="Sheet" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="About half the screen, anchored to the bottom. Drag the grabber at its top edge up and it takes the page sheet's size, so the page fills the screen; drag it down again to give it its own size back, or -- from there -- to dismiss it. The two buttons ask for the same two sizes from code, with ExpandModal. On iOS both sizes are a sheet's own medium and large detents." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Expanded size (from code)" Margin="5">
+						<Clicked>
+							<ExpandModal Navigation="nav" />
+						</Clicked>
+					</Button>
+					<Button Text="Its own size (from code)" Margin="5">
+						<Clicked>
+							<ExpandModal Value="false" Navigation="nav" />
+						</Clicked>
+					</Button>
+					<Button Text="Close" Margin="5">
+						<Clicked>
+							<DismissView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<Page ux:Template="ModalSheetNoDrag">
+			<NavigationBarConfig Navigation="nav" Title="Sheet (no drag)">
+				<ToolbarItem Title="Done" />
+			</NavigationBarConfig>
+			<DockPanel Background="#ffffff">
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="DragToDismiss=&quot;false&quot;" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="The same sheet, but it cannot be dragged away, so it has no grabber on Android. It can only be closed with Done or the button below." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Close">
+						<Clicked>
+							<DismissView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<!--
+			A sheet that keeps its own height: Expandable="false". Dragging it down still dismisses it, but it
+			cannot be dragged up, and ExpandModal does nothing for it.
+		-->
+		<Page ux:Template="ModalSheetFixed">
+			<NavigationBarConfig Navigation="nav" Title="Sheet (fixed height)">
+				<ToolbarItem Title="Done" />
+			</NavigationBarConfig>
+			<DockPanel Background="#ffffff">
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="Expandable=&quot;false&quot;" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="A sheet that keeps its own height: dragging it up does nothing, and the button below asks it to expand from code and is ignored too. Dragging it down still dismisses it." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Expanded size (ignored)" Margin="5">
+						<Clicked>
+							<ExpandModal Navigation="nav" />
+						</Clicked>
+					</Button>
+					<Button Text="Close" Margin="5">
+						<Clicked>
+							<DismissView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<!--
+			No NavigationBarConfig at all: no bar and no inset for one, so the content fills the modal.
+		-->
+		<Page ux:Template="ModalNoConfig">
+			<DockPanel Background="#d1c4e9">
+				<StackPanel Alignment="Center" Margin="20" ItemSpacing="12">
+					<Text Value="No bar" FontSize="22" />
+					<Text TextAlignment="Center" TextWrapping="Wrap"
+						Value="This modal declares no NavigationBarConfig, so it has no bar at all and its content fills the modal -- the same rule as a page." />
+				</StackPanel>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Close">
+						<Clicked>
+							<DismissView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+		<Page ux:Template="ModalScroll">
+			<NavigationBarConfig Navigation="nav" Title="Modal (scrolls)">
+				<ToolbarItem Title="Done" />
+			</NavigationBarConfig>
+			<DockPanel Background="#ffffff">
+				<ScrollView>
+					<StackPanel Margin="20" ItemSpacing="14">
+						<Text Value="Scrolling content" FontSize="22" />
+						<Text TextWrapping="Wrap"
+							Value="A page that laid itself out to fill the screen would be cropped by the card. This one adapts: the body scrolls, and the Close button stays docked. Scroll to the bottom, then drag the sheet away." />
+						<Rectangle Height="1200" Fill="#e8eaf6" />
+						<Text Value="The end of the scrolling body." FontSize="18" />
+					</StackPanel>
+				</ScrollView>
+				<StackPanel Dock="Bottom" Margin="10">
+					<Button Text="Close">
+						<Clicked>
+							<DismissView Navigation="nav" />
+						</Clicked>
+					</Button>
+				</StackPanel>
+			</DockPanel>
+		</Page>
+
+	<!--
+		A NativeNavigationView embedded in a panel that is smaller than this page. The embedded view's
+		pages and its bar must stay inside the panel (a page takes the size its view is given, not the app
+		frame's), and the Fuse text below must stay visible. Presenting from the embedded view gives a
+		window-sized modal.
+	-->
+	<Page ux:Template="Embedded">
+		<NavigationBarConfig Navigation="nav" Title="Embedded" />
+		<DockPanel Background="#fafafa">
+			<StackPanel Margin="10">
+				<Panel Height="320" Background="#c8e6c9">
+					<NativeNavigationView ux:Name="embedded" DefaultTemplate="Inner">
+
+						<Page ux:Template="Inner">
+							<NavigationBarConfig Navigation="embedded" Title="Inner" />
+							<DockPanel Background="#fafafa">
+								<Rectangle Fill="#e8f5e9" />
+
+								<Text Dock="Top" Margin="8" FontSize="14" TextWrapping="Wrap"
+									Value="This NativeNavigationView is embedded in the green panel. Its bar is at the panel's top, and this text directly under it." />
+
+								<Text Dock="Bottom" Margin="8" FontSize="13" Color="#2e7d32" TextWrapping="Wrap"
+									Value="Docked to the BOTTOM of the inner page: it should sit at the green panel's bottom edge." />
+
+								<StackPanel Dock="Bottom" Margin="6">
+									<Button Text="Push the inner page" Margin="4">
+										<Clicked>
+											<PushView To="InnerDetail" Navigation="embedded" />
+										</Clicked>
+									</Button>
+								</StackPanel>
+							</DockPanel>
+						</Page>
+
+						<Page ux:Template="InnerDetail">
+							<NavigationBarConfig Navigation="embedded" Title="Inner detail" />
+							<DockPanel Background="#fafafa">
+								<Rectangle Fill="#bbdefb" />
+
+								<Text Dock="Top" Margin="8" FontSize="14" TextWrapping="Wrap"
+									Value="A pushed page, also laid out in the embedded panel." />
+
+								<Text Dock="Bottom" Margin="8" FontSize="13" Color="#0d47a1" TextWrapping="Wrap"
+									Value="Docked to the BOTTOM of the inner page: it should sit at the green panel's bottom edge." />
+
+								<StackPanel Dock="Bottom" Margin="6">
+									<Button Text="Back" Margin="4">
+										<Clicked>
+											<PopView Navigation="embedded" />
+										</Clicked>
+									</Button>
+								</StackPanel>
+							</DockPanel>
+						</Page>
+
+				</NativeNavigationView>
+			</Panel>
+
+			<Text Margin="0,10,0,0" FontSize="13" Color="#37474f" TextWrapping="Wrap"
+				Value="Fuse content below the embedded view. It must stay visible, and the bar above must stay inside the green panel." />
+		</StackPanel>
+	</DockPanel>
+</Page>
+
+</NativeNavigationView>
+</Page>

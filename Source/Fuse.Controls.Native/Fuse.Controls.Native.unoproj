@@ -12,6 +12,7 @@
     "Fuse.Controls.Video",
     "Fuse.Controls.Primitives",
     "Fuse.Controls.TimePicker",
+    "Fuse.Controls.NativeNavigation",
     "Fuse.iOS",
     "Fuse.iOS.TextRenderer",
     "Fuse.Views"
