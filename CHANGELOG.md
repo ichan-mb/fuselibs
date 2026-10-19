@@ -58,6 +58,8 @@
 
 ### Fuse.Controls.ScrollView
 - ScrollView push to native for property changes (#1510)
+- iOS: Fix the native scroll view's content extent so the end of the content is reachable (its margins
+  were left outside), and keep the non-scrolling axis clamped so it cannot pan or bounce sideways
 
 ### Fuse.Drawing.Surface
 - Update assembly references for .NET 6.0 (#1476)

@@ -18,11 +18,14 @@ namespace Fuse.Controls.Native.Android
 		public ScrollView([UXParameter("Host")]IScrollViewHost host) : base(Create())
 		{
 			_host = host;
+			host.SetScrollView(this);
 			InstallCallback(NativeHandle, OnScrollChanged, OnInteractionChanged);
 		}
 
 		public override void Dispose()
 		{
+			if (_host != null)
+				_host.SetScrollView(null);
 			_host = null;
 			base.Dispose();
 		}
@@ -123,6 +126,11 @@ namespace Fuse.Controls.Native.Android
 		{
 			var p = _host.PixelsPerPoint;
 			_host.OnScrollPositionChanged(float2(x / p, y / p));
+		}
+
+		// Android's scroll view measures its child view directly, so content size needs no explicit push.
+		public void UpdateContentSize()
+		{
 		}
 
 		void OnInteractionChanged(bool isInteracting)

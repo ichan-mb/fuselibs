@@ -141,6 +141,9 @@ namespace Fuse.Controls.Native
 		bool UserScroll { set; }
 		bool SnapMinTransform { set; }
 		bool SnapMaxTransform { set; }
+
+		/** Pushes the host's current content size to the native scroll view (see `IScrollViewHost.ContentSize`). */
+		void UpdateContentSize();
 	}
 
 	public interface IScrollViewHost
@@ -149,6 +152,9 @@ namespace Fuse.Controls.Native
 		float2 ContentSize { get; }
 		void OnScrollPositionChanged(float2 newScrollPosition);
 		void OnInteractionChanged(bool isInteracting);
+
+		/** Registers the native scroll view with the host (null when it is disposed), so its content size can be pushed. */
+		void SetScrollView(IScrollView scrollView);
 	}
 
 	public interface INativeViewRenderer : IDisposable

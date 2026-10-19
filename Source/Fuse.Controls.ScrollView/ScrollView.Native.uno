@@ -9,7 +9,18 @@ namespace Fuse.Controls
 	{
 		IScrollView NativeScrollView
 		{
-			get { return NativeView as IScrollView; }
+			get { return _nativeScrollView != null ? _nativeScrollView : NativeView as IScrollView; }
+		}
+
+		// The native scroll view is a template part, not necessarily this control's own native view.
+		IScrollView _nativeScrollView;
+
+		void IScrollViewHost.SetScrollView(IScrollView scrollView)
+		{
+			_nativeScrollView = scrollView;
+
+			// A new native view starts with no content size, so the next push must not be skipped.
+			_hasNativeContentSize = false;
 		}
 
 		float IScrollViewHost.PixelsPerPoint
@@ -39,9 +50,35 @@ namespace Fuse.Controls
 		{
 			get
 			{
-				var content = Children.FirstOrDefault() as Element;
-				return content != null ? content.ActualSize : float2(0.0f);
+				if (Element == null)
+					return float2(0);
+
+				// What `MaxScroll` is built from: the content's margin box, its position and this control's
+				// padding. The painted size alone leaves the margins past the end, so the last part of the
+				// content could only be reached while bouncing. The non-scrolling axis stays at the viewport.
+				var extent = ContentMarginSize + Element.ActualPosition + Padding.XY + Padding.ZW;
+				var scroll = ConstrainExtents(extent - ActualSize);
+				return float2(Math.Max(scroll.X, 0.0f), Math.Max(scroll.Y, 0.0f)) + ActualSize;
 			}
+		}
+
+		float2 _lastNativeContentSize;
+		bool _hasNativeContentSize;
+
+		/** Pushes the content size to the native scroll view (a no-op where it measures its child). */
+		internal void UpdateNativeContentSize()
+		{
+			var nsv = NativeScrollView;
+			if (nsv == null)
+				return;
+
+			var size = ((IScrollViewHost)this).ContentSize;
+			if (_hasNativeContentSize && size == _lastNativeContentSize)
+				return;
+
+			_lastNativeContentSize = size;
+			_hasNativeContentSize = true;
+			nsv.UpdateContentSize();
 		}
 
 		internal sealed override void CompensateForScrollView(ref float4x4 t)

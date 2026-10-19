@@ -62,11 +62,14 @@ namespace Fuse.Controls.Native.iOS
 		public ScrollView([UXParameter("Host")]IScrollViewHost host) : base(Create())
 		{
 			_host = host;
+			host.SetScrollView(this);
 			_delegateHandle = AddCallback(Handle, OnScrollViewDidScroll, OnInteractionChanged);
 		}
 
 		public override void Dispose()
 		{
+			if (_host != null)
+				_host.SetScrollView(null);
 			_host = null;
 			base.Dispose();
 		}
@@ -111,6 +114,11 @@ namespace Fuse.Controls.Native.iOS
 		}
 
 		internal protected override void OnSizeChanged()
+		{
+			UpdateContentSize();
+		}
+
+		public void UpdateContentSize()
 		{
 			var contentSize = _host.ContentSize;
 			SetContentSize(Handle, contentSize.X, contentSize.Y);

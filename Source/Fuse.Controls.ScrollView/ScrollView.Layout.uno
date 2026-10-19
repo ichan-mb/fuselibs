@@ -196,6 +196,10 @@ namespace Fuse.Controls
 
 			_contentMarginSize = sz;
 			_contentAlignment = align;
+
+			// The content can be arranged after the native scroll view was sized (e.g. when its container
+			// is resized), so push the content size here rather than only on a size change.
+			UpdateNativeContentSize();
 		}
 
 		protected override LayoutDependent IsMarginBoxDependent( Visual child )
