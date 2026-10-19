@@ -1,0 +1,26 @@
+{
+  "copyright": "Copyright (c) Fuse Open",
+  "description": "Native tab navigation for iOS and Android",
+  "publisher": "Fuse Open",
+  "outputType": "library",
+  "internalsVisibleTo": [
+    "Fuse.Android",
+    "Fuse.iOS"
+  ],
+  "references": [
+    "Uno.Collections"
+  ],
+  "projects": [
+    "../Fuse/Fuse.unoproj",
+    "../Fuse.Reactive/Fuse.Reactive.unoproj",
+    "../Fuse.Controls.NativeNavigation/Fuse.Controls.NativeNavigation.unoproj"
+  ],
+  "includes": [
+    "*",
+    "iOS/TabBarDelegate.h:objcheader:iOS",
+    "iOS/TabBarDelegate.mm:objcsource:iOS",
+    "iOS/TabBarController.h:objcheader:iOS",
+    "iOS/TabBarController.mm:objcsource:iOS",
+    "Android/Java/TabBar.java:java:Android"
+  ]
+}

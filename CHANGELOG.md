@@ -49,6 +49,22 @@
 - Navigation actions without a `Navigation` attribute resolve the view their page belongs to, so they work inside templates
 - Page content is edge-to-edge by default: `NavigationBarConfig.ApplyInsets` now defaults to `false`
 
+### Fuse.Controls.NativeTabNavigation
+- Native tab navigation for iOS and Android: `NativeTabNavigationView` with one tab per `ux:Template`, `TabConfig` titles/icons, selection (`DefaultTab`, `SelectedIndex`, `SelectTab`, FuseJS `NativeTabNavigation`), and tab content that may be a `Page`, `Panel` or `NativeNavigationView`
+- Tab badges (`TabConfig.Badge`, `BadgeColor`, `BadgeTextColor`), including a dot badge
+- Tab bar appearance: background/tint colours and `Translucent`; iOS uses `UITabBarAppearance` with `scrollEdgeAppearance`, so the configured background stays visible at the scroll edge
+- Non-selectable tabs (`TabConfig.Enabled`) and runtime tab sets (`AddTab`/`RemoveTab`, their actions, and FuseJS `add`/`remove`; `TabConfig.AutoAdd="false"` keeps a template out of the initial set)
+- Tab bar visibility (`Hidden`), label modes (`ShowLabels`: always/selected/never) and Android back behaviour (`BackBehavior`: exit or return to the first tab, deferring to a nested navigation)
+- Tab pages are padded for the status bar / safe area (`ApplyInsets`, default true), following rotation and window changes
+- Lazy tab pages (`Lazy`): a tab's page is rooted only when first selected, while its `TabConfig` metadata is still read at startup
+- Selection changes notify UX bindings (`SelectedIndex`) and FuseJS (`onSelected`); Android marks the selected tab for accessibility, and iOS applies `BadgeTextColor`
+- Per-tab colours (`TabConfig.Color` / `SelectedColor`), falling back to the bar's tints
+- Android: the tab bar grows with the system font scale so labels are not clipped; the search item is focusable for accessibility
+- A `TabConfig` that leaves `Title` unset falls back to the template name
+- Embedded use: the tab bar and pages use the view's bounds, and Android insets only cover the part of the system bars that overlaps the view (no extra status-bar gap below a header)
+- iOS: lazy tab content is created when the tab is tapped with the iOS 18+ `UITab` API, which reports selections through `didSelectTab:previousTab:`
+- Tab placement (`TabConfig.Placement`): `Pinned` puts a tab at the trailing edge; `Search` is the separate trailing search item (iOS 26+) and a round, elevated trailing button on Android. Other UIKit placements (`Optional`, `Movable`, `Fixed`, `SidebarOnly`) are mapped where the platform supports them
+
 ### Fuse.Controls.Primitives
 - iOS: Fix crash when removing Shadow (#1498)
 - Fix bugs and improve native rendering for Image, Circle and Shadow (#1507)

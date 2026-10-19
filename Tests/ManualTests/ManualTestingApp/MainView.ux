@@ -120,6 +120,7 @@
 			<DataBindingPage/>
 			<TodoListPage/>
 			<NativeNavigationPage/>
+			<NativeTabNavigationPage/>
 			<IsVisibleTest/>
 			<ChangingLayout/>
 			<TextAlignmentView/>

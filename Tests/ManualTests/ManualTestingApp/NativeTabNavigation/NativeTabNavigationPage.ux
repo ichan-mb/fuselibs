@@ -1,0 +1,115 @@
+<Page Title="Native Tab Navigation" ux:Class="NativeTabNavigationPage">
+	<InfoStack ux:Key="Info">
+		<p>Scenarios for Fuse.Controls.NativeTabNavigation. Everything is reached with trigger actions, so nothing needs JavaScript.</p>
+		<ul>
+			<li>Tabs are the templates below: Home, Search and Profile. Search holds a NativeNavigationView of its own (push a page with its button).</li>
+			<li>Lazy: pages are created on first selection. Open Search and Profile to create them, then go back to Home.</li>
+			<li>Settings is declared with 'AutoAdd="false"', so it only appears after 'Add Settings'. Remove it again while it is selected.</li>
+			<li>Profile is 'Enabled="false"': tapping it does nothing, and it is dimmed.</li>
+			<li>Hide/Show the bar, and switch labels between always and never. The bar keeps its colours and safe-area insets.</li>
+			<li>Back on the device returns to the first tab (BackBehavior="ReturnToFirst"); inside the Search tab it pops that tab's own stack first.</li>
+			<li>Badges: Search has a count, Settings has a dot.</li>
+			<li>Placement: Search uses 'Placement="Search"', so on iOS 26+ it is the separate trailing search
+				button; on Android it sits at the trailing edge with a gap, like 'Pinned'.</li>
+			<li>Embedding: the view uses its own bounds, so it can sit in a sized Panel or DockPanel slot;
+				the bar follows that area instead of the app frame.</li>
+		</ul>
+	</InfoStack>
+
+	<NativeTabNavigationView
+		ux:Name="tabs"
+		DefaultTab="Home"
+		Lazy="true"
+		BackBehavior="ReturnToFirst"
+		SelectedTintColor="#e91e63"
+		TintColor="#9e9e9e"
+	>
+		<Page ux:Template="Home">
+			<TabConfig Title="Home" Symbols="house" />
+			<DockPanel Background="#fafafa">
+				<ScrollView>
+					<StackPanel Margin="10" ItemSpacing="8">
+						<Text Margin="6" TextWrapping="Wrap"
+							Value="The initial tab (DefaultTab). Nothing here is JavaScript: every action below is a trigger action." />
+
+						<Text Margin="6,16,6,0" FontSize="18" Value="Selection" />
+						<Button Text="Select Search" Margin="4">
+							<Clicked><SelectTab To="Search" /></Clicked>
+						</Button>
+						<Button Text="Select Profile (disabled)" Margin="4">
+							<Clicked><SelectTab To="Profile" /></Clicked>
+						</Button>
+
+						<Text Margin="6,16,6,0" FontSize="18" Value="Dynamic tabs" />
+						<Button Text="Add Settings (AutoAdd=false)" Margin="4">
+							<Clicked><AddTab To="Settings" /></Clicked>
+						</Button>
+						<Button Text="Remove Settings" Margin="4">
+							<Clicked><RemoveTab To="Settings" /></Clicked>
+						</Button>
+
+						<Text Margin="6,16,6,0" FontSize="18" Value="Bar" />
+						<Button Text="Hide the bar" Margin="4">
+							<Clicked><Set tabs.Hidden="true" /></Clicked>
+						</Button>
+						<Button Text="Show the bar" Margin="4">
+							<Clicked><Set tabs.Hidden="false" /></Clicked>
+						</Button>
+						<Button Text="Labels: never" Margin="4">
+							<Clicked><Set tabs.ShowLabels="Never" /></Clicked>
+						</Button>
+						<Button Text="Labels: always" Margin="4">
+							<Clicked><Set tabs.ShowLabels="Always" /></Clicked>
+						</Button>
+					</StackPanel>
+				</ScrollView>
+			</DockPanel>
+		</Page>
+
+		<Page ux:Template="Search">
+			<TabConfig Title="Search" Symbols="magnifyingglass" Placement="Search" Badge="3" />
+			<NativeNavigationView DefaultTemplate="SearchHome">
+				<Page ux:Template="SearchHome">
+					<NavigationBarConfig Title="Search" ApplyInsets="true" />
+					<DockPanel Background="#ffffff">
+						<Text Dock="Top" Margin="12" FontSize="16" TextWrapping="Wrap"
+							Value="This tab has its own native navigation stack, with its own bar and back stack." />
+						<StackPanel Dock="Bottom" Margin="10">
+							<Button Text="Push a page">
+								<Clicked><PushView To="SearchDetail" /></Clicked>
+							</Button>
+						</StackPanel>
+					</DockPanel>
+				</Page>
+				<Page ux:Template="SearchDetail">
+					<NavigationBarConfig Title="Detail" ApplyInsets="true" />
+					<DockPanel Background="#e3f2fd">
+						<Text Margin="12" FontSize="16" TextWrapping="Wrap"
+							Value="Pushed inside the Search tab. Back pops this page; the tab bar stays visible." />
+						<StackPanel Dock="Bottom" Margin="10">
+							<Button Text="Back">
+								<Clicked><PopView /></Clicked>
+							</Button>
+						</StackPanel>
+					</DockPanel>
+				</Page>
+			</NativeNavigationView>
+		</Page>
+
+		<Page ux:Template="Settings">
+			<TabConfig Title="Settings" Symbols="settings" Badge="" AutoAdd="false" />
+			<DockPanel Background="#fff8e1">
+				<Text Margin="12" FontSize="16" TextWrapping="Wrap"
+					Value="Added at runtime with AddTab. Its page was created when the tab was first shown." />
+			</DockPanel>
+		</Page>
+
+		<Page ux:Template="Profile">
+			<TabConfig Title="Profile" Symbols="person" Enabled="false" />
+			<DockPanel Background="#f5f5f5">
+				<Text Margin="12" FontSize="16" TextWrapping="Wrap"
+					Value="Disabled: tapping this tab does not select it." />
+			</DockPanel>
+		</Page>
+	</NativeTabNavigationView>
+</Page>
