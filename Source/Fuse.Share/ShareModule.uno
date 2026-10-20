@@ -20,6 +20,13 @@ namespace Fuse.Share
 	and an `activityType` string identifying the target that was used. `activityType`
 	is `null` when the platform cannot report it.
 
+	On Android, `completed` means a target was selected; the platform cannot always
+	report whether the user finished sending. On iOS it reflects the activity
+	completion state.
+
+	Only one share can be active at a time. Starting another share while one is
+	open rejects with `"A share is already in progress."`
+
 	NB: on iPad, iOS design guidelines requires a point on screen as the origin for
 	the share popover. You can do this by passing a reference to a UX element.
 
@@ -107,7 +114,7 @@ namespace Fuse.Share
 			@param options.chooserTitle (string) The title of the Android chooser. Ignored on iOS.
 			@param options.origin (Element) Optional iPad popover anchor, usually a UX element.
 
-			@return (Promise) A promise that resolves to an object with `completed` (bool) and `activityType` (string or null) properties.
+			@return (Promise) A promise that resolves to an object with `completed` (bool) and `activityType` (string or null) properties. Rejects with a user-facing message when the content is invalid or the platform cannot start the share.
 		*/
 		static Future<ShareResult> ShareInterface(Context context, object[] args)
 		{
@@ -142,7 +149,7 @@ namespace Fuse.Share
 			@param description (string) A short user-facing description used as subject and Android chooser title.
 			@param origin (Element) Optional iPad popover anchor, usually a UX element.
 
-			@return (Promise) A promise that resolves to an object with `completed` (bool) and `activityType` (string or null) properties.
+			@return (Promise) A promise that resolves to an object with `completed` (bool) and `activityType` (string or null) properties. Rejects with a user-facing message when the file list is invalid or the platform cannot start the share.
 		*/
 		static Future<ShareResult> ShareFilesInterface(Context context, object[] args)
 		{
@@ -192,6 +199,9 @@ namespace Fuse.Share
 
 			This method is kept for backwards compatibility. New code should use `share`.
 
+			It returns a `bool` synchronously and does not report completion. It returns
+			`false` if another share is already in progress.
+
 			@param text (string) The text to share
 			@param description (string) A short user-facing description for the share dialog
 		*/
@@ -235,6 +245,9 @@ namespace Fuse.Share
 			@scriptmethod shareFile(path, mimetype, description)
 
 			This method is kept for backwards compatibility. New code should use `share` or `shareFiles`.
+
+			It returns a `bool` synchronously and does not report completion. It returns
+			`false` if another share is already in progress.
 
 			@param path (string) The path to the file to share
 			@param mimetype (string) The data format mimetype (eg. 'image/jpeg', 'text/plain' etc). Detected from the file extension when omitted.
