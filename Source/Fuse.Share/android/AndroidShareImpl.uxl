@@ -1,6 +1,10 @@
 <extensions backend="cplusplus">
 
 	<processFile condition="ANDROID" name="ShareFileProvider.java" targetName="app/src/main/java/com/fuse/fileprovider/ShareFileProvider.java" />
+	<processFile condition="ANDROID" name="AndroidShareHelper.java" targetName="app/src/main/java/com/fuse/share/AndroidShareHelper.java" />
+	<processFile condition="ANDROID" name="ShareIntentBuilder.java" targetName="app/src/main/java/com/fuse/share/ShareIntentBuilder.java" />
+	<processFile condition="ANDROID" name="ShareFileStager.java" targetName="app/src/main/java/com/fuse/share/ShareFileStager.java" />
+	<processFile condition="ANDROID" name="ShareSession.java" targetName="app/src/main/java/com/fuse/share/ShareSession.java" />
 
 	<require condition="ANDROID" androidManifest.applicationElement>
 		<![CDATA[

@@ -2,7 +2,6 @@ using Uno;
 using Uno.UX;
 using Uno.Threading;
 using Fuse.Scripting;
-using Fuse.Elements;
 
 namespace Fuse.Share
 {
@@ -10,11 +9,19 @@ namespace Fuse.Share
 	@scriptmodule FuseJS/Share
 
 	Cross-app content sharing API for mobile targets.
-	Supports sharing of raw text, and files with associated [mimetype](http://www.iana.org/assignments/media-types/media-types.xhtml).
+	Supports sharing of raw text, URLs, and one or more files with an associated
+	[mimetype](http://www.iana.org/assignments/media-types/media-types.xhtml).
 
-	Uses Action Sheet on iOS and ACTION_SEND Intents on Android.
+	Uses `UIActivityViewController` on iOS and `ACTION_SEND` / `ACTION_SEND_MULTIPLE`
+	intents on Android.
 
-	NB: on iPad, iOS design guidelines requires a point on screen as the origin for the share popover. You can do this by passing a reference to a UX element.
+	The `share` and `shareFiles` methods return a Promise that resolves when the
+	share operation finishes. The result is an object with a `completed` boolean
+	and an `activityType` string identifying the target that was used. `activityType`
+	is `null` when the platform cannot report it.
+
+	NB: on iPad, iOS design guidelines requires a point on screen as the origin for
+	the share popover. You can do this by passing a reference to a UX element.
 
 	You need to add a reference to "Fuse.Share" in your project file to use this feature.
 
@@ -28,12 +35,21 @@ namespace Fuse.Share
 				{
 					Camera.takePicture(320,240)
 					.then(function(image) {
-						Share.shareFile(image.path, "image/*", "Photo from Fuse");
+						Share.share({
+							files: [image.path],
+							subject: "Photo from Fuse"
+						}).then(function(result) {
+							console.log("Shared: " + result.completed);
+						});
 					});
 				},
 				shareText : function()
 				{
-					Share.shareText("https://fuseopen.com/", "The link to Fuse Open website");
+					Share.share({
+						text: "The link to Fuse Open website",
+						url: "https://fuseopen.com/",
+						subject: "Fuse Open"
+					});
 				}
 			}
 		</JavaScript>
@@ -49,7 +65,11 @@ namespace Fuse.Share
 					shareText : function()
 					{
 						// The iOS popover will use the position of ShareOrigin as its spawn origin
-						Share.shareText("https://fuseopen.com/", "The link to Fuse Open website", ShareOrigin);
+						Share.share({
+							text: "The link to Fuse Open website",
+							url: "https://fuseopen.com/",
+							origin: ShareOrigin
+						});
 					}
 				}
 			</JavaScript>
@@ -60,6 +80,7 @@ namespace Fuse.Share
 	public class ShareModule : NativeModule
 	{
 		static readonly ShareModule _instance;
+
 		public ShareModule() : base()
 		{
 			if(_instance != null) return;
@@ -67,11 +88,110 @@ namespace Fuse.Share
 
 			AddMember(new NativeFunction("shareText", ShareText));
 			AddMember(new NativeFunction("shareFile", ShareFile));
+			AddMember(new NativePromise<ShareResult, Scripting.Object>("share", ShareInterface, ShareResult.Converter));
+			AddMember(new NativePromise<ShareResult, Scripting.Object>("shareFiles", ShareFilesInterface, ShareResult.Converter));
+		}
+
+		/**
+			Share content to another application.
+
+			At least one of `text`, `url` or `files` must be provided.
+
+			@scriptmethod share(options)
+
+			@param options.text (string) Text to share.
+			@param options.url (string) A URL to share. On iOS it is shared as a link, on Android it is appended to the shared text.
+			@param options.files (array) An array of file paths to share.
+			@param options.mimeType (string) Optional data format mimetype (eg. 'image/jpeg', 'text/plain' etc). Detected from the file extension when omitted. A wildcard type is used when multiple files have different types.
+			@param options.subject (string) A subject line for targets that support one, such as e-mail.
+			@param options.chooserTitle (string) The title of the Android chooser. Ignored on iOS.
+			@param options.origin (Element) Optional iPad popover anchor, usually a UX element.
+
+			@return (Promise) A promise that resolves to an object with `completed` (bool) and `activityType` (string or null) properties.
+		*/
+		static Future<ShareResult> ShareInterface(Context context, object[] args)
+		{
+			var promise = new Promise<ShareResult>();
+
+			if (!ShareSessionGuard.TryBegin())
+			{
+				promise.Reject(new Exception("A share is already in progress."));
+				return promise;
+			}
+
+			try
+			{
+				ShareInternal(ShareRequestParser.FromOptions(args), promise);
+			}
+			catch (Exception e)
+			{
+				ShareSessionGuard.End();
+				promise.Reject(e);
+			}
+
+			return promise;
+		}
+
+		/**
+			Share one or more files to another application.
+
+			@scriptmethod shareFiles(files, mimetype, description, origin)
+
+			@param files (array) An array of file paths to share.
+			@param mimetype (string) Optional data format mimetype. Detected from the file extension when omitted.
+			@param description (string) A short user-facing description used as subject and Android chooser title.
+			@param origin (Element) Optional iPad popover anchor, usually a UX element.
+
+			@return (Promise) A promise that resolves to an object with `completed` (bool) and `activityType` (string or null) properties.
+		*/
+		static Future<ShareResult> ShareFilesInterface(Context context, object[] args)
+		{
+			var promise = new Promise<ShareResult>();
+
+			if (!ShareSessionGuard.TryBegin())
+			{
+				promise.Reject(new Exception("A share is already in progress."));
+				return promise;
+			}
+
+			try
+			{
+				if (args.Length < 1)
+					throw new Exception("shareFiles requires an array of file paths.");
+
+				var files = ShareRequestParser.ToPathArray(args[0]);
+				if (files == null || files.Length == 0)
+					throw new Exception("shareFiles requires a non-empty array of file paths.");
+
+				var description = ShareRequestParser.GetStringArg(args, 2);
+				var request = new ShareRequest
+				{
+					Files = files,
+					MimeType = ShareRequestParser.GetStringArg(args, 1),
+					Subject = description,
+					ChooserTitle = description
+				};
+
+				if (args.Length > 3)
+					request.SetOriginFrom(args[3]);
+
+				ShareInternal(request, promise);
+			}
+			catch (Exception e)
+			{
+				ShareSessionGuard.End();
+				promise.Reject(e);
+			}
+
+			return promise;
 		}
 
 		/**
 			Share raw text to another application.
 			@scriptmethod shareText(text, description)
+
+			This method is kept for backwards compatibility. New code should use `share`.
+
 			@param text (string) The text to share
 			@param description (string) A short user-facing description for the share dialog
 		*/
@@ -81,87 +201,99 @@ namespace Fuse.Share
 
 			if defined(android || iOS)
 			{
-				var textToShare = "" + args[0];
-				var description = args.Length>1 ? "" + args[1] : "";
+				if (!ShareSessionGuard.TryBegin())
+					return false;
 
-				if defined(android)
+				try
 				{
-					AndroidShareImpl.ShareText(textToShare, description);
+					var description = args.Length > 1 ? "" + args[1] : null;
+					var request = new ShareRequest
+					{
+						Text = "" + args[0],
+						Subject = description,
+						ChooserTitle = description
+					};
+
+					if (args.Length > 2)
+						request.SetOriginFrom(args[2]);
+
+					ShareInternal(request, new Promise<ShareResult>());
 					return true;
 				}
-				else if defined(iOS)
+				catch
 				{
-					float2 position = float2(0);
-					if (args.Length > 2 && TryGetPosition(args[2], out position))
-						iOSShareImpl.ShareText(textToShare, description, position);
-					else
-						iOSShareImpl.ShareText(textToShare, description);
-					return true;
-				}
-				else
-					build_error;
-			}
-
-			return false;
-		}
-
-		bool TryGetPosition(object arg, out float2 position)
-		{
-			position = float2(0.0f);
-			var obj = arg as Fuse.Scripting.Object;
-			if (obj != null && obj.ContainsKey("external_object"))
-			{
-				var element = ((Fuse.Scripting.External)obj["external_object"]).Object as Element;
-				if (element != null)
-				{
-					var pos = element.ActualPosition;
-					var size = element.ActualSize;
-					position = pos + size * 0.5f;
-					return true;
+					ShareSessionGuard.End();
+					throw;
 				}
 			}
+
 			return false;
 		}
 
 		/**
 			Share a file to another application by path.
 			@scriptmethod shareFile(path, mimetype, description)
+
+			This method is kept for backwards compatibility. New code should use `share` or `shareFiles`.
+
 			@param path (string) The path to the file to share
-			@param mimetype (string) The data format mimetype (eg. 'image/jpeg', 'text/plain' etc)
+			@param mimetype (string) The data format mimetype (eg. 'image/jpeg', 'text/plain' etc). Detected from the file extension when omitted.
 			@param description (string) A short user-facing description for the share dialog
 		*/
 		object ShareFile(Context c, object[] args)
 		{
 			if(args.Length < 1) return false;
-			var path = args[0] as string;
-			var type = args[1] as string;
-			if(type==null)
-				throw new Uno.Exception("Second argument of ShareFile must be a mimetype string");
 
-			if (path==null)
+			var path = args[0] as string;
+			if (path == null)
 				return false;
 
 			if defined(android || iOS)
 			{
-				var description = args.Length>2 ? "" + args[2] : "";
-				if defined(android)
+				if (!ShareSessionGuard.TryBegin())
+					return false;
+
+				try
 				{
-					AndroidShareImpl.ShareFile(path, type, description);
+					var description = args.Length > 2 ? "" + args[2] : null;
+					var request = new ShareRequest
+					{
+						Files = new string[] { path },
+						MimeType = ShareRequestParser.GetStringArg(args, 1),
+						Subject = description,
+						ChooserTitle = description
+					};
+
+					if (args.Length > 3)
+						request.SetOriginFrom(args[3]);
+
+					ShareInternal(request, new Promise<ShareResult>());
 					return true;
 				}
-				else if defined(iOS)
+				catch
 				{
-					float2 position = float2(0);
-					if (args.Length > 3 && TryGetPosition(args[3], out position))
-						iOSShareImpl.ShareFile("file://" + path, type, description, position);
-					else
-						iOSShareImpl.ShareFile("file://" + path, type, description);
-					return true;
+					ShareSessionGuard.End();
+					throw;
 				}
-				else
-					build_error;
 			}
 			return false;
+		}
+
+		static void ShareInternal(ShareRequest request, Promise<ShareResult> promise)
+		{
+			if defined(android)
+			{
+				AndroidShareImpl.Share(request, promise);
+			}
+			else if defined(iOS)
+			{
+				iOSShareImpl.Share(request, promise);
+			}
+			else
+			{
+				ShareSessionGuard.End();
+				promise.Reject(new Exception("Share is not supported on this platform."));
+			}
 		}
 	}
 }

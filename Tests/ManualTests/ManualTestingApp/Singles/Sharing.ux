@@ -1,7 +1,7 @@
 <Page Title="Sharing" ux:Class="SharingPage">
 	<!-- The info will be hidden by the web view -->
 	<InfoStack ux:Key="Info">
-		<p>This page has two buttons for testing sharing of content: A text and a captured photo.</p>
+		<p>This page has buttons for testing sharing of content: text, a captured photo, and the options-based API.</p>
 	</InfoStack>
 	<JavaScript>
 		var share = require("FuseJS/Share")
@@ -11,6 +11,19 @@
 			textShareTest : function()
 			{
 				share.shareText("Hello World", "Text from Fuse");
+			},
+			optionsShareTest : function()
+			{
+				share.share({
+					text: "The link to Fuse Open website",
+					url: "https://fuseopen.com/",
+					subject: "Fuse Open",
+					chooserTitle: "Share via"
+				}).then(function(result) {
+					console.log("Share completed: " + result.completed + " via " + result.activityType);
+				}).catch(function(error) {
+					console.log("Share failed: " + error);
+				});
 			},
 			photoShareTest : function()
 			{
@@ -28,6 +41,7 @@
 				<StackPanel Dock="Bottom">
 					<Button Text="Capture and share photo" Clicked="{photoShareTest}"/>
 					<Button Text="Share text 'Hello world'" Clicked="{textShareTest}"/>
+					<Button Text="Share text and URL" Clicked="{optionsShareTest}"/>
 				</StackPanel>
 			</WhileVisible>
 		</DockPanel>

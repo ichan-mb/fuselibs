@@ -3,17 +3,25 @@
   "description": "Content sharing API",
   "publisher": "Fuse Open",
   "outputType": "library",
+  "internalsVisibleTo": [
+    "Fuse.Share.Test"
+  ],
   "references": [
     "Uno.Threading"
   ],
   "projects": [
-    "../Fuse.Android.Permissions/Fuse.Android.Permissions.unoproj",
+    "../Android.ActivityUtils/Android.ActivityUtils.unoproj",
     "../Fuse.Common/Fuse.Common.unoproj",
     "../Fuse.Elements/Fuse.Elements.unoproj",
     "../Fuse.Nodes/Fuse.Nodes.unoproj",
     "../Fuse.Scripting/Fuse.Scripting.unoproj"
   ],
   "includes": [
-    "*"
+    "*",
+    "iOS/ShareUI.h:objcheader:iOS",
+    "iOS/ShareUI.m:objcsource:iOS"
+  ],
+  "excludes": [
+    "Tests/*"
   ]
 }

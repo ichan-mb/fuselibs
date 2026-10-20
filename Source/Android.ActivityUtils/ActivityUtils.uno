@@ -13,6 +13,8 @@ namespace Android
     public static extern(android) class ActivityUtils
     {
         static int _requestID = 0;
+        static readonly object _requestIDMutex = new object();
+        const int MaxRequestCode = 0x7FFF;
         static Java.Object _intentListener;
         static Dictionary<int, ActivityResultCallback> _pendingResults;
         static Dictionary<int, object> _pendingInfos;
@@ -58,12 +60,28 @@ namespace Android
             StartActivity(intent, callback, null);
         }
 
+        /**
+            Allocates a request code that will not collide with other
+            ActivityUtils.startActivityForResult calls.
+        */
+        public static int AllocateRequestCode()
+        {
+            lock (_requestIDMutex)
+            {
+                _requestID += 1;
+                if (_requestID > MaxRequestCode)
+                    _requestID = 1;
+
+                return _requestID;
+            }
+        }
+
         public static void StartActivity(Java.Object intent, ActivityResultCallback callback, object info)
         {
-            _requestID += 1; // note that unless >0 the requestID is not returned
-            _pendingResults[_requestID] = callback;
-            _pendingInfos[_requestID] = info;
-            StartForResultJava(_requestID, intent);
+            var requestCode = AllocateRequestCode();
+            _pendingResults[requestCode] = callback;
+            _pendingInfos[requestCode] = info;
+            StartForResultJava(requestCode, intent);
         }
 
         [Foreign(Language.Java)]
@@ -96,6 +114,12 @@ namespace Android
 
     public static extern(!android) class ActivityUtils
     {
+        public static int AllocateRequestCode()
+        {
+            debug_log "Android ActivityUtils is an android only api and as such cannot be used from this backend";
+            return 0;
+        }
+
         public static object GetRootActivity()
         {
             debug_log "Android ActivityUtils is an android only api and as such cannot be used from this backend";

@@ -1,0 +1,12 @@
+{
+  "outputType": "test",
+  "references": [
+    "Fuse.Share",
+    "Fuse.Scripting",
+    "Fuse.Scripting.JavaScript",
+    "Uno.Testing"
+  ],
+  "includes": [
+    "*"
+  ]
+}

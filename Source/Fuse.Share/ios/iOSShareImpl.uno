@@ -1,67 +1,72 @@
+using Uno;
 using Uno.Compiler.ExportTargetInterop;
 using Uno.Threading;
+
 namespace Fuse.Share
 {
+	[ForeignInclude(Language.ObjC, "iOS/ShareUI.h")]
 	internal extern(iOS) class iOSShareImpl
 	{
-		public static void ShareText(string text, string description)
+		public static void Share(ShareRequest request, Promise<ShareResult> promise)
 		{
-			if (IsIPad())
-				Fuse.Diagnostics.UserWarning("iPad requires a position as the spawn origion of the Share popover", text + " - " + description);
-
-			Present(NewShareTextActivity(text, description), false, 0, 0);
-		}
-
-		public static void ShareText(string text, string description, float2 position)
-		{
-			Present(NewShareTextActivity(text, description), true, position.X, position.Y);
-		}
-
-		public static void ShareFile(string path, string mimeType, string description)
-		{
-			if (IsIPad())
-				Fuse.Diagnostics.UserWarning("iPad requires a position as the spawn origion of the Share popover", path + " - " + mimeType + " - " + description);
-
-			Present(NewShareFileActivity(path, mimeType, description), false, 0, 0);
-		}
-
-		public static void ShareFile(string path, string mimeType, string description, float2 position)
-		{
-			Present(NewShareFileActivity(path, mimeType, description), true, position.X, position.Y);
+			var callback = new ShareResultCallback(promise);
+			ShareNative(
+				request.Text,
+				request.Url,
+				request.Files,
+				request.Subject,
+				request.HasOrigin,
+				request.Origin.X,
+				request.Origin.Y,
+				callback.OnChosen,
+				callback.OnCancelled,
+				callback.OnError);
 		}
 
 		[Foreign(Language.ObjC)]
-		static bool IsIPad()
+		static void ShareNative(string text, string url, string[] files, string subject,
+			bool hasOrigin, float originX, float originY,
+			Action<string> onChosen, Action onCancelled, Action<string> onError)
 		@{
-			return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad;
-		@}
-
-		[Foreign(Language.ObjC)]
-		static ObjC.Object NewShareTextActivity(string text, string description)
-		@{
-			NSArray* sharedObjects=@[text, description];
-			return [[UIActivityViewController alloc] initWithActivityItems:sharedObjects applicationActivities:nil];
-		@}
-
-		[Foreign(Language.ObjC)]
-		static ObjC.Object NewShareFileActivity(string path, string mimeType, string description)
-		@{
-			NSArray* sharedObjects=@[[NSURL URLWithString:path], description];
-			return [[UIActivityViewController alloc] initWithActivityItems:sharedObjects applicationActivities:nil];
-		@}
-
-		[Foreign(Language.ObjC)]
-		static void Present(ObjC.Object activityController, bool hasPosition, float x, float y)
-		@{
-			UIActivityViewController* activityVC = (UIActivityViewController*)activityController;
 			dispatch_async(dispatch_get_main_queue(), ^{
-				if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad)
+				NSString* error = nil;
+				NSArray* activityItems = FuseShareCreateActivityItems(
+					text, url, [files copyArray], subject, &error);
+
+				if (activityItems == nil)
 				{
-					activityVC.popoverPresentationController.sourceView = [[[UIApplication sharedApplication] keyWindow] rootViewController].view;
-					if (hasPosition)
-						activityVC.popoverPresentationController.sourceRect = CGRectMake(x, y, 1, 1);
+					onError(error != nil ? error : @"No content to share.");
+					return;
 				}
-				[[[[UIApplication sharedApplication] keyWindow] rootViewController] presentViewController:activityVC animated:YES completion:nil];
+
+				UIActivityViewController* activityVC = [[UIActivityViewController alloc]
+					initWithActivityItems:activityItems
+					applicationActivities:nil];
+
+				UIViewController* presenter = FuseShareTopViewController();
+				if (!presenter || !presenter.view.window)
+				{
+					onError(@"No view controller available to present the share dialog.");
+					return;
+				}
+
+				BOOL isPad = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad;
+				BOOL isRegularWidth = presenter.traitCollection.horizontalSizeClass == UIUserInterfaceSizeClassRegular;
+				BOOL usePopover = isPad && isRegularWidth && CGRectGetWidth(presenter.view.bounds) >= 768.0;
+
+				FuseSharePresentActivity(
+					activityVC,
+					presenter,
+					usePopover,
+					hasOrigin,
+					originX,
+					originY,
+					^(UIActivityType activityType, BOOL completed) {
+						if (completed)
+							onChosen(activityType != nil ? activityType : @"");
+						else
+							onCancelled();
+					});
 			});
 		@}
 	}
