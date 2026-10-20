@@ -1,9 +1,5 @@
 #import "FOMediaPickerPhotoAssetUtil.h"
-#import "FOMediaPickerImageUtil.h"
-#import "FOMediaPickerPhotoAssetUtil.h"
 #import "FOMediaPickerMetaDataUtil.h"
-
-#import <MobileCoreServices/MobileCoreServices.h>
 
 @implementation FOMediaPickerPhotoAssetUtil
 
@@ -20,62 +16,48 @@
 }
 
 + (PHAsset *)getAssetFromPHPickerResult:(PHPickerResult *)result API_AVAILABLE(ios(14)) {
+	if (result.assetIdentifier == nil) {
+		return nil;
+	}
 	PHFetchResult *fetchResult = [PHAsset fetchAssetsWithLocalIdentifiers:@[ result.assetIdentifier ] options:nil];
 	return fetchResult.firstObject;
 }
 
-+ (NSString *)saveImageWithOriginalImageData:(NSData *)originalImageData image:(UIImage *)image
-																	maxWidth:(NSNumber *)maxWidth
-																	maxHeight:(NSNumber *)maxHeight
-																	imageQuality:(NSNumber *)imageQuality {
-	NSString *suffix = kFOImagePickerDefaultSuffix;
-	FOImagePickerMIMEType type = kFOImagePickerMIMETypeDefault;
-	NSDictionary *metaData = nil;
-	if (originalImageData) {
-		type = [FOMediaPickerMetaDataUtil getImageMIMETypeFromImageData:originalImageData];
-		suffix =
-				[FOMediaPickerMetaDataUtil imageTypeSuffixFromType:type] ?: kFOImagePickerDefaultSuffix;
-		metaData = [FOMediaPickerMetaDataUtil getMetaDataFromImageData:originalImageData];
-	}
-	return [self saveImageWithMetaData:metaData image:image suffix:suffix type:type imageQuality:imageQuality];
-}
-
-+ (NSString *)saveImageWithPickerInfo:(nullable NSDictionary *)info
-																image:(UIImage *)image
-												 imageQuality:(NSNumber *)imageQuality {
-	NSDictionary *metaData = info[UIImagePickerControllerMediaMetadata];
-	return [self saveImageWithMetaData:metaData image:image suffix:kFOImagePickerDefaultSuffix type:kFOImagePickerMIMETypeDefault imageQuality:imageQuality];
-}
-
-+ (NSString *)saveImageWithMetaData:(NSDictionary *)metaData image:(UIImage *)image suffix:(NSString *)suffix type:(FOImagePickerMIMEType)type imageQuality:(NSNumber *)imageQuality {
-	NSData *data = [FOMediaPickerMetaDataUtil convertImage:image usingType:type quality:imageQuality];
-	if (metaData) {
-		NSData *updatedData = [FOMediaPickerMetaDataUtil imageFromImage:data withMetaData:metaData];
-		if (updatedData) {
-			data = updatedData;
-		}
++ (NSString *)saveImageWithOriginalImageData:(NSData *)originalImageData
+                                       image:(UIImage *)image
+                                imageQuality:(NSNumber *)imageQuality {
+	if (image == nil) {
+		return nil;
 	}
 
-	return [self createFile:data suffix:suffix];
+	FOImagePickerMIMEType type = originalImageData
+			? [FOMediaPickerMetaDataUtil getImageMIMETypeFromImageData:originalImageData]
+			: kFOImagePickerMIMETypeDefault;
+
+	// GIF and unknown types are encoded as JPEG, so only PNG gets a .png suffix.
+	NSString *suffix = (type == FOImagePickerMIMETypePNG) ? @".png" : kFOImagePickerDefaultSuffix;
+
+	NSData *data = [FOMediaPickerMetaDataUtil convertImage:[FOMediaPickerMetaDataUtil normalizedImage:image]
+																							 usingType:type
+																									quality:imageQuality];
+	if (data.length == 0) {
+		NSLog(@"media_picker: image encoding produced no data");
+		return nil;
+	}
+
+	NSString *path = [self temporaryFilePath:suffix];
+	if (![[NSFileManager defaultManager] createFileAtPath:path contents:data attributes:nil]) {
+		NSLog(@"media_picker: failed to create file at %@", path);
+		return nil;
+	}
+
+	return path;
 }
 
 + (NSString *)temporaryFilePath:(NSString *)suffix {
-	NSString *fileExtension = [@"media_picker_%@" stringByAppendingString:suffix];
-	NSString *guid = [[NSProcessInfo processInfo] globallyUniqueString];
-	NSString *tmpFile = [NSString stringWithFormat:fileExtension, guid];
-	NSString *tmpDirectory = NSTemporaryDirectory();
-	NSString *tmpPath = [tmpDirectory stringByAppendingPathComponent:tmpFile];
-	return tmpPath;
-}
-
-+ (NSString *)createFile:(NSData *)data suffix:(NSString *)suffix {
-	NSString *tmpPath = [self temporaryFilePath:suffix];
-	if ([[NSFileManager defaultManager] createFileAtPath:tmpPath contents:data attributes:nil]) {
-		return tmpPath;
-	} else {
-		nil;
-	}
-	return tmpPath;
+	NSString *filenameFormat = [@"media_picker_%@" stringByAppendingString:suffix];
+	NSString *filename = [NSString stringWithFormat:filenameFormat, [[NSProcessInfo processInfo] globallyUniqueString]];
+	return [NSTemporaryDirectory() stringByAppendingPathComponent:filename];
 }
 
 @end

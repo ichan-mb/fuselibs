@@ -1,98 +1,48 @@
 #import "FOMediaPickerImageUtil.h"
-#import <MobileCoreServices/MobileCoreServices.h>
 
-@interface GIFInfo ()
-
-@property(strong, nonatomic, readwrite) NSArray<UIImage *> *images;
-@property(assign, nonatomic, readwrite) NSTimeInterval interval;
-
-@end
-
-@implementation GIFInfo
-
-- (instancetype)initWithImages:(NSArray<UIImage *> *)images interval:(NSTimeInterval)interval;
-{
-	self = [super init];
-	if (self) {
-		self.images = images;
-		self.interval = interval;
-	}
-	return self;
-}
-
-@end
-
-@implementation FOMediaPickerImageUtil : NSObject
+@implementation FOMediaPickerImageUtil
 
 + (UIImage *)scaledImage:(UIImage *)image
 								maxWidth:(NSNumber *)maxWidth
 							 maxHeight:(NSNumber *)maxHeight
-							isMetadataAvailable:(BOOL)isMetadataAvailable {
+					isMetadataAvailable:(BOOL)isMetadataAvailable {
+	if (image == nil || image.size.width <= 0 || image.size.height <= 0) {
+		return image;
+	}
+
 	double originalWidth = image.size.width;
 	double originalHeight = image.size.height;
+	double scale = 1.0;
+	if ([maxWidth isKindOfClass:[NSNumber class]] && [maxWidth doubleValue] > 0) {
+		scale = MIN(scale, [maxWidth doubleValue] / originalWidth);
+	}
+	if ([maxHeight isKindOfClass:[NSNumber class]] && [maxHeight doubleValue] > 0) {
+		scale = MIN(scale, [maxHeight doubleValue] / originalHeight);
+	}
 
-	bool hasMaxWidth = maxWidth != (id)[NSNull null];
-	bool hasMaxHeight = maxHeight != (id)[NSNull null];
+	double width = MAX(1.0, floor(originalWidth * scale));
+	double height = MAX(1.0, floor(originalHeight * scale));
 
-	double width = hasMaxWidth ? MIN([maxWidth doubleValue], originalWidth) : originalWidth;
-	double height = hasMaxHeight ? MIN([maxHeight doubleValue], originalHeight) : originalHeight;
+	UIImage *imageToScale;
+	if (isMetadataAvailable) {
+		imageToScale = [UIImage imageWithCGImage:image.CGImage scale:1 orientation:UIImageOrientationUp];
 
-	bool shouldDownscaleWidth = hasMaxWidth && [maxWidth doubleValue] < originalWidth;
-	bool shouldDownscaleHeight = hasMaxHeight && [maxHeight doubleValue] < originalHeight;
-	bool shouldDownscale = shouldDownscaleWidth || shouldDownscaleHeight;
-
-	if (shouldDownscale) {
-		double downscaledWidth = floor((height / originalHeight) * originalWidth);
-		double downscaledHeight = floor((width / originalWidth) * originalHeight);
-
-		if (width < height) {
-			if (!hasMaxWidth) {
-				width = downscaledWidth;
-			} else {
-				height = downscaledHeight;
-			}
-		} else if (height < width) {
-			if (!hasMaxHeight) {
-				height = downscaledHeight;
-			} else {
-				width = downscaledWidth;
-			}
-		} else {
-			if (originalWidth < originalHeight) {
-				width = downscaledWidth;
-			} else if (originalHeight < originalWidth) {
-				height = downscaledHeight;
-			}
+		UIImageOrientation orientation = image.imageOrientation;
+		if (orientation == UIImageOrientationLeft || orientation == UIImageOrientationRight ||
+				orientation == UIImageOrientationLeftMirrored || orientation == UIImageOrientationRightMirrored) {
+			double temp = width;
+			width = height;
+			height = temp;
 		}
-	}
-
-	if (!isMetadataAvailable) {
-		UIImage *imageToScale = [UIImage imageWithCGImage:image.CGImage scale:1 orientation:image.imageOrientation];
-
-		UIGraphicsBeginImageContextWithOptions(CGSizeMake(width, height), NO, 1.0);
-		[imageToScale drawInRect:CGRectMake(0, 0, width, height)];
-
-		UIImage *scaledImage = UIGraphicsGetImageFromCurrentImageContext();
-		UIGraphicsEndImageContext();
-		return scaledImage;
-	}
-
-	UIImage *imageToScale = [UIImage imageWithCGImage:image.CGImage scale:1 orientation:UIImageOrientationUp];
-
-	if ([image imageOrientation] == UIImageOrientationLeft ||
-			[image imageOrientation] == UIImageOrientationRight ||
-			[image imageOrientation] == UIImageOrientationLeftMirrored ||
-			[image imageOrientation] == UIImageOrientationRightMirrored) {
-		double temp = width;
-		width = height;
-		height = temp;
+	} else {
+		imageToScale = [UIImage imageWithCGImage:image.CGImage scale:1 orientation:image.imageOrientation];
 	}
 
 	UIGraphicsBeginImageContextWithOptions(CGSizeMake(width, height), NO, 1.0);
 	[imageToScale drawInRect:CGRectMake(0, 0, width, height)];
-
 	UIImage *scaledImage = UIGraphicsGetImageFromCurrentImageContext();
 	UIGraphicsEndImageContext();
+
 	return scaledImage;
 }
 

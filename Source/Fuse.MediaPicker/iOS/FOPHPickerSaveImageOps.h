@@ -2,7 +2,6 @@
 #import <PhotosUI/PhotosUI.h>
 
 #import "FOMediaPickerImageUtil.h"
-#import "FOMediaPickerMetaDataUtil.h"
 #import "FOMediaPickerPhotoAssetUtil.h"
 
 @interface FOPHPickerSaveImageOps : NSOperation

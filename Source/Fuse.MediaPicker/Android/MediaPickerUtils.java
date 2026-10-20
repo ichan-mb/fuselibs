@@ -16,6 +16,9 @@ final class MediaPickerUtils {
 					packageManager.getPackageInfo(context.getPackageName(), PackageManager.GET_PERMISSIONS);
 
 			String[] requestedPermissions = packageInfo.requestedPermissions;
+			if (requestedPermissions == null)
+				return false;
+
 			return Arrays.asList(requestedPermissions).contains(permissionName);
 		} catch (PackageManager.NameNotFoundException e) {
 			e.printStackTrace();

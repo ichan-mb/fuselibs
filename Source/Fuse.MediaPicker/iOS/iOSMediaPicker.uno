@@ -19,6 +19,12 @@ namespace Fuse.MediaPicker
 			PickVideoInternal(args, cb.Resolve, cb.Reject);
 		}
 
+		internal static void PickVideos(Promise<string> p, ObjC.Object args)
+		{
+			var cb = new StringPromiseCallback(p);
+			PickVideosInternal(args, cb.Resolve, cb.Reject);
+		}
+
 		[Foreign(Language.ObjC)]
 		static void PickImageInternal(ObjC.Object args, Action<string> onComplete, Action<string> onFail)
 		@{
@@ -37,6 +43,14 @@ namespace Fuse.MediaPicker
 		@{
 			dispatch_async(dispatch_get_main_queue(), ^{
 				[[FOMediaPicker instance] pickVideoWithArgs:args withResult:onComplete error:onFail];
+			});
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void PickVideosInternal(ObjC.Object args, Action<string> onComplete, Action<string> onFail)
+		@{
+			dispatch_async(dispatch_get_main_queue(), ^{
+				[[FOMediaPicker instance] pickVideosWithArgs:args withResult:onComplete error:onFail];
 			});
 		@}
 

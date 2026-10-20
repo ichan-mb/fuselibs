@@ -1,6 +1,5 @@
 package com.fuse.mediapicker;
 
-import android.content.ContentResolver;
 import android.content.Context;
 import android.net.Uri;
 import android.webkit.MimeTypeMap;
@@ -13,21 +12,24 @@ import java.io.OutputStream;
 class FileUtils {
 
 	String getPathFromUri(final Context context, final Uri uri) {
+		if (uri == null)
+			return null;
+
 		File file = null;
 		InputStream inputStream = null;
 		OutputStream outputStream = null;
 		boolean success = false;
 		try {
-			String extension = getImageExtension(context, uri);
+			String extension = getMediaExtension(context, uri);
 			inputStream = context.getContentResolver().openInputStream(uri);
 			file = File.createTempFile("media_picker", extension, context.getCacheDir());
-			file.deleteOnExit();
 			outputStream = new FileOutputStream(file);
 			if (inputStream != null) {
 				copy(inputStream, outputStream);
 				success = true;
 			}
 		} catch (IOException ignored) {
+		} catch (SecurityException ignored) {
 		} finally {
 			try {
 				if (inputStream != null) inputStream.close();
@@ -42,28 +44,33 @@ class FileUtils {
 				success = false;
 			}
 		}
+
+		if (!success && file != null)
+			file.delete();
+
 		return success ? file.getPath() : null;
 	}
 
-	private static String getImageExtension(Context context, Uri uriImage) {
+	private static String getMediaExtension(Context context, Uri uri) {
 		String extension = null;
 
 		try {
-			String imagePath = uriImage.getPath();
-			if (uriImage.getScheme().equals(ContentResolver.SCHEME_CONTENT)) {
-				final MimeTypeMap mime = MimeTypeMap.getSingleton();
-				extension = mime.getExtensionFromMimeType(context.getContentResolver().getType(uriImage));
-			} else {
-				extension =
-						MimeTypeMap.getFileExtensionFromUrl(
-								Uri.fromFile(new File(uriImage.getPath())).toString());
+			String mimeType = context.getContentResolver().getType(uri);
+			if (mimeType != null) {
+				extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
+			}
+
+			if (extension == null || extension.isEmpty()) {
+				String path = uri.getPath();
+				if (path != null)
+					extension = MimeTypeMap.getFileExtensionFromUrl(path);
 			}
 		} catch (Exception e) {
 			extension = null;
 		}
 
 		if (extension == null || extension.isEmpty()) {
-			//default extension for matches the previous behavior of the plugin
+			// Default extension matching the previous behavior of the package.
 			extension = "jpg";
 		}
 

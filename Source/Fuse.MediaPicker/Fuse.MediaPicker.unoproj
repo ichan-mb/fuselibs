@@ -5,6 +5,7 @@
   "outputType": "library",
   "isTransitive": true,
   "references": [
+    "Uno.Data.Json",
     "Uno.Threading"
   ],
   "projects": [

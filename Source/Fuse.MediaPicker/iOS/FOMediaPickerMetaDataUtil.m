@@ -1,5 +1,4 @@
 #import "FOMediaPickerMetaDataUtil.h"
-#import <Photos/Photos.h>
 
 static const uint8_t kFirstByteJPEG = 0xFF;
 static const uint8_t kFirstBytePNG = 0x89;
@@ -11,7 +10,11 @@ const FOImagePickerMIMEType kFOImagePickerMIMETypeDefault = FOImagePickerMIMETyp
 @implementation FOMediaPickerMetaDataUtil
 
 + (FOImagePickerMIMEType)getImageMIMETypeFromImageData:(NSData *)imageData {
-	uint8_t firstByte;
+	if (imageData.length == 0) {
+		return FOImagePickerMIMETypeOther;
+	}
+
+	uint8_t firstByte = 0;
 	[imageData getBytes:&firstByte length:1];
 	switch (firstByte) {
 		case kFirstByteJPEG:
@@ -20,72 +23,35 @@ const FOImagePickerMIMEType kFOImagePickerMIMETypeDefault = FOImagePickerMIMETyp
 			return FOImagePickerMIMETypePNG;
 		case kFirstByteGIF:
 			return FOImagePickerMIMETypeGIF;
-	}
-	return FOImagePickerMIMETypeOther;
-}
-
-+ (NSString *)imageTypeSuffixFromType:(FOImagePickerMIMEType)type {
-	switch (type) {
-		case FOImagePickerMIMETypeJPEG:
-			return @".jpg";
-		case FOImagePickerMIMETypePNG:
-			return @".png";
-		case FOImagePickerMIMETypeGIF:
-			return @".gif";
 		default:
-			return nil;
+			return FOImagePickerMIMETypeOther;
 	}
 }
 
-+ (NSDictionary *)getMetaDataFromImageData:(NSData *)imageData {
-	CGImageSourceRef source = CGImageSourceCreateWithData((CFDataRef)imageData, NULL);
-	NSDictionary *metadata = (NSDictionary *)CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source, 0, NULL));
-	CFRelease(source);
-	return metadata;
++ (UIImage *)normalizedImage:(UIImage *)image {
+	if (image == nil || image.size.width <= 0 || image.size.height <= 0) {
+		return image;
+	}
+
+	CGFloat scale = image.scale > 0 ? image.scale : 1.0;
+	UIGraphicsBeginImageContextWithOptions(image.size, NO, scale);
+	[image drawInRect:CGRectMake(0, 0, image.size.width, image.size.height)];
+	UIImage *normalized = UIGraphicsGetImageFromCurrentImageContext();
+	UIGraphicsEndImageContext();
+
+	return normalized ?: image;
 }
 
-+ (NSData *)imageFromImage:(NSData *)imageData withMetaData:(NSDictionary *)metadata {
-	NSMutableData *targetData = [NSMutableData data];
-	CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)imageData, NULL);
-	if (source == NULL) {
++ (NSData *)convertImage:(UIImage *)image usingType:(FOImagePickerMIMEType)type quality:(NSNumber *)quality {
+	if (image == nil) {
 		return nil;
 	}
-	CGImageDestinationRef destination = NULL;
-	CFStringRef sourceType = CGImageSourceGetType(source);
-	if (sourceType != NULL) {
-		destination = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)targetData, sourceType, 1, nil);
-	}
-	if (destination == NULL) {
-		CFRelease(source);
-		return nil;
-	}
-	CGImageDestinationAddImageFromSource(destination, source, 0, (__bridge CFDictionaryRef)metadata);
-	CGImageDestinationFinalize(destination);
-	CFRelease(source);
-	CFRelease(destination);
-	return targetData;
-}
 
-+ (NSData *)convertImage:(UIImage *)image usingType:(FOImagePickerMIMEType)type quality:(nullable NSNumber *)quality {
-	if (quality && type != FOImagePickerMIMETypeJPEG) {
-		NSLog(@"media_picker: compressing is not supported for type %@. Returning the image with "
-					@"original quality",
-					[FOMediaPickerMetaDataUtil imageTypeSuffixFromType:type]);
+	if (type == FOImagePickerMIMETypePNG) {
+		return UIImagePNGRepresentation(image);
 	}
 
-	switch (type) {
-		case FOImagePickerMIMETypeJPEG: {
-			CGFloat qualityFloat = (quality != nil) ? quality.floatValue : 1;
-			return UIImageJPEGRepresentation(image, qualityFloat);
-		}
-		case FOImagePickerMIMETypePNG:
-			return UIImagePNGRepresentation(image);
-		default: {
-			// converts to JPEG by default.
-			CGFloat qualityFloat = (quality != nil) ? quality.floatValue : 1;
-			return UIImageJPEGRepresentation(image, qualityFloat);
-		}
-	}
+	return UIImageJPEGRepresentation(image, quality ? quality.floatValue : 1);
 }
 
 @end

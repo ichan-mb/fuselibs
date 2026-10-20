@@ -335,6 +335,14 @@ namespace Fuse.Controls.Native.iOS
 		static ObjC.Object TintImage(ObjC.Object imageHandle, float r, float g, float b, float a)
 		@{
 			UIImage* image = (UIImage*)imageHandle;
+			if (image == nil)
+				return nil;
+
+			// White is the identity tint; tinting with it produces a white
+			// silhouette on iOS 13+, so return the original image.
+			if (r >= 1.0f && g >= 1.0f && b >= 1.0f && a >= 1.0f)
+				return image;
+
 			UIColor* tintColor = [UIColor colorWithRed:r green:g blue:b alpha:a];
 
 			// Use modern iOS 13+ method when available

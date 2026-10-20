@@ -3,12 +3,10 @@
 #import <AVFoundation/AVFoundation.h>
 #import <MobileCoreServices/MobileCoreServices.h>
 #import <Photos/Photos.h>
-#import <PhotosUI/PHPhotoLibrary+PhotosUISupport.h>
 #import <PhotosUI/PhotosUI.h>
 #import <UIKit/UIKit.h>
 
 #import "FOMediaPickerImageUtil.h"
-#import "FOMediaPickerMetaDataUtil.h"
 #import "FOMediaPickerPhotoAssetUtil.h"
 #import "FOPHPickerSaveImageOps.h"
 #import "Uno-iOS/AppDelegate.h"
@@ -20,18 +18,21 @@
 
 @property(copy, nonatomic) StringAction error;
 
-@property(assign, nonatomic) int maxImagesAllowed;
-
 @property(copy, nonatomic) NSDictionary *arguments;
 
 @property(strong, nonatomic) PHPickerViewController *pickerViewController API_AVAILABLE(ios(14));
+
+// Set when the PHPicker/UIImagePicker is used to select videos.
+@property(assign, nonatomic) BOOL pickingVideos;
+
+// Set when the caller expects an array of video paths (pickVideos).
+@property(assign, nonatomic) BOOL returningVideoList;
 
 @end
 
 static const int SOURCE_CAMERA = 0;
 static const int SOURCE_GALLERY = 1;
 
-typedef NS_ENUM(NSInteger, ImagePickerClassType) { UIImagePickerClassType, PHPickerClassType };
 
 @implementation FOMediaPicker
 {
@@ -46,38 +47,80 @@ static FOMediaPicker* _instance;
 	return _instance;
 }
 
+- (void)clearState
+{
+	self.result = nil;
+	self.error = nil;
+	self.arguments = nil;
+}
+
+- (void)finishWithError:(NSString *)message
+{
+	StringAction error = self.error;
+	[self clearState];
+	if (error != nil) {
+		error(message);
+	}
+}
+
 - (UIImagePickerControllerCameraDevice)getCameraDeviceFromArguments:(NSDictionary *)arguments
 {
 	NSInteger cameraDevice = [[arguments objectForKey:@"cameraDevice"] intValue];
 	return (cameraDevice == 1) ? UIImagePickerControllerCameraDeviceFront : UIImagePickerControllerCameraDeviceRear;
 }
 
-- (void)pickImageWithPHPicker:(int)maxImagesAllowed API_AVAILABLE(ios(14))
+#pragma mark - PHPicker
+
+- (void)pickImagesWithPHPicker:(int)maxImages API_AVAILABLE(ios(14))
 {
-	PHPickerConfiguration *config =
-			[[PHPickerConfiguration alloc] initWithPhotoLibrary:PHPhotoLibrary.sharedPhotoLibrary];
-	config.selectionLimit = maxImagesAllowed;  // Setting to zero allow us to pick unlimited photos
+	self.pickingVideos = NO;
+
+	// PHPicker does not require photo library authorization, so it is presented
+	// directly without asking the user for full library access.
+	PHPickerConfiguration *config = [[PHPickerConfiguration alloc] init];
+	config.selectionLimit = (maxImages > 0) ? maxImages : 0; // 0 means unlimited
 	config.filter = [PHPickerFilter imagesFilter];
 
+	[self presentPHPicker:config];
+}
+
+- (void)pickVideosWithPHPicker:(int)maxVideos API_AVAILABLE(ios(14))
+{
+	self.pickingVideos = YES;
+
+	PHPickerConfiguration *config = [[PHPickerConfiguration alloc] init];
+	config.selectionLimit = (maxVideos > 0) ? maxVideos : 0; // 0 means unlimited
+	config.filter = [PHPickerFilter videosFilter];
+
+	[self presentPHPicker:config];
+}
+
+- (void)presentPHPicker:(PHPickerConfiguration *)config API_AVAILABLE(ios(14))
+{
 	_pickerViewController = [[PHPickerViewController alloc] initWithConfiguration:config];
 	_pickerViewController.delegate = self;
 	_pickerViewController.presentationController.delegate = self;
 
-	self.maxImagesAllowed = maxImagesAllowed;
-
-	[self checkPhotoAuthorizationForAccessLevel];
+	dispatch_async(dispatch_get_main_queue(), ^{
+		[(uAppDelegate*)[[UIApplication sharedApplication] delegate]
+				presentViewController:self->_pickerViewController animated:YES completion:^{
+					self->_pickerViewController.presentationController.delegate = self;
+				}];
+	});
 }
+
+#pragma mark - UIImagePicker
 
 - (void)pickImageWithUIImagePicker
 {
+	self.pickingVideos = NO;
+
 	_imagePickerController = [[UIImagePickerController alloc] init];
 	_imagePickerController.modalPresentationStyle = UIModalPresentationCurrentContext;
 	_imagePickerController.delegate = self;
 	_imagePickerController.mediaTypes = @[ (NSString *)kUTTypeImage ];
 
-	int imageSource = [[_arguments objectForKey:@"source"] intValue];
-
-	self.maxImagesAllowed = 1;
+	int imageSource = [[self.arguments objectForKey:@"source"] intValue];
 
 	switch (imageSource) {
 		case SOURCE_CAMERA:
@@ -86,46 +129,15 @@ static FOMediaPicker* _instance;
 		case SOURCE_GALLERY:
 			[self checkPhotoAuthorization];
 			break;
+		default:
+			[self finishWithError:[NSString stringWithFormat:@"Invalid image source: %d", imageSource]];
+			break;
 	}
 }
 
-- (void)pickSingleImageWithArgs:(NSDictionary *)argument withResult:(StringAction)result error:(StringAction)error
+- (void)pickVideoWithUIImagePicker
 {
-	_arguments = argument;
-	self.result = result;
-	self.error = error;
-	int imageSource = [[_arguments objectForKey:@"source"] intValue];
-	if (imageSource == SOURCE_GALLERY) {  // Capture is not possible with PHPicker
-		if (@available(iOS 14, *)) {
-			// PHPicker is used
-			[self pickImageWithPHPicker:1];
-		} else {
-			// UIImagePicker is used
-			[self pickImageWithUIImagePicker];
-		}
-	} else {
-		[self pickImageWithUIImagePicker];
-	}
-}
-
-- (void)pickMultiImageWithArgs:(NSDictionary *)argument withResult:(StringAction)result error:(StringAction)error
-{
-	self.result = result;
-	self.error = error;
-	_arguments = argument;
-	if (@available(iOS 14, *)) {
-		int maxImages = [[_arguments objectForKey:@"maxImages"] intValue];
-		[self pickImageWithPHPicker:maxImages];
-	} else {
-		[self pickImageWithUIImagePicker];
-	}
-}
-
-- (void)pickVideoWithArgs:(NSDictionary *)argument withResult:(StringAction)result error:(StringAction)error
-{
-	self.result = result;
-	self.error = error;
-	_arguments = argument;
+	self.pickingVideos = YES;
 
 	_imagePickerController = [[UIImagePickerController alloc] init];
 	_imagePickerController.modalPresentationStyle = UIModalPresentationCurrentContext;
@@ -136,11 +148,10 @@ static FOMediaPicker* _instance;
 	];
 	_imagePickerController.videoQuality = UIImagePickerControllerQualityTypeHigh;
 
-	int imageSource = [[_arguments objectForKey:@"source"] intValue];
-	if ([[_arguments objectForKey:@"maxDuration"] isKindOfClass:[NSNumber class]]) {
-		NSTimeInterval max = [[_arguments objectForKey:@"maxDuration"] doubleValue];
+	int imageSource = [[self.arguments objectForKey:@"source"] intValue];
+	if ([[self.arguments objectForKey:@"maxDuration"] isKindOfClass:[NSNumber class]]) {
+		NSTimeInterval max = [[self.arguments objectForKey:@"maxDuration"] doubleValue];
 		if (max > 0.0) {
-			_imagePickerController.allowsEditing = YES;
 			_imagePickerController.videoMaximumDuration = max;
 		}
 	}
@@ -152,8 +163,85 @@ static FOMediaPicker* _instance;
 		case SOURCE_GALLERY:
 			[self checkPhotoAuthorization];
 			break;
+		default:
+			[self finishWithError:[NSString stringWithFormat:@"Invalid video source: %d", imageSource]];
+			break;
 	}
 }
+
+#pragma mark - Public API
+
+- (void)pickSingleImageWithArgs:(NSDictionary *)argument withResult:(StringAction)result error:(StringAction)error
+{
+	self.arguments = argument;
+	self.result = result;
+	self.error = error;
+
+	int imageSource = [[self.arguments objectForKey:@"source"] intValue];
+	if (imageSource == SOURCE_GALLERY) { // Capture is not possible with PHPicker
+		if (@available(iOS 14, *)) {
+			[self pickImagesWithPHPicker:1];
+		} else {
+			[self pickImageWithUIImagePicker];
+		}
+	} else {
+		[self pickImageWithUIImagePicker];
+	}
+}
+
+- (void)pickMultiImageWithArgs:(NSDictionary *)argument withResult:(StringAction)result error:(StringAction)error
+{
+	self.result = result;
+	self.error = error;
+	self.arguments = argument;
+
+	if (@available(iOS 14, *)) {
+		int maxImages = [[self.arguments objectForKey:@"maxImages"] intValue];
+		[self pickImagesWithPHPicker:maxImages];
+	} else {
+		[self pickImageWithUIImagePicker];
+	}
+}
+
+- (void)pickVideoWithArgs:(NSDictionary *)argument withResult:(StringAction)result error:(StringAction)error
+{
+	self.result = result;
+	self.error = error;
+	self.arguments = argument;
+	self.returningVideoList = NO;
+
+	int imageSource = [[self.arguments objectForKey:@"source"] intValue];
+	if (imageSource == SOURCE_GALLERY) {
+		if (@available(iOS 14, *)) {
+			[self pickVideosWithPHPicker:1];
+			return;
+		}
+	}
+
+	[self pickVideoWithUIImagePicker];
+}
+
+- (void)pickVideosWithArgs:(NSDictionary *)argument withResult:(StringAction)result error:(StringAction)error
+{
+	self.result = result;
+	self.error = error;
+
+	// Multiple video recording is not supported, so this always uses the gallery.
+	NSMutableDictionary *galleryArguments = [argument mutableCopy] ?: [NSMutableDictionary dictionary];
+	galleryArguments[@"source"] = [NSNumber numberWithInt:SOURCE_GALLERY];
+	self.arguments = galleryArguments;
+	self.returningVideoList = YES;
+
+	if (@available(iOS 14, *)) {
+		int maxVideos = [[self.arguments objectForKey:@"maxVideos"] intValue];
+		[self pickVideosWithPHPicker:maxVideos];
+	} else {
+		// Older versions can only select a single video, which is returned as a list.
+		[self pickVideoWithUIImagePicker];
+	}
+}
+
+#pragma mark - Authorization
 
 - (void)showCamera
 {
@@ -162,28 +250,26 @@ static FOMediaPicker* _instance;
 			return;
 		}
 	}
-	UIImagePickerControllerCameraDevice device = [self getCameraDeviceFromArguments:_arguments];
+	UIImagePickerControllerCameraDevice device = [self getCameraDeviceFromArguments:self.arguments];
 	// Camera is not available on simulators
 	if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera] &&
 			[UIImagePickerController isCameraDeviceAvailable:device]) {
 		dispatch_async(dispatch_get_main_queue(), ^{
 			self->_imagePickerController.sourceType = UIImagePickerControllerSourceTypeCamera;
-            self->_imagePickerController.cameraDevice = device;
+			self->_imagePickerController.cameraDevice = device;
 			[(uAppDelegate*)[[UIApplication sharedApplication] delegate] presentViewController:self->_imagePickerController animated:YES completion:nil];
 		});
 	} else {
 		dispatch_async(dispatch_get_main_queue(), ^{
 			UIAlertController *cameraErrorAlert = [UIAlertController
-				alertControllerWithTitle:@"Camera Unvailable" message:@"Camera not available."
+				alertControllerWithTitle:@"Camera Unavailable" message:@"Camera not available."
 									preferredStyle:UIAlertControllerStyleAlert];
 			[cameraErrorAlert
 				addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action){}]];
 			[(uAppDelegate*)[[UIApplication sharedApplication] delegate]
 					presentViewController:cameraErrorAlert animated:YES completion:nil];
 		});
-		self.result = nil;
-		self.error = nil;
-		_arguments = nil;
+		[self finishWithError:@"Camera not available."];
 	}
 }
 
@@ -197,15 +283,15 @@ static FOMediaPicker* _instance;
 			break;
 		case AVAuthorizationStatusNotDetermined: {
 			[AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo
-															completionHandler:^(BOOL granted) {
-																dispatch_async(dispatch_get_main_queue(), ^{
-																	if (granted) {
-																		[self showCamera];
-																	} else {
-																		[self errorNoCameraAccess:AVAuthorizationStatusDenied];
-																	}
-																});
-															}];
+																completionHandler:^(BOOL granted) {
+																	dispatch_async(dispatch_get_main_queue(), ^{
+																		if (granted) {
+																			[self showCamera];
+																		} else {
+																			[self errorNoCameraAccess:AVAuthorizationStatusDenied];
+																		}
+																	});
+																}];
 			break;
 		}
 		case AVAuthorizationStatusDenied:
@@ -223,8 +309,8 @@ static FOMediaPicker* _instance;
 		case PHAuthorizationStatusNotDetermined: {
 			[PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
 				dispatch_async(dispatch_get_main_queue(), ^{
-					if (status == PHAuthorizationStatusAuthorized) {
-						[self showPhotoLibrary:UIImagePickerClassType];
+					if (status == PHAuthorizationStatusAuthorized || status == PHAuthorizationStatusLimited) {
+						[self showPhotoLibrary];
 					} else {
 						[self errorNoPhotoAccess:status];
 					}
@@ -233,39 +319,8 @@ static FOMediaPicker* _instance;
 			break;
 		}
 		case PHAuthorizationStatusAuthorized:
-			[self showPhotoLibrary:UIImagePickerClassType];
-			break;
-		case PHAuthorizationStatusDenied:
-		case PHAuthorizationStatusRestricted:
-		default:
-			[self errorNoPhotoAccess:status];
-			break;
-	}
-}
-
-- (void)checkPhotoAuthorizationForAccessLevel API_AVAILABLE(ios(14))
-{
-	PHAuthorizationStatus status = [PHPhotoLibrary authorizationStatus];
-	switch (status) {
-		case PHAuthorizationStatusNotDetermined: {
-			[PHPhotoLibrary
-					requestAuthorizationForAccessLevel:PHAccessLevelReadWrite
-																		handler:^(PHAuthorizationStatus status) {
-																			dispatch_async(dispatch_get_main_queue(), ^{
-																				if (status == PHAuthorizationStatusAuthorized) {
-																					[self showPhotoLibrary:PHPickerClassType];
-																				} else if (status == PHAuthorizationStatusLimited) {
-																					[self showPhotoLibrary:PHPickerClassType];
-																				} else {
-																					[self errorNoPhotoAccess:status];
-																				}
-																			});
-																		}];
-			break;
-		}
-		case PHAuthorizationStatusAuthorized:
 		case PHAuthorizationStatusLimited:
-			[self showPhotoLibrary:PHPickerClassType];
+			[self showPhotoLibrary];
 			break;
 		case PHAuthorizationStatusDenied:
 		case PHAuthorizationStatusRestricted:
@@ -279,11 +334,11 @@ static FOMediaPicker* _instance;
 {
 	switch (status) {
 		case AVAuthorizationStatusRestricted:
-			self.error(@"The user is not allowed to use the camera.");
+			[self finishWithError:@"The user is not allowed to use the camera."];
 			break;
 		case AVAuthorizationStatusDenied:
 		default:
-			self.error(@"The user did not allow camera access.");
+			[self finishWithError:@"The user did not allow camera access."];
 			break;
 	}
 }
@@ -292,48 +347,46 @@ static FOMediaPicker* _instance;
 {
 	switch (status) {
 		case PHAuthorizationStatusRestricted:
-			self.error(@"The user is not allowed to use the photo.");
+			[self finishWithError:@"The user is not allowed to use the photo library."];
 			break;
 		case PHAuthorizationStatusDenied:
 		default:
-			self.error(@"The user did not allow photo access.");
+			[self finishWithError:@"The user did not allow photo access."];
 			break;
 	}
 }
 
-- (void)showPhotoLibrary:(ImagePickerClassType)imagePickerClassType
+- (void)showPhotoLibrary
 {
-	switch (imagePickerClassType) {
-		case PHPickerClassType:
-            [(uAppDelegate*)[[UIApplication sharedApplication] delegate]
-                presentViewController:_pickerViewController animated:YES completion:nil];
-			break;
-		case UIImagePickerClassType:
-            _imagePickerController.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
-            [(uAppDelegate*)[[UIApplication sharedApplication] delegate]
-                presentViewController:_imagePickerController animated:YES completion:nil];
-			break;
-	}
+	_imagePickerController.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+	dispatch_async(dispatch_get_main_queue(), ^{
+		[(uAppDelegate*)[[UIApplication sharedApplication] delegate]
+				presentViewController:self->_imagePickerController animated:YES completion:nil];
+	});
 }
+
+#pragma mark - Image quality
 
 - (NSNumber *)getDesiredImageQuality:(NSNumber *)imageQuality
 {
 	if (![imageQuality isKindOfClass:[NSNumber class]]) {
-		imageQuality = @1;
-	} else if (imageQuality.intValue < 0 || imageQuality.intValue > 100) {
-		imageQuality = @1;
-	} else {
-        imageQuality = [[NSNumber alloc] initWithFloat:[imageQuality floatValue] / 100];
+		return @1;
 	}
-	return imageQuality;
+
+	int quality = [imageQuality intValue];
+	if (quality <= 0 || quality > 100) {
+		return @1;
+	}
+
+	return [NSNumber numberWithFloat:[imageQuality floatValue] / 100.0f];
 }
+
+#pragma mark - PHPicker delegate
 
 - (void)presentationControllerDidDismiss:(UIPresentationController *)presentationController
 {
 	if (self.result != nil) {
-		self.result = nil;
-		self.error = nil;
-		self->_arguments = nil;
+		[self finishWithError:@"User cancelled picking media."];
 	}
 }
 
@@ -341,56 +394,128 @@ static FOMediaPicker* _instance;
 		didFinishPicking:(NSArray<PHPickerResult *> *)results API_AVAILABLE(ios(14))
 {
 	[picker dismissViewControllerAnimated:YES completion:nil];
-	if (results.count == 0) {
-		if (self.result != nil) {
-			self.result = nil;
-			self.error = nil;
-			self->_arguments = nil;
-		}
+	if (self.result == nil) {
 		return;
 	}
-	dispatch_queue_t backgroundQueue =
-			dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0);
-	dispatch_async(backgroundQueue, ^{
-		NSNumber *maxWidth = [self->_arguments objectForKey:@"maxWidth"];
-		NSNumber *maxHeight = [self->_arguments objectForKey:@"maxHeight"];
-		NSNumber *imageQuality = [self->_arguments objectForKey:@"imageQuality"];
-		NSNumber *desiredImageQuality = [self getDesiredImageQuality:imageQuality];
-		NSOperationQueue *operationQueue = [NSOperationQueue new];
-		NSMutableArray *pathList = [self createNSMutableArrayWithSize:results.count];
+	if (results.count == 0) {
+		[self finishWithError:@"User cancelled picking media."];
+		return;
+	}
 
-		for (int i = 0; i < results.count; i++) {
+	if (self.pickingVideos) {
+		[self loadVideosFromResults:results];
+	} else {
+		[self loadImagesFromResults:results];
+	}
+}
+
+- (void)loadImagesFromResults:(NSArray<PHPickerResult *> *)results API_AVAILABLE(ios(14))
+{
+	NSDictionary *arguments = self.arguments;
+	NSNumber *maxWidth = [arguments objectForKey:@"maxWidth"];
+	NSNumber *maxHeight = [arguments objectForKey:@"maxHeight"];
+	NSNumber *imageQuality = [arguments objectForKey:@"imageQuality"];
+	NSNumber *desiredImageQuality = [self getDesiredImageQuality:imageQuality];
+
+	NSMutableArray *pathList = [self createNSMutableArrayWithSize:results.count];
+
+	dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+		NSOperationQueue *operationQueue = [NSOperationQueue new];
+		for (NSUInteger i = 0; i < results.count; i++) {
 			PHPickerResult *result = results[i];
 			FOPHPickerSaveImageOps *operation =
-					[[FOPHPickerSaveImageOps alloc] initWithResult:result maxHeight:maxHeight maxWidth:maxWidth desiredImageQuality:desiredImageQuality
-									savedPathBlock:^(NSString *savedPath) {
-										pathList[i] = savedPath;
-									}];
-			[operationQueue addOperation:operation];
+					[[FOPHPickerSaveImageOps alloc] initWithResult:result
+																			maxHeight:maxHeight
+																			 maxWidth:maxWidth
+																 desiredImageQuality:desiredImageQuality
+																	  savedPathBlock:^(NSString *savedPath) {
+																		  @synchronized (pathList) {
+																			  pathList[i] = savedPath ?: [NSNull null];
+																		  }
+																	  }];
+			if (operation != nil) {
+				[operationQueue addOperation:operation];
+			} else {
+				@synchronized (pathList) {
+					pathList[i] = [NSNull null];
+				}
+			}
 		}
+
 		[operationQueue waitUntilAllOperationsAreFinished];
 		dispatch_async(dispatch_get_main_queue(), ^{
-			[self handleSavedPathList:pathList];
+			[self handleSavedImagePaths:pathList];
 		});
+	});
+}
+
+- (void)loadVideosFromResults:(NSArray<PHPickerResult *> *)results API_AVAILABLE(ios(14))
+{
+	NSMutableArray *pathList = [self createNSMutableArrayWithSize:results.count];
+	dispatch_group_t group = dispatch_group_create();
+	NSString *typeIdentifier = (NSString *)kUTTypeMovie;
+
+	for (NSUInteger i = 0; i < results.count; i++) {
+		PHPickerResult *result = results[i];
+		NSItemProvider *provider = result.itemProvider;
+
+		if (![provider hasItemConformingToTypeIdentifier:typeIdentifier]) {
+			@synchronized (pathList) {
+				pathList[i] = [NSNull null];
+			}
+			continue;
+		}
+
+		dispatch_group_enter(group);
+		[provider loadFileRepresentationForTypeIdentifier:typeIdentifier
+				completionHandler:^(NSURL *url, NSError *error) {
+					NSString *savedPath = nil;
+					if (url != nil && error == nil) {
+						NSString *extension = (url.pathExtension.length > 0) ? url.pathExtension : @"mp4";
+						NSString *filename =
+								[[[NSProcessInfo processInfo] globallyUniqueString] stringByAppendingPathExtension:extension];
+						NSString *destinationPath =
+								[NSTemporaryDirectory() stringByAppendingPathComponent:filename];
+						NSError *copyError = nil;
+						if ([[NSFileManager defaultManager] copyItemAtURL:url
+																												toURL:[NSURL fileURLWithPath:destinationPath]
+																											 error:&copyError]) {
+							savedPath = destinationPath;
+						}
+					}
+
+					@synchronized (pathList) {
+						pathList[i] = savedPath ?: [NSNull null];
+					}
+					dispatch_group_leave(group);
+				}];
+	}
+
+	dispatch_group_notify(group, dispatch_get_main_queue(), ^{
+		[self handleSavedVideoPaths:pathList];
 	});
 }
 
 - (NSMutableArray *)createNSMutableArrayWithSize:(NSUInteger)size
 {
 	NSMutableArray *mutableArray = [[NSMutableArray alloc] initWithCapacity:size];
-	for (int i = 0; i < size; [mutableArray addObject:[NSNull null]], i++)
-		;
+	for (NSUInteger i = 0; i < size; i++) {
+		[mutableArray addObject:[NSNull null]];
+	}
 	return mutableArray;
 }
+
+#pragma mark - UIImagePicker delegate
 
 - (void)imagePickerController:(UIImagePickerController *)picker
 		didFinishPickingMediaWithInfo:(NSDictionary<NSString *, id> *)info
 {
 	NSURL *videoURL = [info objectForKey:UIImagePickerControllerMediaURL];
 	[_imagePickerController dismissViewControllerAnimated:YES completion:nil];
-	if (!self.result) {
+	if (self.result == nil) {
 		return;
 	}
+
 	if (videoURL != nil) {
 		if (@available(iOS 13.0, *)) {
 			NSString *fileName = [videoURL lastPathComponent];
@@ -402,91 +527,173 @@ static FOMediaPicker* _instance;
 					[[NSFileManager defaultManager] copyItemAtURL:videoURL toURL:destination error:&error];
 
 					if (error) {
-						self.error(@"Could not cache the video file.");
-						self.error = nil;
+						[self finishWithError:@"Could not cache the video file."];
 						return;
 					}
 				}
 				videoURL = destination;
 			}
 		}
-		dispatch_async(dispatch_get_main_queue(), ^{
-			[self handleSavedPathList:@[videoURL.path]];
-		});
-	} else {
-		UIImage *image = [info objectForKey:UIImagePickerControllerEditedImage];
-		if (image == nil) {
-			image = [info objectForKey:UIImagePickerControllerOriginalImage];
-		}
-		NSNumber *maxWidth = [_arguments objectForKey:@"maxWidth"];
-		NSNumber *maxHeight = [_arguments objectForKey:@"maxHeight"];
-		NSNumber *imageQuality = [_arguments objectForKey:@"imageQuality"];
-		NSNumber *desiredImageQuality = [self getDesiredImageQuality:imageQuality];
 
-		PHAsset *originalAsset = [FOMediaPickerPhotoAssetUtil getAssetFromImagePickerInfo:info];
-
-		if (maxWidth != (id)[NSNull null] || maxHeight != (id)[NSNull null]) {
-			image = [FOMediaPickerImageUtil scaledImage:image maxWidth:maxWidth maxHeight:maxHeight isMetadataAvailable:YES];
-		}
-
-		if (!originalAsset) {
-			[self saveImageWithPickerInfo:info image:image imageQuality:desiredImageQuality];
+		if (self.returningVideoList) {
+			[self handleSavedVideoPaths:@[ videoURL.path ?: [NSNull null] ]];
 		} else {
-			[[PHImageManager defaultManager]
-					requestImageDataForAsset:originalAsset options:nil
-										resultHandler:^(NSData *_Nullable imageData, NSString *_Nullable dataUTI,	UIImageOrientation orientation, NSDictionary *_Nullable info) {
-											 // maxWidth and maxHeight are used only for GIF images.
-											[self saveImageWithOriginalImageData:imageData image:image maxWidth:maxWidth maxHeight:maxHeight imageQuality:desiredImageQuality];
-										}];
+			[self handleSavedVideoPath:videoURL.path];
 		}
+		return;
+	}
+
+	UIImage *image = [info objectForKey:UIImagePickerControllerEditedImage];
+	if (image == nil) {
+		image = [info objectForKey:UIImagePickerControllerOriginalImage];
+	}
+	if (image == nil) {
+		[self finishWithError:@"Could not read the selected image."];
+		return;
+	}
+
+	NSDictionary *arguments = self.arguments;
+	NSNumber *maxWidth = [arguments objectForKey:@"maxWidth"];
+	NSNumber *maxHeight = [arguments objectForKey:@"maxHeight"];
+	NSNumber *imageQuality = [arguments objectForKey:@"imageQuality"];
+	NSNumber *desiredImageQuality = [self getDesiredImageQuality:imageQuality];
+
+	PHAsset *originalAsset = [FOMediaPickerPhotoAssetUtil getAssetFromImagePickerInfo:info];
+
+	BOOL hasMaxWidth = [maxWidth isKindOfClass:[NSNumber class]] && [maxWidth doubleValue] > 0;
+	BOOL hasMaxHeight = [maxHeight isKindOfClass:[NSNumber class]] && [maxHeight doubleValue] > 0;
+	if (hasMaxWidth || hasMaxHeight) {
+		image = [FOMediaPickerImageUtil scaledImage:image maxWidth:maxWidth maxHeight:maxHeight isMetadataAvailable:YES];
+	}
+
+	if (!originalAsset) {
+		[self saveImageData:nil image:image imageQuality:desiredImageQuality];
+	} else {
+		PHImageRequestOptions *options = [[PHImageRequestOptions alloc] init];
+		options.deliveryMode = PHImageRequestOptionsDeliveryModeHighQualityFormat;
+		options.resizeMode = PHImageRequestOptionsResizeModeNone;
+		options.networkAccessAllowed = YES;
+
+		[[PHImageManager defaultManager]
+				requestImageDataForAsset:originalAsset options:options
+										resultHandler:^(NSData *_Nullable imageData, NSString *_Nullable dataUTI, UIImageOrientation orientation, NSDictionary *_Nullable info) {
+											dispatch_async(dispatch_get_main_queue(), ^{
+												[self saveImageData:imageData image:image imageQuality:desiredImageQuality];
+											});
+										}];
 	}
 }
 
 - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker
 {
 	[_imagePickerController dismissViewControllerAnimated:YES completion:nil];
-	if (!self.result) {
+	if (self.result == nil) {
 		return;
 	}
-	self.result = nil;
-	_arguments = nil;
+	[self finishWithError:@"User cancelled picking media."];
 }
 
-- (void)saveImageWithOriginalImageData:(NSData *)originalImageData image:(UIImage *)image maxWidth:(NSNumber *)maxWidth maxHeight:(NSNumber *)maxHeight imageQuality:(NSNumber *)imageQuality
+#pragma mark - Saving
+
+- (void)saveImageData:(NSData *)data image:(UIImage *)image imageQuality:(NSNumber *)imageQuality
 {
-	NSString *savedPath = [FOMediaPickerPhotoAssetUtil saveImageWithOriginalImageData:originalImageData image:image maxWidth:maxWidth maxHeight:maxHeight imageQuality:imageQuality];
-	[self handleSavedPathList:@[ savedPath ]];
+	NSString *savedPath = [FOMediaPickerPhotoAssetUtil saveImageWithOriginalImageData:data image:image imageQuality:imageQuality];
+	[self handleSavedImagePaths:@[ savedPath ?: [NSNull null] ]];
 }
 
-- (void)saveImageWithPickerInfo:(NSDictionary *)info image:(UIImage *)image imageQuality:(NSNumber *)imageQuality
+- (NSString *)jsonStringFromArray:(NSArray *)array
 {
-	NSString *savedPath = [FOMediaPickerPhotoAssetUtil saveImageWithPickerInfo:info image:image imageQuality:imageQuality];
-	[self handleSavedPathList:@[ savedPath ]];
-}
-
-- (void)handleSavedPathList:(NSArray *)pathList
-{
-	if (!self.result) {
-		return;
+	NSError *jsonError = nil;
+	NSData *data = [NSJSONSerialization dataWithJSONObject:array options:0 error:&jsonError];
+	if (data == nil) {
+		return nil;
 	}
+	return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+}
 
-	if (pathList) {
-		if (![pathList containsObject:[NSNull null]]) {
-			if ((self.maxImagesAllowed == 1)) {
-				self.result(pathList.firstObject);
-			} else {
-				self.result([pathList componentsJoinedByString:@","]);
-			}
-		} else {
-			self.error(@"pathList's items should not be null");
+- (NSArray *)validPathsFromList:(NSArray *)pathList
+{
+	NSMutableArray *paths = [[NSMutableArray alloc] initWithCapacity:pathList.count];
+	for (id item in pathList) {
+		if ([item isKindOfClass:[NSString class]] && ((NSString *)item).length > 0) {
+			[paths addObject:item];
 		}
-	} else {
-		// This should never happen.
-		self.error(@"pathList should not be nil");
 	}
-	self.result = nil;
-	self.error = nil;
-	_arguments = nil;
+	return paths;
+}
+
+- (void)handleSavedImagePaths:(NSArray *)pathList
+{
+	if (self.result == nil) {
+		return;
+	}
+
+	NSArray *paths = [self validPathsFromList:pathList];
+	if (paths.count == 0) {
+		[self finishWithError:@"Could not save the selected image(s)."];
+		return;
+	}
+	if (paths.count != pathList.count) {
+		[self finishWithError:@"Some of the selected images could not be saved."];
+		return;
+	}
+
+	NSString *json = [self jsonStringFromArray:paths];
+	if (json == nil) {
+		[self finishWithError:@"Could not serialize the selected image paths."];
+		return;
+	}
+
+	StringAction callback = self.result;
+	[self clearState];
+	callback(json);
+}
+
+- (void)handleSavedVideoPath:(NSString *)path
+{
+	if (self.result == nil) {
+		return;
+	}
+	if (![path isKindOfClass:[NSString class]] || path.length == 0) {
+		[self finishWithError:@"Could not save the selected video."];
+		return;
+	}
+
+	StringAction callback = self.result;
+	[self clearState];
+	callback(path);
+}
+
+- (void)handleSavedVideoPaths:(NSArray *)pathList
+{
+	if (self.result == nil) {
+		return;
+	}
+
+	NSArray *paths = [self validPathsFromList:pathList];
+	if (paths.count == 0) {
+		[self finishWithError:@"Could not save the selected video(s)."];
+		return;
+	}
+	if (paths.count != pathList.count) {
+		[self finishWithError:@"Some of the selected videos could not be saved."];
+		return;
+	}
+
+	if (!self.returningVideoList) {
+		[self handleSavedVideoPath:paths.firstObject];
+		return;
+	}
+
+	NSString *json = [self jsonStringFromArray:paths];
+	if (json == nil) {
+		[self finishWithError:@"Could not serialize the selected video paths."];
+		return;
+	}
+
+	StringAction callback = self.result;
+	[self clearState];
+	callback(json);
 }
 
 @end

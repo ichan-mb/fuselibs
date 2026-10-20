@@ -3,21 +3,12 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface GIFInfo : NSObject
-
-@property(strong, nonatomic, readonly) NSArray<UIImage *> *images;
-@property(assign, nonatomic, readonly) NSTimeInterval interval;
-
-- (instancetype)initWithImages:(NSArray<UIImage *> *)images interval:(NSTimeInterval)interval;
-
-@end
-
 @interface FOMediaPickerImageUtil : NSObject
 
-+ (UIImage *)scaledImage:(UIImage *)image
-                maxWidth:(NSNumber *)maxWidth
-               maxHeight:(NSNumber *)maxHeight
-     isMetadataAvailable:(BOOL)isMetadataAvailable;
++ (nullable UIImage *)scaledImage:(UIImage *)image
+                       maxWidth:(nullable NSNumber *)maxWidth
+                      maxHeight:(nullable NSNumber *)maxHeight
+            isMetadataAvailable:(BOOL)isMetadataAvailable;
 
 @end
 

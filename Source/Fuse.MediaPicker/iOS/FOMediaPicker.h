@@ -8,5 +8,6 @@ typedef void (^StringAction)(NSString*);
 - (void)pickSingleImageWithArgs:(NSDictionary *)argument withResult:(StringAction)result error:(StringAction)error;
 - (void)pickMultiImageWithArgs:(NSDictionary *)argument withResult:(StringAction)result error:(StringAction)error;
 - (void)pickVideoWithArgs:(NSDictionary *)argument withResult:(StringAction)result error:(StringAction)error;
+- (void)pickVideosWithArgs:(NSDictionary *)argument withResult:(StringAction)result error:(StringAction)error;
 
 @end

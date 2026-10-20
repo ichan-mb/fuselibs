@@ -4,9 +4,9 @@ API_AVAILABLE(ios(14))
 @interface FOPHPickerSaveImageOps ()
 
 @property(strong, nonatomic) PHPickerResult *result;
-@property(assign, nonatomic) NSNumber *maxHeight;
-@property(assign, nonatomic) NSNumber *maxWidth;
-@property(assign, nonatomic) NSNumber *desiredImageQuality;
+@property(strong, nonatomic) NSNumber *maxHeight;
+@property(strong, nonatomic) NSNumber *maxWidth;
+@property(strong, nonatomic) NSNumber *desiredImageQuality;
 
 @end
 
@@ -19,26 +19,21 @@ typedef void (^GetSavedPath)(NSString *);
 }
 
 - (instancetype)initWithResult:(PHPickerResult *)result
-										 maxHeight:(NSNumber *)maxHeight
-											maxWidth:(NSNumber *)maxWidth
-					 desiredImageQuality:(NSNumber *)desiredImageQuality
-								savedPathBlock:(GetSavedPath)savedPathBlock API_AVAILABLE(ios(14)) {
-	if (self = [super init]) {
-		if (result) {
-			self.result = result;
-			self.maxHeight = maxHeight;
-			self.maxWidth = maxWidth;
-			self.desiredImageQuality = desiredImageQuality;
-			getSavedPath = savedPathBlock;
-			executing = NO;
-			finished = NO;
-		} else {
-			return nil;
-		}
-		return self;
-	} else {
+												 maxHeight:(NSNumber *)maxHeight
+													maxWidth:(NSNumber *)maxWidth
+										 desiredImageQuality:(NSNumber *)desiredImageQuality
+												savedPathBlock:(GetSavedPath)savedPathBlock API_AVAILABLE(ios(14)) {
+	if (!result) {
 		return nil;
 	}
+	if (self = [super init]) {
+		self.result = result;
+		self.maxHeight = maxHeight;
+		self.maxWidth = maxWidth;
+		self.desiredImageQuality = desiredImageQuality;
+		getSavedPath = savedPathBlock;
+	}
+	return self;
 }
 
 - (BOOL)isConcurrent {
@@ -55,20 +50,29 @@ typedef void (^GetSavedPath)(NSString *);
 
 - (void)setFinished:(BOOL)isFinished {
 	[self willChangeValueForKey:@"isFinished"];
-	self->finished = isFinished;
+	finished = isFinished;
 	[self didChangeValueForKey:@"isFinished"];
 }
 
 - (void)setExecuting:(BOOL)isExecuting {
 	[self willChangeValueForKey:@"isExecuting"];
-	self->executing = isExecuting;
+	executing = isExecuting;
 	[self didChangeValueForKey:@"isExecuting"];
 }
 
 - (void)completeOperationWithPath:(NSString *)savedPath {
+	if (finished) {
+		return;
+	}
+
+	// Deliver the result before marking the operation finished, so callers
+	// waiting on the operation queue always see a populated path list.
+	if (getSavedPath) {
+		getSavedPath(savedPath);
+	}
+
 	[self setExecuting:NO];
 	[self setFinished:YES];
-	getSavedPath(savedPath);
 }
 
 - (void)start {
@@ -76,38 +80,56 @@ typedef void (^GetSavedPath)(NSString *);
 		[self setFinished:YES];
 		return;
 	}
+
 	if (@available(iOS 14, *)) {
 		[self setExecuting:YES];
 		[self.result.itemProvider
 				loadObjectOfClass:[UIImage class]
 				completionHandler:^(__kindof id<NSItemProviderReading> _Nullable image,
 														NSError *_Nullable error) {
-					if ([image isKindOfClass:[UIImage class]]) {
-						__block UIImage *localImage = image;
-						PHAsset *originalAsset =
-								[FOMediaPickerPhotoAssetUtil getAssetFromPHPickerResult:self.result];
+					if (![image isKindOfClass:[UIImage class]]) {
+						// Make sure the operation always finishes, otherwise the
+						// queue waiting for it would block forever.
+						[self completeOperationWithPath:nil];
+						return;
+					}
 
-						if (self.maxWidth != (id)[NSNull null] || self.maxHeight != (id)[NSNull null]) {
+					__block UIImage *localImage = (UIImage *)image;
+					PHAsset *originalAsset =
+							[FOMediaPickerPhotoAssetUtil getAssetFromPHPickerResult:self.result];
+
+					// UIKit image scaling/encoding is not thread-safe. Doing it on a
+					// background queue can produce a valid but blank white image.
+					dispatch_async(dispatch_get_main_queue(), ^{
+						BOOL hasMaxWidth = [self.maxWidth isKindOfClass:[NSNumber class]] && [self.maxWidth doubleValue] > 0;
+						BOOL hasMaxHeight = [self.maxHeight isKindOfClass:[NSNumber class]] && [self.maxHeight doubleValue] > 0;
+						if (hasMaxWidth || hasMaxHeight) {
 							localImage = [FOMediaPickerImageUtil scaledImage:localImage maxWidth:self.maxWidth maxHeight:self.maxHeight isMetadataAvailable:originalAsset != nil];
 						}
-						__block NSString *savedPath;
+
 						if (!originalAsset) {
 							// Image picked without an original asset (e.g. User pick image without permission)
-							savedPath =
-									[FOMediaPickerPhotoAssetUtil saveImageWithPickerInfo:nil image:localImage imageQuality:self.desiredImageQuality];
+							NSString *savedPath =
+									[FOMediaPickerPhotoAssetUtil saveImageWithOriginalImageData:nil image:localImage imageQuality:self.desiredImageQuality];
 							[self completeOperationWithPath:savedPath];
 						} else {
+							PHImageRequestOptions *options = [[PHImageRequestOptions alloc] init];
+							options.deliveryMode = PHImageRequestOptionsDeliveryModeHighQualityFormat;
+							options.resizeMode = PHImageRequestOptionsResizeModeNone;
+							options.networkAccessAllowed = YES;
+
 							[[PHImageManager defaultManager]
-									requestImageDataForAsset:originalAsset options:nil
+									requestImageDataForAsset:originalAsset options:options
 										resultHandler:^(
 											NSData *_Nullable imageData, NSString *_Nullable dataUTI,
 											UIImageOrientation orientation, NSDictionary *_Nullable info) {
-												// maxWidth and maxHeight are used only for GIF images.
-												savedPath = [FOMediaPickerPhotoAssetUtil saveImageWithOriginalImageData:imageData image:localImage maxWidth:self.maxWidth maxHeight:self.maxHeight imageQuality:self.desiredImageQuality];
-												[self completeOperationWithPath:savedPath];
+												dispatch_async(dispatch_get_main_queue(), ^{
+													NSString *savedPath = [FOMediaPickerPhotoAssetUtil saveImageWithOriginalImageData:imageData image:localImage imageQuality:self.desiredImageQuality];
+													[self completeOperationWithPath:savedPath];
+												});
 											}];
 						}
-					}
+					});
 				}];
 	} else {
 		[self setFinished:YES];

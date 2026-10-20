@@ -3,15 +3,14 @@ package com.fuse.mediapicker;
 import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.hardware.camera2.CameraCharacteristics;
-import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.MediaStore;
-import androidx.annotation.VisibleForTesting;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.FileProvider;
 import java.io.File;
@@ -20,8 +19,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.json.JSONArray;
+
 import com.foreign.Uno.Action_String;
-import android.widget.Toast;
 
 enum CameraDevice {
 	REAR,
@@ -37,7 +37,13 @@ public class MediaPickerImpl {
 	static final int REQUEST_CODE_CHOOSE_MULTI_IMAGE_FROM_GALLERY = 2346;
 	static final int REQUEST_CODE_CHOOSE_VIDEO_FROM_GALLERY = 2352;
 	static final int REQUEST_CODE_TAKE_VIDEO_WITH_CAMERA = 2353;
-	static final int REQUEST_CAMERA_VIDEO_PERMISSION = 235;
+	static final int REQUEST_CODE_CHOOSE_MULTI_VIDEO_FROM_GALLERY = 2354;
+	static final int REQUEST_CAMERA_VIDEO_PERMISSION = 2355;
+
+	// Avoid a hard dependency on a specific compile SDK for the Android photo picker.
+	private static final String ACTION_PICK_IMAGES = "android.provider.action.PICK_IMAGES";
+	private static final String EXTRA_PICK_IMAGES_MAX = "android.provider.extra.PICK_IMAGES_MAX";
+
 	private final ImageResizer imageResizer;
 	private final PermissionManager permissionManager;
 	private final FileUriResolver fileUriResolver;
@@ -56,15 +62,9 @@ public class MediaPickerImpl {
 
 	interface FileUriResolver {
 		Uri resolveFileProviderUriForFile(String fileProviderName, File imageFile);
-
-		void getFullImagePath(Uri imageUri, OnPathReadyListener listener);
 	}
 
-	interface OnPathReadyListener {
-		void onPathReady(String path);
-	}
-
-	private Uri pendingCameraMediaUri;
+	private String pendingCameraMediaPath;
 	private Action_String result;
 	private Action_String reject;
 	private Map<String, Object> arguments;
@@ -74,10 +74,10 @@ public class MediaPickerImpl {
 		if (instance != null)
 			return instance;
 
-		final File externalFilesDirectory = com.fuse.Activity.getRootActivity().getCacheDir();
+		final File cacheDirectory = com.fuse.Activity.getRootActivity().getCacheDir();
 		final ExifDataCopier exifDataCopier = new ExifDataCopier();
-		final ImageResizer imageResizer = new ImageResizer(externalFilesDirectory, exifDataCopier);
-		instance = new MediaPickerImpl(externalFilesDirectory, imageResizer);
+		final ImageResizer imageResizer = new ImageResizer(cacheDirectory, exifDataCopier);
+		instance = new MediaPickerImpl(cacheDirectory, imageResizer);
 		return instance;
 	}
 
@@ -109,20 +109,6 @@ public class MediaPickerImpl {
 					public Uri resolveFileProviderUriForFile(String fileProviderName, File file) {
 						return FileProvider.getUriForFile(com.fuse.Activity.getRootActivity(), fileProviderName, file);
 					}
-
-					@Override
-					public void getFullImagePath(final Uri imageUri, final OnPathReadyListener listener) {
-						MediaScannerConnection.scanFile(
-							com.fuse.Activity.getRootActivity(),
-								new String[] {(imageUri != null) ? imageUri.getPath() : ""},
-								null,
-								new MediaScannerConnection.OnScanCompletedListener() {
-									@Override
-									public void onScanCompleted(String path, Uri uri) {
-										listener.onPathReady(path);
-									}
-								});
-					}
 				},
 				new FileUtils());
 	}
@@ -143,6 +129,10 @@ public class MediaPickerImpl {
 		com.fuse.Activity.subscribeToResults(l);
 	}
 
+	boolean isPicking() {
+		return result != null;
+	}
+
 	void setCameraDevice(CameraDevice device) {
 		cameraDevice = device;
 	}
@@ -159,15 +149,13 @@ public class MediaPickerImpl {
 		this.reject = reject;
 	}
 
-	CameraDevice getCameraDevice() {
-		return cameraDevice;
-	}
 
 	public void launchPickVideoFromGalleryIntent() {
-		Intent pickVideoIntent = new Intent(Intent.ACTION_GET_CONTENT);
-		pickVideoIntent.setType("video/*");
+		launchGalleryIntent("video/*", false, 1, REQUEST_CODE_CHOOSE_VIDEO_FROM_GALLERY);
+	}
 
-		com.fuse.Activity.getRootActivity().startActivityForResult(pickVideoIntent, REQUEST_CODE_CHOOSE_VIDEO_FROM_GALLERY);
+	public void launchMultiPickVideoFromGalleryIntent(int maxVideos) {
+		launchGalleryIntent("video/*", true, maxVideos, REQUEST_CODE_CHOOSE_MULTI_VIDEO_FROM_GALLERY);
 	}
 
 	public void takeVideoWithCamera() {
@@ -183,8 +171,8 @@ public class MediaPickerImpl {
 
 	private void launchTakeVideoWithCameraIntent() {
 		Intent intent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
-		if (this.arguments.get("maxDuration") != null) {
-			int maxSeconds = (int)this.arguments.get("maxDuration");
+		if (arguments != null && arguments.get("maxDuration") != null) {
+			int maxSeconds = ((Number)arguments.get("maxDuration")).intValue();
 			if (maxSeconds > 0)
 				intent.putExtra(MediaStore.EXTRA_DURATION_LIMIT, maxSeconds);
 		}
@@ -192,9 +180,15 @@ public class MediaPickerImpl {
 			useFrontCamera(intent);
 		}
 
-		File videoFile = createTemporaryWritableVideoFile();
-		pendingCameraMediaUri = Uri.parse("file:" + videoFile.getAbsolutePath());
+		File videoFile;
+		try {
+			videoFile = createTemporaryWritableVideoFile();
+		} catch (RuntimeException e) {
+			finishWithError("Could not create a temporary file for the video.");
+			return;
+		}
 
+		pendingCameraMediaPath = videoFile.getAbsolutePath();
 		Uri videoUri = fileUriResolver.resolveFileProviderUriForFile(fileProviderName, videoFile);
 		intent.putExtra(MediaStore.EXTRA_OUTPUT, videoUri);
 		grantUriPermissions(intent, videoUri);
@@ -202,28 +196,44 @@ public class MediaPickerImpl {
 		try {
 			com.fuse.Activity.getRootActivity().startActivityForResult(intent, REQUEST_CODE_TAKE_VIDEO_WITH_CAMERA);
 		} catch (ActivityNotFoundException e) {
-			try {
-				videoFile.delete();
-			} catch (SecurityException exception) {
-				exception.printStackTrace();
-			}
-			finishWithError("No cameras available for taking pictures.");
+			deletePendingCameraMedia();
+			finishWithError("No cameras available for recording video.");
+		} catch (Exception e) {
+			deletePendingCameraMedia();
+			finishWithError("Could not open the camera: " + e.getMessage());
 		}
 	}
 
 	public void launchPickImageFromGalleryIntent() {
-		Intent pickImageIntent = new Intent(Intent.ACTION_GET_CONTENT);
-		pickImageIntent.setType("image/*");
-
-		com.fuse.Activity.getRootActivity().startActivityForResult(pickImageIntent, REQUEST_CODE_CHOOSE_IMAGE_FROM_GALLERY);
+		launchGalleryIntent("image/*", false, 1, REQUEST_CODE_CHOOSE_IMAGE_FROM_GALLERY);
 	}
 
-	public void launchMultiPickImageFromGalleryIntent() {
-		Intent pickImageIntent = new Intent(Intent.ACTION_GET_CONTENT);
-		pickImageIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-		pickImageIntent.setType("image/*");
+	public void launchMultiPickImageFromGalleryIntent(int maxImages) {
+		launchGalleryIntent("image/*", true, maxImages, REQUEST_CODE_CHOOSE_MULTI_IMAGE_FROM_GALLERY);
+	}
 
-		com.fuse.Activity.getRootActivity().startActivityForResult(pickImageIntent, REQUEST_CODE_CHOOSE_MULTI_IMAGE_FROM_GALLERY);
+	private void launchGalleryIntent(String mimeType, boolean allowMultiple, int maxCount, int requestCode) {
+		Intent intent;
+		if (Build.VERSION.SDK_INT >= 33) {
+			intent = new Intent(ACTION_PICK_IMAGES);
+			intent.setType(mimeType);
+			if (allowMultiple)
+				intent.putExtra(EXTRA_PICK_IMAGES_MAX, maxCount > 0 ? maxCount : Integer.MAX_VALUE);
+		} else {
+			intent = new Intent(Intent.ACTION_GET_CONTENT);
+			intent.addCategory(Intent.CATEGORY_OPENABLE);
+			intent.setType(mimeType);
+			if (allowMultiple)
+				intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+		}
+
+		try {
+			com.fuse.Activity.getRootActivity().startActivityForResult(intent, requestCode);
+		} catch (ActivityNotFoundException e) {
+			finishWithError("No media picker available for this media type.");
+		} catch (Exception e) {
+			finishWithError("Could not open the media picker: " + e.getMessage());
+		}
 	}
 
 	public void takeImageWithCamera() {
@@ -237,9 +247,6 @@ public class MediaPickerImpl {
 	}
 
 	private boolean needRequestCameraPermission() {
-		if (permissionManager == null) {
-			return false;
-		}
 		return permissionManager.needRequestCameraPermission();
 	}
 
@@ -249,9 +256,15 @@ public class MediaPickerImpl {
 			useFrontCamera(intent);
 		}
 
-		File imageFile = createTemporaryWritableImageFile();
-		pendingCameraMediaUri = Uri.parse("file:" + imageFile.getAbsolutePath());
+		File imageFile;
+		try {
+			imageFile = createTemporaryWritableImageFile();
+		} catch (RuntimeException e) {
+			finishWithError("Could not create a temporary file for the image.");
+			return;
+		}
 
+		pendingCameraMediaPath = imageFile.getAbsolutePath();
 		Uri imageUri = fileUriResolver.resolveFileProviderUriForFile(fileProviderName, imageFile);
 		intent.putExtra(MediaStore.EXTRA_OUTPUT, imageUri);
 		grantUriPermissions(intent, imageUri);
@@ -259,12 +272,11 @@ public class MediaPickerImpl {
 		try {
 			com.fuse.Activity.getRootActivity().startActivityForResult(intent, REQUEST_CODE_TAKE_IMAGE_WITH_CAMERA);
 		} catch (ActivityNotFoundException e) {
-			try {
-				imageFile.delete();
-			} catch (SecurityException exception) {
-				exception.printStackTrace();
-			}
+			deletePendingCameraMedia();
 			finishWithError("No cameras available for taking pictures.");
+		} catch (Exception e) {
+			deletePendingCameraMedia();
+			finishWithError("Could not open the camera: " + e.getMessage());
 		}
 	}
 
@@ -303,32 +315,24 @@ public class MediaPickerImpl {
 	}
 
 	public static boolean onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-		boolean permissionGranted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+		boolean permissionGranted = grantResults != null && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
 
 		switch (requestCode) {
 			case REQUEST_CAMERA_IMAGE_PERMISSION:
-				if (permissionGranted) {
+				if (permissionGranted)
 					MediaPickerImpl.getInstance().launchTakeImageWithCameraIntent();
-				}
-				break;
+				else
+					MediaPickerImpl.getInstance().finishWithError("The user did not allow camera access.");
+				return true;
 			case REQUEST_CAMERA_VIDEO_PERMISSION:
-				if (permissionGranted) {
+				if (permissionGranted)
 					MediaPickerImpl.getInstance().launchTakeVideoWithCameraIntent();
-				}
-				break;
+				else
+					MediaPickerImpl.getInstance().finishWithError("The user did not allow camera access.");
+				return true;
 			default:
 				return false;
 		}
-
-		if (!permissionGranted) {
-			switch (requestCode) {
-				case REQUEST_CAMERA_IMAGE_PERMISSION:
-				case REQUEST_CAMERA_VIDEO_PERMISSION:
-					MediaPickerImpl.getInstance().finishWithError("The user did not allow camera access.");
-					break;
-			}
-		}
-		return true;
 	}
 
 	public boolean onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -340,13 +344,16 @@ public class MediaPickerImpl {
 				handleChooseMultiImageResult(resultCode, data);
 				break;
 			case REQUEST_CODE_TAKE_IMAGE_WITH_CAMERA:
-				handleCaptureImageResult(resultCode);
+				handleCaptureImageResult(resultCode, data);
 				break;
 			case REQUEST_CODE_CHOOSE_VIDEO_FROM_GALLERY:
 				handleChooseVideoResult(resultCode, data);
 				break;
+			case REQUEST_CODE_CHOOSE_MULTI_VIDEO_FROM_GALLERY:
+				handleChooseMultiVideoResult(resultCode, data);
+				break;
 			case REQUEST_CODE_TAKE_VIDEO_WITH_CAMERA:
-				handleCaptureVideoResult(resultCode);
+				handleCaptureVideoResult(resultCode, data);
 				break;
 			default:
 				return false;
@@ -356,142 +363,277 @@ public class MediaPickerImpl {
 	}
 
 	private void handleChooseImageResult(int resultCode, Intent data) {
-		if (resultCode == Activity.RESULT_OK && data != null) {
-			String path = fileUtils.getPathFromUri(com.fuse.Activity.getRootActivity(), data.getData());
-			handleImageResult(path, false);
+		if (resultCode != Activity.RESULT_OK) {
+			finishWithError("User cancelled picking an image.");
 			return;
 		}
 
-		// User cancelled choosing a picture.
-		finishWithError("User cancelled choosing a picture");
+		String path = getPathFromIntentData(data);
+		if (path == null) {
+			finishWithError("Could not read the selected image.");
+			return;
+		}
+		handleImageResult(path, false);
 	}
 
 	private void handleChooseMultiImageResult(int resultCode, Intent intent) {
-		if (resultCode == Activity.RESULT_OK && intent != null) {
-			ArrayList<String> paths = new ArrayList<>();
-			if (intent.getClipData() != null) {
-				int maxImages = (int)this.arguments.get("maxImages");
-				if (maxImages > 0 && intent.getClipData().getItemCount() > maxImages) {
-					String message = "Error: Maximum selected images is " + maxImages;
-					Toast.makeText(com.fuse.Activity.getRootActivity(), message, Toast.LENGTH_SHORT).show();
-					finishWithError(message);
-					return;
-				}
-				for (int i = 0; i < intent.getClipData().getItemCount(); i++) {
-					paths.add(fileUtils.getPathFromUri(com.fuse.Activity.getRootActivity(), intent.getClipData().getItemAt(i).getUri()));
-				}
-			} else {
-				paths.add(fileUtils.getPathFromUri(com.fuse.Activity.getRootActivity(), intent.getData()));
-			}
-			handleMultiImageResult(paths, false);
+		if (resultCode != Activity.RESULT_OK) {
+			finishWithError("User cancelled picking images.");
 			return;
 		}
 
-		// User cancelled choosing a picture.
-		finishWithError("User cancelled choosing a picture");
+		ArrayList<Uri> uris = getUrisFromIntent(intent);
+		if (uris.isEmpty()) {
+			finishWithError("Could not read the selected images.");
+			return;
+		}
+
+		int maxImages = getIntArgument("maxImages", 0);
+		if (maxImages > 0 && uris.size() > maxImages) {
+			finishWithError("Maximum selected images is " + maxImages);
+			return;
+		}
+
+		ArrayList<String> paths = new ArrayList<>();
+		for (Uri uri : uris) {
+			String path = fileUtils.getPathFromUri(com.fuse.Activity.getRootActivity(), uri);
+			if (path != null)
+				paths.add(path);
+		}
+		handleMultiImageResult(paths);
 	}
 
 	private void handleChooseVideoResult(int resultCode, Intent data) {
-		if (resultCode == Activity.RESULT_OK && data != null) {
-			String path = fileUtils.getPathFromUri(com.fuse.Activity.getRootActivity(), data.getData());
-			handleVideoResult(path);
+		if (resultCode != Activity.RESULT_OK) {
+			finishWithError("User cancelled picking a video.");
 			return;
 		}
 
-		// User cancelled choosing a picture.
-		finishWithError("User cancelled choosing a picture");
-	}
-
-	private void handleCaptureImageResult(int resultCode) {
-		if (resultCode == Activity.RESULT_OK) {
-			fileUriResolver.getFullImagePath(pendingCameraMediaUri,
-					new OnPathReadyListener() {
-						@Override
-						public void onPathReady(String path) {
-							handleImageResult(path, true);
-						}
-					});
+		String path = getPathFromIntentData(data);
+		if (path == null) {
+			finishWithError("Could not read the selected video.");
 			return;
 		}
-		finishWithError("User cancelled choosing a picture");
+		handleVideoResult(path);
 	}
 
-	private void handleCaptureVideoResult(int resultCode) {
-		if (resultCode == Activity.RESULT_OK) {
-			fileUriResolver.getFullImagePath(pendingCameraMediaUri,
-					new OnPathReadyListener() {
-						@Override
-						public void onPathReady(String path) {
-							handleVideoResult(path);
-						}
-					});
+	private void handleChooseMultiVideoResult(int resultCode, Intent intent) {
+		if (resultCode != Activity.RESULT_OK) {
+			finishWithError("User cancelled picking videos.");
 			return;
 		}
-		finishWithError("User cancelled choosing a picture");
+
+		ArrayList<Uri> uris = getUrisFromIntent(intent);
+		if (uris.isEmpty()) {
+			finishWithError("Could not read the selected videos.");
+			return;
+		}
+
+		int maxVideos = getIntArgument("maxVideos", 0);
+		if (maxVideos > 0 && uris.size() > maxVideos) {
+			finishWithError("Maximum selected videos is " + maxVideos);
+			return;
+		}
+
+		ArrayList<String> paths = new ArrayList<>();
+		for (Uri uri : uris) {
+			String path = fileUtils.getPathFromUri(com.fuse.Activity.getRootActivity(), uri);
+			if (path != null)
+				paths.add(path);
+		}
+		handleMultiVideoResult(paths);
 	}
 
-	private void handleMultiImageResult(ArrayList<String> paths, boolean shouldDeleteOriginalIfScaled) {
-		if (this.arguments != null) {
-			ArrayList<String> finalPath = new ArrayList<>();
-			for (int i = 0; i < paths.size(); i++) {
-				String finalImagePath = getResizedImagePath(paths.get(i));
-				if (finalImagePath != null && !finalImagePath.equals(paths.get(i)) && shouldDeleteOriginalIfScaled) {
-					new File(paths.get(i)).delete();
-				}
-				finalPath.add(i, finalImagePath);
+	private void handleCaptureImageResult(int resultCode, Intent data) {
+		if (resultCode != Activity.RESULT_OK) {
+			deletePendingCameraMedia();
+			finishWithError("User cancelled taking a picture.");
+			return;
+		}
+
+		String path = getValidPendingMediaPath();
+		if (path == null)
+			path = getPathFromIntentData(data);
+		if (path == null) {
+			deletePendingCameraMedia();
+			finishWithError("Could not read the captured image.");
+			return;
+		}
+
+		handleImageResult(path, true);
+	}
+
+	private void handleCaptureVideoResult(int resultCode, Intent data) {
+		if (resultCode != Activity.RESULT_OK) {
+			deletePendingCameraMedia();
+			finishWithError("User cancelled recording a video.");
+			return;
+		}
+
+		String path = getValidPendingMediaPath();
+		if (path == null)
+			path = getPathFromIntentData(data);
+		if (path == null) {
+			deletePendingCameraMedia();
+			finishWithError("Could not read the recorded video.");
+			return;
+		}
+
+		handleVideoResult(path);
+	}
+
+	private String getValidPendingMediaPath() {
+		if (pendingCameraMediaPath == null)
+			return null;
+
+		File file = new File(pendingCameraMediaPath);
+		if (!file.exists() || file.length() == 0)
+			return null;
+
+		return pendingCameraMediaPath;
+	}
+
+	private String getPathFromIntentData(Intent data) {
+		if (data == null || data.getData() == null)
+			return null;
+		return fileUtils.getPathFromUri(com.fuse.Activity.getRootActivity(), data.getData());
+	}
+
+	private ArrayList<Uri> getUrisFromIntent(Intent intent) {
+		ArrayList<Uri> uris = new ArrayList<>();
+		if (intent == null)
+			return uris;
+
+		ClipData clipData = intent.getClipData();
+		if (clipData != null) {
+			for (int i = 0; i < clipData.getItemCount(); i++) {
+				Uri uri = clipData.getItemAt(i).getUri();
+				if (uri != null)
+					uris.add(uri);
 			}
-			finishWithListSuccess(finalPath);
-		} else {
-			finishWithListSuccess(paths);
+		} else if (intent.getData() != null) {
+			uris.add(intent.getData());
 		}
+
+		return uris;
+	}
+
+	private void handleMultiImageResult(ArrayList<String> paths) {
+		ArrayList<String> finalPaths = new ArrayList<>();
+		for (String path : paths) {
+			String finalImagePath = getResizedImagePath(path);
+			if (finalImagePath != null)
+				finalPaths.add(finalImagePath);
+		}
+
+		if (finalPaths.isEmpty()) {
+			finishWithError("Could not process the selected images.");
+			return;
+		}
+
+		finishWithListSuccess(finalPaths);
+	}
+
+	private void handleMultiVideoResult(ArrayList<String> paths) {
+		if (paths == null || paths.isEmpty()) {
+			finishWithError("Could not process the selected videos.");
+			return;
+		}
+
+		finishWithListSuccess(paths);
 	}
 
 	private void handleImageResult(String path, boolean shouldDeleteOriginalIfScaled) {
-		if (this.arguments != null) {
-			String finalImagePath = getResizedImagePath(path);
-			//delete original file if scaled
-			if (finalImagePath != null && !finalImagePath.equals(path) && shouldDeleteOriginalIfScaled) {
-				new File(path).delete();
-			}
-			finishWithSuccess(finalImagePath);
-		} else {
-			finishWithSuccess(path);
+		String finalImagePath = getResizedImagePath(path);
+		if (finalImagePath == null) {
+			finishWithError("Could not process the selected image.");
+			return;
 		}
+
+		// Delete the original file if it was scaled.
+		if (!finalImagePath.equals(path) && shouldDeleteOriginalIfScaled)
+			new File(path).delete();
+
+		ArrayList<String> paths = new ArrayList<>();
+		paths.add(finalImagePath);
+		finishWithListSuccess(paths);
+	}
+
+	private int getIntArgument(String key, int fallback) {
+		if (arguments == null)
+			return fallback;
+		Object value = arguments.get(key);
+		return (value instanceof Number) ? ((Number)value).intValue() : fallback;
 	}
 
 	private String getResizedImagePath(String path) {
-		Double maxWidth = (double)this.arguments.get("maxWidth");
-		Double maxHeight = (double)this.arguments.get("maxHeight");
-		Integer imageQuality = (int)this.arguments.get("imageQuality");
+		if (path == null || path.isEmpty())
+			return null;
 
-		return imageResizer.resizeImageIfNeeded(path, maxWidth, maxHeight, imageQuality);
+		if (arguments == null)
+			return path;
+
+		Double maxWidth = getDoubleArgument("maxWidth");
+		Double maxHeight = getDoubleArgument("maxHeight");
+		Integer imageQuality = getIntArgument("imageQuality", 100);
+
+		try {
+			return imageResizer.resizeImageIfNeeded(path, maxWidth, maxHeight, imageQuality);
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
+	private Double getDoubleArgument(String key) {
+		Object value = arguments.get(key);
+		return (value instanceof Number) ? ((Number)value).doubleValue() : null;
 	}
 
 	private void handleVideoResult(String path) {
+		if (path == null || path.isEmpty()) {
+			finishWithError("Could not process the selected video.");
+			return;
+		}
 		finishWithSuccess(path);
 	}
 
-	private void finishWithSuccess(String imagePath) {
-		if (result == null) {
-			return;
-		}
-		result.run(imagePath);
+	private void finishWithSuccess(String path) {
+		Action_String callback = this.result;
+		clearCallbacks();
+		if (callback != null)
+			callback.run(path);
 	}
 
-	private void finishWithListSuccess(ArrayList<String> imagePaths) {
-		if (result == null) {
+	private void finishWithListSuccess(ArrayList<String> paths) {
+		Action_String callback = this.result;
+		clearCallbacks();
+		if (callback == null)
 			return;
-		}
-		String commaseparatedlist = imagePaths.toString();
-		commaseparatedlist = commaseparatedlist.replace("[", "").replace("]", "").replace(" ", "");
-		result.run(commaseparatedlist);
+		callback.run(new JSONArray(paths).toString());
 	}
 
-	private void finishWithError(String errorMessage) {
-		if (result == null) {
+	void finishWithError(String errorMessage) {
+		Action_String callback = this.reject;
+		clearCallbacks();
+		if (callback != null)
+			callback.run(errorMessage);
+	}
+
+	private void clearCallbacks() {
+		result = null;
+		reject = null;
+		arguments = null;
+		pendingCameraMediaPath = null;
+	}
+
+	private void deletePendingCameraMedia() {
+		if (pendingCameraMediaPath == null)
 			return;
-		}
-		reject.run(errorMessage);
+
+		File file = new File(pendingCameraMediaPath);
+		if (file.exists())
+			file.delete();
+		pendingCameraMediaPath = null;
 	}
 
 	private void useFrontCamera(Intent intent) {

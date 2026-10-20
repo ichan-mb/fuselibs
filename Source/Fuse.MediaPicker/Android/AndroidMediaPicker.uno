@@ -20,16 +20,17 @@ namespace Fuse.MediaPicker
 			PickVideoInternal(args, cb.Resolve, cb.Reject);
 		}
 
+		internal static void PickVideos(Promise<string> p, Java.Object args)
+		{
+			var cb = new StringPromiseCallback(p);
+			PickVideosInternal(args, cb.Resolve, cb.Reject);
+		}
+
 		[Foreign(Language.Java)]
 		static void PickImageInternal(Java.Object args, Action<string> onComplete, Action<string> onFail)
 		@{
 			java.util.Map<String, Object> arguments = (java.util.HashMap<String, Object>)args;
-			MediaPicker mediaPicker = new MediaPicker();
-			int maxImages = (int)arguments.get("maxImages");
-			if (maxImages == 1)
-				mediaPicker.pickImage(arguments, onComplete, onFail);
-			else
-				mediaPicker.pickMultiImage(arguments, onComplete, onFail);
+			new MediaPicker().pickImage(arguments, onComplete, onFail);
 		@}
 
 		[Foreign(Language.Java)]
@@ -38,6 +39,14 @@ namespace Fuse.MediaPicker
 			java.util.Map<String, Object> arguments = (java.util.HashMap<String, Object>)args;
 			MediaPicker mediaPicker = new MediaPicker();
 			mediaPicker.pickVideo(arguments, onComplete, onFail);
+		@}
+
+		[Foreign(Language.Java)]
+		static void PickVideosInternal(Java.Object args, Action<string> onComplete, Action<string> onFail)
+		@{
+			java.util.Map<String, Object> arguments = (java.util.HashMap<String, Object>)args;
+			MediaPicker mediaPicker = new MediaPicker();
+			mediaPicker.pickVideos(arguments, onComplete, onFail);
 		@}
 
 	}
