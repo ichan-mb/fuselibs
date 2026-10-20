@@ -1,0 +1,287 @@
+<App>
+	<JavaScript>
+		var Alerts = require("FuseJS/Alerts");
+		var Observable = require("FuseJS/Observable");
+
+		var result = Observable("Run each case and check the result.");
+
+		function log(text) {
+			result.value = text;
+			console.log(text);
+		}
+
+		function alertDefault() {
+			Alerts.alert("Alert", "Default button labels.")
+				.then(function(ok) { log("alert default: " + ok); })
+				.catch(function(error) { log("alert error: " + error); });
+		}
+
+		function alertCustom() {
+			Alerts.alert("Alert", "Custom button label.", "Got it")
+				.then(function(ok) { log("alert custom: " + ok); })
+				.catch(function(error) { log("alert error: " + error); });
+		}
+
+		function confirmPositional() {
+			Alerts.confirm("Confirm", "OK and Cancel.", "OK", "Cancel")
+				.then(function(ok) { log("confirm positional: " + ok); })
+				.catch(function(error) { log("confirm error: " + error); });
+		}
+
+		function confirmChoice() {
+			Alerts.confirm({
+				title: "Unsaved changes",
+				message: "Save before leaving?",
+				okLabel: "Save",
+				neutralLabel: "Don't Save",
+				cancelLabel: "Cancel"
+			}).then(function(index) {
+				log("confirm choice index: " + index);
+			}).catch(function(error) {
+				log("confirm choice error: " + error);
+			});
+		}
+
+		function confirmDestructive() {
+			Alerts.confirm({
+				title: "Delete item?",
+				message: "This cannot be undone.",
+				okLabel: "Delete",
+				cancelLabel: "Cancel",
+				destructive: true
+			}).then(function(index) {
+				log("destructive confirm index: " + index);
+			}).catch(function(error) {
+				log("destructive confirm error: " + error);
+			});
+		}
+
+		function confirmNotCancelable() {
+			Alerts.confirm({
+				title: "Not cancelable",
+				message: "On Android, Back and outside tap are disabled.",
+				okLabel: "OK",
+				cancelLabel: "Cancel",
+				cancelable: false
+			}).then(function(index) {
+				log("not cancelable index: " + index);
+			}).catch(function(error) {
+				log("not cancelable error: " + error);
+			});
+		}
+
+		function promptText() {
+			Alerts.prompt({
+				title: "Prompt",
+				message: "Enter some text.",
+				placeholder: "Text",
+				value: "Hello"
+			}).then(function(text) {
+				log("prompt: " + (text === null ? "null" : text));
+			}).catch(function(error) {
+				log("prompt error: " + error);
+			});
+		}
+
+		function promptSecure() {
+			Alerts.prompt({
+				title: "Secure prompt",
+				message: "Enter a password.",
+				placeholder: "Password",
+				secure: true,
+				okLabel: "Continue",
+				cancelLabel: "Cancel"
+			}).then(function(text) {
+				log("secure prompt: " + (text === null ? "null" : "length " + text.length));
+			}).catch(function(error) {
+				log("secure prompt error: " + error);
+			});
+		}
+
+		function promptRequired() {
+			Alerts.prompt({
+				title: "Required prompt",
+				message: "Enter at least three characters.",
+				required: true,
+				minLength: 3,
+				okLabel: "Continue",
+				cancelLabel: "Cancel"
+			}).then(function(text) {
+				log("required prompt: " + (text === null ? "null" : text));
+			}).catch(function(error) {
+				log("required prompt error: " + error);
+			});
+		}
+
+		function actionSheet() {
+			Alerts.actionSheet({
+				title: "Actions",
+				message: "Pick one.",
+				items: [
+					"One",
+					"Two",
+					{ label: "Unavailable", enabled: false },
+					{ label: "Delete", destructive: true },
+					{ label: "Remove all", destructive: true }
+				],
+				cancelLabel: "Cancel",
+				origin: actionSheetOrigin
+			}).then(function(index) {
+				log("action sheet index: " + index);
+			}).catch(function(error) {
+				log("action sheet error: " + error);
+			});
+		}
+
+		function queueDialogs() {
+			Alerts.alert("First", "Queue test.", "Next")
+				.then(function(ok) { log("first queued: " + ok); });
+			Alerts.confirm("Second", "This was queued.", "Done", "Cancel")
+				.then(function(ok) { log("second queued: " + ok); });
+		}
+
+		function dismissAll() {
+			Alerts.alert("Dismiss me", "This closes in one second.", "OK")
+				.then(function(ok) { log("dismissAll result: " + ok); });
+			setTimeout(function() { Alerts.dismissAll(); }, 1000);
+		}
+
+		function onUxResult(args) {
+			var index = (args.index !== undefined && args.index !== null) ? " index=" + args.index : "";
+			var text = (args.text !== undefined && args.text !== null) ? " text=" + args.text : "";
+			log("UX: " + args.buttonLabel + index + text);
+		}
+
+		module.exports = {
+			result: result,
+			alertDefault: alertDefault,
+			alertCustom: alertCustom,
+			confirmPositional: confirmPositional,
+			confirmChoice: confirmChoice,
+			confirmDestructive: confirmDestructive,
+			confirmNotCancelable: confirmNotCancelable,
+			promptText: promptText,
+			promptSecure: promptSecure,
+			promptRequired: promptRequired,
+			actionSheet: actionSheet,
+			queueDialogs: queueDialogs,
+			dismissAll: dismissAll,
+			onUxResult: onUxResult
+		};
+	</JavaScript>
+
+	<DockPanel Background="#eef1f5">
+		<Panel Dock="Top" Background="#263238" Padding="16,20">
+			<StackPanel ItemSpacing="4">
+				<Text Value="Fuse.Alerts Manual Tests" FontSize="22" TextColor="#ffffff" />
+				<Text Value="Run on Android and iOS. Check every result and cancellation path." FontSize="13" TextColor="#b0bec5" />
+			</StackPanel>
+		</Panel>
+
+		<Panel Dock="Bottom" Background="#263238" Padding="16,12">
+			<Text Value="{result}" TextColor="#ffffff" FontSize="13" TextWrapping="Wrap" />
+		</Panel>
+
+		<Panel ux:Name="actionSheetOrigin" Width="1" Height="1" Alignment="Bottom" Margin="0,0,0,100" />
+
+		<ScrollView>
+			<StackPanel Margin="16" ItemSpacing="12">
+
+				<Panel>
+					<Rectangle Layer="Background" CornerRadius="12" Fill="#ffffff" />
+					<StackPanel Margin="16" ItemSpacing="10">
+						<Text Value="Alert" FontSize="18" TextColor="#263238" />
+						<Button Text="Default labels" Clicked="{alertDefault}" />
+						<Button Text="Custom label" Clicked="{alertCustom}" />
+					</StackPanel>
+				</Panel>
+
+				<Panel>
+					<Rectangle Layer="Background" CornerRadius="12" Fill="#ffffff" />
+					<StackPanel Margin="16" ItemSpacing="10">
+						<Text Value="Confirm" FontSize="18" TextColor="#263238" />
+						<Button Text="Positional (bool)" Clicked="{confirmPositional}" />
+						<Button Text="3-button choice" Clicked="{confirmChoice}" />
+						<Button Text="Destructive" Clicked="{confirmDestructive}" />
+						<Button Text="Not cancelable" Clicked="{confirmNotCancelable}" />
+					</StackPanel>
+				</Panel>
+
+				<Panel>
+					<Rectangle Layer="Background" CornerRadius="12" Fill="#ffffff" />
+					<StackPanel Margin="16" ItemSpacing="10">
+						<Text Value="Prompt and action sheet" FontSize="18" TextColor="#263238" />
+						<Button Text="Prompt" Clicked="{promptText}" />
+						<Button Text="Secure prompt" Clicked="{promptSecure}" />
+						<Button Text="Required prompt" Clicked="{promptRequired}" />
+						<Button Text="Action sheet" Clicked="{actionSheet}" />
+					</StackPanel>
+				</Panel>
+
+				<Panel>
+					<Rectangle Layer="Background" CornerRadius="12" Fill="#ffffff" />
+					<StackPanel Margin="16" ItemSpacing="10">
+						<Text Value="Queue and dismissal" FontSize="18" TextColor="#263238" />
+						<Button Text="Queue two dialogs" Clicked="{queueDialogs}" />
+						<Button Text="Dismiss all" Clicked="{dismissAll}" />
+					</StackPanel>
+				</Panel>
+
+				<Panel>
+					<Rectangle Layer="Background" CornerRadius="12" Fill="#ffffff" />
+					<StackPanel Margin="16" ItemSpacing="10">
+						<Text Value="UX trigger actions" FontSize="18" TextColor="#263238" />
+
+						<Button Text="ShowAlert">
+							<Clicked>
+								<ShowAlert Title="UX Alert" Message="UX alert test." Handler="{onUxResult}" />
+							</Clicked>
+						</Button>
+
+						<Button Text="ShowConfirm with neutral">
+							<Clicked>
+								<ShowConfirm
+									Title="UX Confirm"
+									Message="Three-button UX confirm."
+									OkLabelButton="Save"
+									NeutralLabelButton="Don't Save"
+									CancelLabelButton="Cancel"
+									Handler="{onUxResult}" />
+							</Clicked>
+						</Button>
+
+						<Button Text="ShowPrompt">
+							<Clicked>
+								<ShowPrompt
+									Title="UX Prompt"
+									Message="Enter a value."
+									Placeholder="Value"
+									Handler="{onUxResult}" />
+							</Clicked>
+						</Button>
+
+						<Button Text="ShowActionSheet">
+							<Clicked>
+								<ShowActionSheet Title="UX Actions" Message="Pick one." Handler="{onUxResult}">
+									<ActionSheetItem Label="One" />
+									<ActionSheetItem Label="Two" />
+									<ActionSheetItem Label="Delete" Destructive="true" />
+								</ShowActionSheet>
+							</Clicked>
+						</Button>
+					</StackPanel>
+				</Panel>
+
+				<Panel>
+					<Rectangle Layer="Background" CornerRadius="12" Fill="#fff8e1" />
+					<StackPanel Margin="16" ItemSpacing="6">
+						<Text Value="Checklist" FontSize="16" TextColor="#5d4037" />
+						<Text FontSize="13" TextColor="#6d4c41" TextWrapping="Wrap"
+							Value="Alert: OK and Android Back resolve correctly. Confirm: positional bool, 3-button indices 0/1/2, destructive styling, non-cancelable ignores Back. Prompt: text, secure input, required/minLength disables OK, Cancel returns null. Action sheet: all items, destructive and disabled styling, Cancel and outside tap return -1. Queue: second opens only after the first closes. DismissAll: active dialog closes and resolves false." />
+					</StackPanel>
+				</Panel>
+
+			</StackPanel>
+		</ScrollView>
+	</DockPanel>
+</App>

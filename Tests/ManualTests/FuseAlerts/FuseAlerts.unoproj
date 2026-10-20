@@ -1,0 +1,11 @@
+{
+  "outputType": "app",
+  "references": [
+    "Fuse",
+    "Fuse.Alerts",
+    "FuseJS"
+  ],
+  "includes": [
+    "MainView.ux"
+  ]
+}

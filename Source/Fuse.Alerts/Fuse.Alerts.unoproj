@@ -9,11 +9,16 @@
   ],
   "projects": [
     "../Fuse.Common/Fuse.Common.unoproj",
+    "../Fuse.Elements/Fuse.Elements.unoproj",
+    "../Fuse.Marshal/Fuse.Marshal.unoproj",
     "../Fuse.Nodes/Fuse.Nodes.unoproj",
     "../Fuse.Scripting/Fuse.Scripting.unoproj",
     "../Fuse.Triggers/Fuse.Triggers.unoproj"
   ],
   "includes": [
-    "*"
+    "*",
+    "Android/AlertDialogHandle.java:java:Android",
+    "iOS/AlertsUI.h:objcheader:iOS",
+    "iOS/AlertsUI.m:objcsource:iOS"
   ]
 }

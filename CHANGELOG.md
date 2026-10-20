@@ -14,6 +14,19 @@
 ### Experimental.TextureLoader
 - Remove legacy `Experimental.TextureLoader` library (#1458)
 
+### Fuse.Alerts
+- Add `Alerts.prompt(options)` with text input, secure entry, keyboard types and optional `required`/`minLength` validation
+- Add `Alerts.actionSheet(options)` with destructive and disabled items, multiple destructive items, and iPad popover anchoring
+- Add `Alerts.confirm(options)` with an optional neutral button, destructive styling and `cancelable` control; resolves to `0` (OK), `1` (neutral), `2` (cancel) or `-1` (dismissed)
+- Add `Alerts.dismissAll()`
+- Add `<ShowPrompt>` and `<ShowActionSheet>` trigger actions
+- Add `NeutralLabelButton`, `Destructive` and `Cancelable` to `<ShowConfirm>`
+- Expose `index` and `text` in `AlertArgs`
+- Serialize dialogs so concurrent calls are shown one at a time
+- Android: resolve promises when a dialog is dismissed with Back or an outside tap, and reject cleanly when no activity is available
+- iOS: present from the top-most view controller and handle iPad action-sheet dismissal
+- Use platform-localized default OK and Cancel labels
+
 ### Fuse.Camera
 - Update permissions for Android 13 (#1487)
 
