@@ -96,6 +96,16 @@
 ### Fuse.ImageTools
 - Android: Fix Android 13 permission (#1499)
 
+### Fuse.Launcher
+- Add options for the in-app browser (`InAppBrowserOptions`): reader mode, chrome collapsing, toolbar/control colors, title visibility, dismiss button style, presentation style and animation
+- Add cross-platform `ColorScheme` (system/light/dark) and `SheetSize` (medium/large bottom sheet), plus Android-only navigation bar, dark-mode color, share state, bookmarks and download button options
+- iOS: use `SFSafariViewControllerConfiguration`, present from the top-most view controller, and avoid stacking multiple in-app browsers
+- Android: run on the UI thread, support toolbar color/title/URL-bar hiding, and check for Custom Tabs availability with a normal-browser fallback
+- Android: declare browser package-visibility queries so Custom Tabs options are applied on Android 11+
+- Android: launch partial Custom Tabs with `startActivityForResult` so Chrome honors the requested sheet height
+- Validate that URLs are well-formed `http`/`https` URLs
+- Android: bump `androidx.browser` from 1.0.0 to 1.8.0
+
 ### Fuse.LocalNotifications
 - Android: Fix compatibility with the Android 13 and indentation (#1473)
 

@@ -1,0 +1,21 @@
+<extensions backend="cplusplus">
+
+	<require condition="ANDROID" androidManifest.rootElement>
+		<![CDATA[
+			<queries>
+				<intent>
+					<action android:name="android.intent.action.VIEW" />
+					<data android:scheme="http" />
+				</intent>
+				<intent>
+					<action android:name="android.intent.action.VIEW" />
+					<data android:scheme="https" />
+				</intent>
+				<intent>
+					<action android:name="android.support.customtabs.action.CustomTabsService" />
+				</intent>
+			</queries>
+		]]>
+	</require>
+
+</extensions>

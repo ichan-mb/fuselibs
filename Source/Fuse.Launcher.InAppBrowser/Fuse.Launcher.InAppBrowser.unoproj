@@ -1,10 +1,18 @@
 {
   "copyright": "Copyright (c) Fuse Open 2021",
-  "description": "Native Launcher",
+  "description": "In-app browser launcher",
   "publisher": "Fuse Open",
   "outputType": "library",
+  "internalsVisibleTo": [
+    "Fuse.Launcher.Test"
+  ],
+  "references": [
+    "Uno.Net.Http"
+  ],
   "projects": [
+    "../Android.ActivityUtils/Android.ActivityUtils.unoproj",
     "../Fuse.Android/Fuse.Android.unoproj",
+    "../Fuse.Common/Fuse.Common.unoproj",
     "../Fuse.iOS/Fuse.iOS.unoproj",
     "../Fuse.Nodes/Fuse.Nodes.unoproj",
     "../Fuse.Scripting/Fuse.Scripting.unoproj",
@@ -13,6 +21,7 @@
   "includes": [
     "InAppBrowserLauncher.uno",
     "JS.uno",
-    "Trigger.uno"
+    "Trigger.uno",
+    "android/InAppBrowserAndroid.uxl:extensions"
   ]
 }

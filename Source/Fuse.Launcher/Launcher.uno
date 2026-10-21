@@ -69,5 +69,10 @@ namespace Fuse
 		{
 			InAppBrowserLauncher.LaunchInAppBrowser(url);
 		}
+
+		public static void LaunchInAppBrowser(string url, InAppBrowserOptions options)
+		{
+			InAppBrowserLauncher.LaunchInAppBrowser(url, options);
+		}
 	}
 }
