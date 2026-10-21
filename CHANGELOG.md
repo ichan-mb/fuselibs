@@ -127,6 +127,17 @@
 - TypeScript and transpiler support in UX files (#1472)
 - Upgrade `V8Simple.net` for .NET 6.0 (#1483)
 
+### Fuse.Shortcut
+- Add `updateShortcuts`, `removeShortcuts`, `clearShortcuts`, `getShortcuts`, `isSupported` and `getMaxShortcutCount`
+- Add `extras` payloads and `launchType` (`cold`/`resume`) to the `shortcutClicked` event
+- Add `systemIcon`/`systemIconFilled` using the shared symbol mapping (SF Symbols on iOS, Material Symbols on Android)
+- Android: add `rank`, `categories`, `disabled`/`disabledMessage`, native `ShortcutInfo` extras, and `reportShortcutUsed`
+- Validate shortcut input and return promises from the mutating APIs
+- Reject registrations and updates that would exceed the platform maximum instead of silently dropping shortcuts
+- iOS: update shortcuts in place so their order is preserved
+- Android: avoid duplicate intent listeners and redundant shortcut clearing
+- iOS: call the shortcut `completionHandler`
+
 ### Polyfills.Window
 - Blob and URL polyfill, enhance fetch, and sanitary check (#1508)
 

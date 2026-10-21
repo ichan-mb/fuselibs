@@ -8,6 +8,7 @@
   ],
   "projects": [
     "../Fuse.Common/Fuse.Common.unoproj",
+    "../Fuse.Controls.Primitives/Fuse.Controls.Primitives.unoproj",
     "../Fuse.Scripting/Fuse.Scripting.unoproj"
   ],
   "includes": [
