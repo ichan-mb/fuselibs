@@ -1,70 +1,80 @@
 using Uno;
-using Uno.Text;
-using Uno.Compiler.ExportTargetInterop;
-using Fuse.Android.Permissions;
-using Uno.Net.Http;
-using Fuse.Android.Bindings;
-using Fuse.iOS.Bindings;
+using Uno.Threading;
 
 namespace Fuse.LauncherImpl
 {
-	[ForeignInclude(Language.Java, "android.content.Intent", "android.net.Uri", "android.app.Activity")]
-	[ForeignInclude(Language.ObjC, "UIKit/UIKit.h")]
+	/**
+		Launches the default email application.
+
+		`Launch` composes a message using the native email capabilities of the
+		platform and returns a `Future<EmailLaunchStatus>`. Failures, including
+		the case where no email application is available, are reported as a
+		rejected future.
+	*/
 	public static class EmailLauncher
 	{
-		[Foreign(Language.Java)]
-		extern(Android) static string _actionSendTo
+		/** Whether the platform can launch an email application. */
+		public static bool IsAvailable()
 		{
-			get
-			@{
-				return Intent.ACTION_SENDTO;
-			@}
+			if defined(Android)
+				return EmailPlatformAndroid.IsAvailable();
+			else if defined(iOS)
+				return EmailPlatformIOS.IsAvailable();
+			else
+				return false;
 		}
 
-		public static void LaunchEmail(string to, string carbonCopy, string blindCarbonCopy, string subject, string message)
+		/** Compose an email using the native email capabilities of the platform. */
+		public static Future<EmailLaunchStatus> Launch(EmailMessage message)
 		{
-			if (to == null)
-				throw new ArgumentNullException(nameof(to));
-			var builder = new StringBuilder();
-			builder.Append("mailto:");
-			builder.Append(to);
-			builder.Append("?");
-			if(!String.IsNullOrEmpty(carbonCopy))
-			{
-				builder.Append("cc=");
-				builder.Append(carbonCopy);
-			}
+			var promise = new Promise<EmailLaunchStatus>();
 
-			if(!String.IsNullOrEmpty(blindCarbonCopy))
+			if (message == null)
 			{
-				builder.Append("&");
-				builder.Append("bcc=");
-				builder.Append(blindCarbonCopy);
+				promise.Reject(new ArgumentNullException(nameof(message)));
+				return promise;
 			}
-
-			if(!String.IsNullOrEmpty(subject))
-			{
-				builder.Append("&");
-				builder.Append("subject=");
-				builder.Append(Uri.EscapeDataString(subject));
-			}
-
-			if(!String.IsNullOrEmpty(message))
-			{
-				builder.Append("&");
-				builder.Append("body=");
-				builder.Append(Uri.EscapeDataString(message));
-			}
-			//mailto:foo@example.com?cc=bar@example.com&subject=Greetings%20from%20Cupertino!&body=Wish%20you%20were%20here!
 
 			if defined(Android)
 			{
-				Permissions.Request(Permissions.Android.INTERNET);
-				AndroidDeviceInterop.LaunchIntent(_actionSendTo, builder.ToString());
+				EmailPlatformAndroid.Launch(message, promise);
 			}
-			if defined(iOS)
+			else if defined(iOS)
 			{
-				iOSDeviceInterop.LaunchUriiOS(builder.ToString());
+				EmailPlatformIOS.Launch(message, promise);
+			}
+			else
+			{
+				promise.Reject(new Exception("Email is not supported on this platform."));
+			}
+
+			return promise;
+		}
+
+		/**
+			Launch the email application with a template.
+
+			This legacy, fire-and-forget overload keeps the original signature.
+			Use `Launch` to observe the result or to provide attachments and HTML.
+		*/
+		public static void LaunchEmail(string to, string carbonCopy,
+			string blindCarbonCopy, string subject, string message)
+		{
+			if (to == null)
+				throw new ArgumentNullException(nameof(to));
+
+			if defined(Android || iOS)
+			{
+				var email = new EmailMessage
+				{
+					To = EmailUriHelper.FromString(to),
+					CarbonCopy = EmailUriHelper.FromString(carbonCopy),
+					BlindCarbonCopy = EmailUriHelper.FromString(blindCarbonCopy),
+					Subject = subject,
+					Body = message
+				};
+
+				Launch(email).Catch(e => { });
 			}
 		}
 	}

@@ -5,6 +5,7 @@ using Uno.Collections;
 using Uno.Compiler.ExportTargetInterop;
 using Fuse.Android.Permissions;
 using Uno.Net.Http;
+using Uno.Threading;
 using Fuse.LauncherImpl;
 
 namespace Fuse
@@ -44,6 +45,24 @@ namespace Fuse
 		public static void LaunchEmail(string to, string carbonCopy, string blindCarbonCopy, string subject, string message)
 		{
 			EmailLauncher.LaunchEmail(to, carbonCopy, blindCarbonCopy, subject, message);
+		}
+
+		/** Whether the platform can launch an email application. */
+		public static bool IsEmailAvailable()
+		{
+			return EmailLauncher.IsAvailable();
+		}
+
+		/**
+			Compose an email using the native capabilities of the platform.
+
+			The returned future resolves to `Opened`, `Sent`, `Saved` or `Cancelled`
+			and rejects with a user-facing message when the message cannot be
+			launched.
+		*/
+		public static Future<EmailLaunchStatus> LaunchEmail(EmailMessage message)
+		{
+			return EmailLauncher.Launch(message);
 		}
 
 		public static void LaunchInAppBrowser(string url)

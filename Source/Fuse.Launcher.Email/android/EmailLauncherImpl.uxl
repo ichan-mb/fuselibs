@@ -1,0 +1,39 @@
+<extensions backend="cplusplus">
+
+	<processFile condition="ANDROID" name="EmailFileProvider.java" targetName="app/src/main/java/com/fuse/launcher/email/EmailFileProvider.java" />
+	<processFile condition="ANDROID" name="EmailFileStager.java" targetName="app/src/main/java/com/fuse/launcher/email/EmailFileStager.java" />
+	<processFile condition="ANDROID" name="EmailIntentBuilder.java" targetName="app/src/main/java/com/fuse/launcher/email/EmailIntentBuilder.java" />
+	<processFile condition="ANDROID" name="EmailLauncherHelper.java" targetName="app/src/main/java/com/fuse/launcher/email/EmailLauncherHelper.java" />
+
+	<require condition="ANDROID" androidManifest.applicationElement>
+		<![CDATA[
+			<provider
+				android:name="com.fuse.launcher.email.EmailFileProvider"
+				android:authorities="@(activity.package).email_file_provider"
+				android:exported="false"
+				android:grantUriPermissions="true">
+				<meta-data
+					android:name="android.support.FILE_PROVIDER_PATHS"
+					android:resource="@xml/android_email_paths" />
+			</provider>
+		]]>
+	</require>
+
+	<require condition="ANDROID" androidManifest.rootElement>
+		<![CDATA[
+			<queries>
+				<intent>
+					<action android:name="android.intent.action.SENDTO" />
+					<data android:scheme="mailto" />
+				</intent>
+				<intent>
+					<action android:name="android.intent.action.SEND" />
+					<data android:mimeType="message/rfc822" />
+				</intent>
+			</queries>
+		]]>
+	</require>
+
+	<copyFile condition="ANDROID" name="android_email_paths.xml" targetName="app/src/main/res/xml/android_email_paths.xml" />
+
+</extensions>

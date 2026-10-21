@@ -7,19 +7,20 @@
     "Fuse.Launcher.Test"
   ],
   "references": [
-    "Uno.Net.Http"
+    "Uno.Collections",
+    "Uno.Net.Http",
+    "Uno.Threading"
   ],
   "projects": [
-    "../Fuse.Android.Permissions/Fuse.Android.Permissions.unoproj",
     "../Fuse.Android/Fuse.Android.unoproj",
-    "../Fuse.iOS/Fuse.iOS.unoproj",
     "../Fuse.Nodes/Fuse.Nodes.unoproj",
     "../Fuse.Scripting/Fuse.Scripting.unoproj",
     "../Fuse.Triggers/Fuse.Triggers.unoproj"
   ],
   "includes": [
-    "Email/EmailLauncher.uno",
-    "Email/EmailTrigger.uno",
-    "Email/JS.uno"
+    "Email/*.uno",
+    "Email/EmailUI.h:objcheader:iOS",
+    "Email/EmailUI.m:objcsource:iOS",
+    "android/*"
   ]
 }

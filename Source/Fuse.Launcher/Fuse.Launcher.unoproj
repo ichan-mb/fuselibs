@@ -8,7 +8,8 @@
     "Fuse.Launcher.Test"
   ],
   "references": [
-    "Uno.Net.Http"
+    "Uno.Net.Http",
+    "Uno.Threading"
   ],
   "projects": [
     "../Fuse.Android.Permissions/Fuse.Android.Permissions.unoproj",

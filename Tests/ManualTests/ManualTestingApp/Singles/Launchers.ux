@@ -13,6 +13,7 @@
 	<StackPanel Margin="20">
 		<JavaScript>
 			var Maps = require("FuseJS/Maps");
+			var Email = require("FuseJS/Email");
 
 			function showFusetools() {
 				Maps.openAt(59.9117715, 10.7400957);
@@ -26,16 +27,36 @@
 				Maps.searchNear(59.9117715, 10.7400957, "pizza resturant");
 			}
 
+			function sendRichEmail() {
+				Email.compose({
+					to: ["email@example.com"],
+					subject: "Test",
+					body: "Hello to email@example.com",
+					htmlBody: "<b>Hello</b> to email@example.com"
+				}).then(function(result) {
+					console.log("Email: " + result.status);
+				}).catch(function(error) {
+					console.log("Email failed: " + error);
+				});
+			}
+
 			module.exports = {
 				showFusetools: showFusetools,
 				findPizza: findPizza,
-				findPizzaNearFusetools: findPizzaNearFusetools
+				findPizzaNearFusetools: findPizzaNearFusetools,
+				sendRichEmail: sendRichEmail
 			};
 		</JavaScript>
 
 		<StdButton Text="Send email">
 			<Clicked>
 				<LaunchEmail To="email@example.com" Subject="Test" CarbonCopy="" BlindCarbonCopy="" Message="Hello to email@example.com" />
+			</Clicked>
+		</StdButton>
+
+		<StdButton Text="Send HTML email (JS)">
+			<Clicked>
+				<Callback Handler="{sendRichEmail}" />
 			</Clicked>
 		</StdButton>
 
