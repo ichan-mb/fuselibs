@@ -1,4 +1,5 @@
 using Uno;
+using Uno.IO;
 using Uno.Testing;
 using Uno.Collections;
 
@@ -9,6 +10,20 @@ using FuseTest;
 
 namespace Fuse.Scripting.Test
 {
+	public class NativeFunctionExceptionTestModule : NativeModule
+	{
+		public NativeFunctionExceptionTestModule()
+		{
+			Uno.UX.Resource.SetGlobalKey(this, "NativeFunctionExceptionTest");
+			AddMember(new NativeFunction("throwIo", ThrowIo));
+		}
+
+		static object ThrowIo(Context c, object[] args)
+		{
+			throw new IOException("boom");
+		}
+	}
+
 	public class ScriptingTest : TestBase
 	{
 		static int AsInt(object o)
@@ -25,6 +40,25 @@ namespace Fuse.Scripting.Test
 		public void Primitives()
 		{
 			JSTest.RunTest(PrimitivesInner);
+		}
+
+		[Test]
+		public void NativeFunctionExceptionsAreCatchable()
+		{
+			JSTest.RunTest(NativeFunctionExceptionsAreCatchableInner);
+		}
+
+		void NativeFunctionExceptionsAreCatchableInner(Fuse.Scripting.Context context)
+		{
+			new NativeFunctionExceptionTestModule();
+
+			var result = context.Evaluate("NativeFunctionExceptions",
+				"var caught = false;" +
+				"try { NativeFunctionExceptionTest.throwIo(); }" +
+				"catch (e) { caught = String(e).indexOf('boom') >= 0; }" +
+				"caught");
+
+			Assert.AreEqual(true, (bool)result);
 		}
 
 		void PrimitivesInner(Fuse.Scripting.Context context)

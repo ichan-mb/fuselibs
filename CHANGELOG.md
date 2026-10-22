@@ -121,6 +121,7 @@
 - Android: Fix crash on layout transformation (#1506)
 
 ### Fuse.Scripting
+- `NativeFunction` now wraps non-`Scripting.Error` exceptions in `Scripting.Error`, so native failures can be caught from JavaScript
 - Deprecate `NativePromise` without `Context` (#1467)
 - Remove obsolete methods (#1492)
   * `Fuse.Scripting.IThreadWorker.Invoke(Uno.Action action)`

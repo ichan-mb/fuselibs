@@ -32,7 +32,20 @@ namespace Fuse.Scripting
 
 			public object Callback(Context context, object[] args)
 			{
-				return _callback(_context, args);
+				try
+				{
+					return _callback(_context, args);
+				}
+				catch (Exception e)
+				{
+					// Only Scripting.Error is converted to a catchable JavaScript error by
+					// the script backends. Wrap other native exceptions so user code can
+					// catch them instead of them being reported as unhandled.
+					if (e is Error)
+						throw;
+
+					throw new Error(e.Message, e);
+				}
 			}
 		}
 	}

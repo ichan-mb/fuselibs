@@ -90,6 +90,7 @@ namespace Fuse.Scripting
 	public class Error: Uno.Exception
 	{
 		public Error(string message) : base(message) {}
+		public Error(string message, Uno.Exception inner) : base(message, inner) {}
 	}
 
 	public static class Value
