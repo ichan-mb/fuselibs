@@ -1,4 +1,36 @@
 #import "SignInHelper.h"
+#import <Security/Security.h>
+
+static NSString* const FuseSecureStorageService = @"FuseSecureStorage";
+
+static void FuseSecureStorageSet(NSString* key, NSString* value)
+{
+    if (value == nil)
+        return;
+
+    NSData* data = [value dataUsingEncoding:NSUTF8StringEncoding];
+    NSMutableDictionary* query = [NSMutableDictionary dictionary];
+    [query setObject:(__bridge id)kSecClassGenericPassword forKey:(__bridge id)kSecClass];
+    [query setObject:FuseSecureStorageService forKey:(__bridge id)kSecAttrService];
+    [query setObject:key forKey:(__bridge id)kSecAttrAccount];
+
+    NSDictionary* update = [NSDictionary dictionaryWithObject:data forKey:(__bridge id)kSecValueData];
+    OSStatus status = SecItemUpdate((__bridge CFDictionaryRef)query, (__bridge CFDictionaryRef)update);
+    if (status == errSecItemNotFound) {
+        [query setObject:data forKey:(__bridge id)kSecValueData];
+        [query setObject:(__bridge id)kSecAttrAccessibleAfterFirstUnlock forKey:(__bridge id)kSecAttrAccessible];
+        SecItemAdd((__bridge CFDictionaryRef)query, NULL);
+    }
+}
+
+static void FuseSecureStorageRemove(NSString* key)
+{
+    NSMutableDictionary* query = [NSMutableDictionary dictionary];
+    [query setObject:(__bridge id)kSecClassGenericPassword forKey:(__bridge id)kSecClass];
+    [query setObject:FuseSecureStorageService forKey:(__bridge id)kSecAttrService];
+    [query setObject:key forKey:(__bridge id)kSecAttrAccount];
+    SecItemDelete((__bridge CFDictionaryRef)query);
+}
 
 @implementation SignInHelper
 
@@ -41,11 +73,19 @@
                         case ASAuthorizationAppleIDProviderCredentialNotFound:
                         case ASAuthorizationAppleIDProviderCredentialRevoked:
                             // remove appleId / password credential Information
+                            FuseSecureStorageRemove(@"platformSignIn.userId");
+                            FuseSecureStorageRemove(@"platformSignIn.lastName");
+                            FuseSecureStorageRemove(@"platformSignIn.firstName");
+                            FuseSecureStorageRemove(@"platformSignIn.email");
+
+                            FuseSecureStorageRemove(@"platformSignIn.user");
+                            FuseSecureStorageRemove(@"platformSignIn.password");
+
+                            // Also remove values left in UserDefaults by older versions.
                             [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"platformSignIn.userId"];
                             [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"platformSignIn.lastName"];
                             [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"platformSignIn.firstName"];
                             [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"platformSignIn.email"];
-
                             [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"platformSignIn.user"];
                             [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"platformSignIn.password"];
                             result(false);
@@ -73,15 +113,15 @@
         NSString *familyName = appleIDCredential.fullName.familyName;
         NSString *givenName = appleIDCredential.fullName.givenName;
         NSString *email = appleIDCredential.email;
-        // save to UserDefaults
+        // save to secure storage
         if (user != nil)
-            [[NSUserDefaults standardUserDefaults] setValue:user forKey:@"platformSignIn.userId"];
+            FuseSecureStorageSet(@"platformSignIn.userId", user);
         if (familyName != nil)
-            [[NSUserDefaults standardUserDefaults] setValue:familyName forKey:@"platformSignIn.lastName"];
+            FuseSecureStorageSet(@"platformSignIn.lastName", familyName);
         if (givenName != nil)
-            [[NSUserDefaults standardUserDefaults] setValue:givenName forKey:@"platformSignIn.firstName"];
+            FuseSecureStorageSet(@"platformSignIn.firstName", givenName);
         if (email != nil)
-            [[NSUserDefaults standardUserDefaults] setValue:email forKey:@"platformSignIn.email"];
+            FuseSecureStorageSet(@"platformSignIn.email", email);
 
         if (self._action_success != nil)
             self._action_success();
@@ -92,9 +132,9 @@
         NSString *password = passwordCredential.password;
 
         if (user != nil)
-            [[NSUserDefaults standardUserDefaults] setValue:user forKey:@"platformSignIn.user"];
+            FuseSecureStorageSet(@"platformSignIn.user", user);
         if (password != nil)
-            [[NSUserDefaults standardUserDefaults] setValue:password forKey:@"platformSignIn.password"];
+            FuseSecureStorageSet(@"platformSignIn.password", password);
 
         if (self._action_success != nil)
             self._action_success();

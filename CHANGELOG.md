@@ -27,6 +27,9 @@
 - iOS: present from the top-most view controller and handle iPad action-sheet dismissal
 - Use platform-localized default OK and Cancel labels
 
+### Fuse.Auth
+- Store platform sign-in credentials in `FuseJS/SecureStorage` where available, migrating existing `UserSettings` values on first read; Android versions before 6.0 continue to use `UserSettings`
+
 ### Fuse.Camera
 - Update permissions for Android 13 (#1487)
 

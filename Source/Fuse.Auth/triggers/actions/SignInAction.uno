@@ -1,7 +1,6 @@
 using Uno;
 using Uno.UX;
 
-using Fuse.Storage;
 using Fuse.Triggers;
 using Fuse.Triggers.Actions;
 using Fuse.Scripting;
@@ -23,33 +22,21 @@ namespace Fuse
 		{
 			_status = result;
 			_errorMessage = msg;
-			ComposeUserDataFromUserSettings();
+			ComposeUserData();
 		}
 		void IScriptEvent.Serialize(IEventSerializer s)
 		{
 			Serialize(s);
 		}
 
-		void ComposeUserDataFromUserSettings()
+		void ComposeUserData()
 		{
-			// retrieve user data that has been saved in NSUserDefaults
-			if defined(iOS)
-			{
-				_userId = IOSUserSettingsImpl.GetStringValue("platformSignIn.userId");
-				_lastName = IOSUserSettingsImpl.GetStringValue("platformSignIn.lastName");
-				_firstName = IOSUserSettingsImpl.GetStringValue("platformSignIn.firstName");
-				_email = IOSUserSettingsImpl.GetStringValue("platformSignIn.email");
-				_user = IOSUserSettingsImpl.GetStringValue("platformSignIn.user");
-				_password = IOSUserSettingsImpl.GetStringValue("platformSignIn.password");
-			}
-			// retrieve user data that has been saved in SharedPreferences
-			if defined(Android)
-			{
-				_userId = AndroidUserSettingsImpl.GetStringValue("platformSignIn.userId");
-				_lastName = AndroidUserSettingsImpl.GetStringValue("platformSignIn.lastName");
-				_firstName = AndroidUserSettingsImpl.GetStringValue("platformSignIn.firstName");
-				_email = AndroidUserSettingsImpl.GetStringValue("platformSignIn.email");
-			}
+			_userId = SignInCredentials.Get("platformSignIn.userId");
+			_lastName = SignInCredentials.Get("platformSignIn.lastName");
+			_firstName = SignInCredentials.Get("platformSignIn.firstName");
+			_email = SignInCredentials.Get("platformSignIn.email");
+			_user = SignInCredentials.Get("platformSignIn.user");
+			_password = SignInCredentials.Get("platformSignIn.password");
 		}
 
 		virtual void Serialize(IEventSerializer s)

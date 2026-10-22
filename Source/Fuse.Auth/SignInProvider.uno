@@ -38,6 +38,9 @@ namespace Fuse
 
 		static void OnResult(bool result)
 		{
+			if (result)
+				SignInCredentials.MigrateAll();
+
 			_hasSignInPromise.Resolve(result);
 		}
 
@@ -62,12 +65,12 @@ namespace Fuse
 
 		static void OnLoginSucceed()
 		{
-			var _userId = IOSUserSettingsImpl.GetStringValue("platformSignIn.userId");
-			var _lastName = IOSUserSettingsImpl.GetStringValue("platformSignIn.lastName");
-			var _firstName = IOSUserSettingsImpl.GetStringValue("platformSignIn.firstName");
-			var _email = IOSUserSettingsImpl.GetStringValue("platformSignIn.email");
-			var _user = IOSUserSettingsImpl.GetStringValue("platformSignIn.user");
-			var _password = IOSUserSettingsImpl.GetStringValue("platformSignIn.password");
+			var _userId = SignInCredentials.Get("platformSignIn.userId");
+			var _lastName = SignInCredentials.Get("platformSignIn.lastName");
+			var _firstName = SignInCredentials.Get("platformSignIn.firstName");
+			var _email = SignInCredentials.Get("platformSignIn.email");
+			var _user = SignInCredentials.Get("platformSignIn.user");
+			var _password = SignInCredentials.Get("platformSignIn.password");
 			_signInPromise.Resolve(new LoginInformation(_userId, _lastName, _firstName, _email, _user, _password));
 		}
 
@@ -108,9 +111,7 @@ namespace Fuse
 		"com.google.android.gms.common.api.ApiException",
 		"com.google.android.gms.tasks.Task",
 		"android.content.Intent",
-		"com.fuse.Activity",
-		"android.content.SharedPreferences",
-		"android.preference.PreferenceManager"
+		"com.fuse.Activity"
 	)]
 	extern(Android) class SignInWithGoogle
 	{
@@ -136,6 +137,9 @@ namespace Fuse
 
 		static void OnResult(bool result)
 		{
+			if (result)
+				SignInCredentials.MigrateAll();
+
 			_hasSignInPromise.Resolve(result);
 		}
 
@@ -156,10 +160,10 @@ namespace Fuse
 
 		static void OnLoginSucceed()
 		{
-			var _userId = AndroidUserSettingsImpl.GetStringValue("platformSignIn.userId");
-			var _lastName = AndroidUserSettingsImpl.GetStringValue("platformSignIn.lastName");
-			var _firstName = AndroidUserSettingsImpl.GetStringValue("platformSignIn.firstName");
-			var _email = AndroidUserSettingsImpl.GetStringValue("platformSignIn.email");
+			var _userId = SignInCredentials.Get("platformSignIn.userId");
+			var _lastName = SignInCredentials.Get("platformSignIn.lastName");
+			var _firstName = SignInCredentials.Get("platformSignIn.firstName");
+			var _email = SignInCredentials.Get("platformSignIn.email");
 			_signInPromise.Resolve(new LoginInformation(_userId, _lastName, _firstName, _email, "", ""));
 		}
 
@@ -243,25 +247,27 @@ namespace Fuse
 		extern(Android) static void SaveAccount(Java.Object accountData)
 		@{
 			GoogleSignInAccount account = (GoogleSignInAccount)accountData;
-			SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(Activity.getRootActivity());
-			SharedPreferences.Editor editor = preferences.edit();
-			editor.putString("platformSignIn.email", account.getEmail());
-			editor.putString("platformSignIn.firstName", account.getGivenName());
-			editor.putString("platformSignIn.lastName", account.getFamilyName());
-			editor.putString("platformSignIn.userId", account.getId());
-			editor.apply();
+			@{SaveAccountValues(string,string,string,string):call(
+				account.getEmail(), account.getGivenName(), account.getFamilyName(), account.getId())};
 		@}
+
+		static void SaveAccountValues(string email, string firstName, string lastName, string userId)
+		{
+			SignInCredentials.Set("platformSignIn.email", email);
+			SignInCredentials.Set("platformSignIn.firstName", firstName);
+			SignInCredentials.Set("platformSignIn.lastName", lastName);
+			SignInCredentials.Set("platformSignIn.userId", userId);
+		}
 
 		[Foreign(Language.Java)]
 		extern(Android) static void ClearAccount()
 		@{
-			SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(Activity.getRootActivity());
-			SharedPreferences.Editor editor = preferences.edit();
-			editor.remove("platformSignIn.email");
-			editor.remove("platformSignIn.firstName");
-			editor.remove("platformSignIn.lastName");
-			editor.remove("platformSignIn.userId");
-			editor.apply();
+			@{ClearAccountValues():call()};
 		@}
+
+		static void ClearAccountValues()
+		{
+			SignInCredentials.Clear();
+		}
 	}
 }
