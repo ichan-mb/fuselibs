@@ -1,0 +1,77 @@
+<Page ux:Class="UserSettings">
+	<Router ux:Dependency="router"/>
+	<JavaScript>
+		var fw = require('/framework.js');
+		var UserSettings = require("FuseJS/UserSettings");
+
+		fw.testStarted("UserSettings");
+
+		Promise.resolve()
+			.then(function() {
+				UserSettings.clear();
+				UserSettings.putString("test.string", "value");
+				UserSettings.putNumber("test.number", 1234567890123);
+				UserSettings.putBoolean("test.boolean", true);
+				UserSettings.putObject("test.object", { a: 1, b: "two" });
+				UserSettings.putArray("test.array", [1, 2, 3]);
+
+				fw.check(UserSettings.hasKey("test.string"), "UserSettings.hasKey should find a key");
+				fw.check(!UserSettings.hasKey("test.missing"), "UserSettings.hasKey should reject a missing key");
+				fw.check(UserSettings.getString("test.string") === "value", "UserSettings string round-trip");
+				fw.check(UserSettings.getNumber("test.number") === 1234567890123,
+					"UserSettings should preserve large integral numbers");
+				fw.check(UserSettings.getBoolean("test.boolean") === true, "UserSettings boolean round-trip");
+
+				var object = UserSettings.getObject("test.object");
+				fw.check(object && object.a === 1 && object.b === "two", "UserSettings object round-trip");
+
+				var array = UserSettings.getArray("test.array");
+				fw.check(array && array.length === 3 && array[2] === 3, "UserSettings array round-trip");
+
+				fw.check(UserSettings.keys().indexOf("test.string") >= 0, "UserSettings.keys should list keys");
+				fw.check(UserSettings.getAll()["test.string"] === "value", "UserSettings.getAll should return values");
+
+				fw.check(UserSettings.getString("test.missing", "fallback") === "fallback",
+					"UserSettings getString default");
+				fw.check(UserSettings.getNumber("test.missing", 42) === 42,
+					"UserSettings getNumber default");
+				fw.check(UserSettings.getBoolean("test.missing", true) === true,
+					"UserSettings getBoolean default");
+
+				var storeA = UserSettings.open("test-store-a");
+				var storeB = UserSettings.open("test-store-b");
+				storeA.clear();
+				storeB.clear();
+				storeA.putString("key", "a");
+				storeB.putString("key", "b");
+
+				fw.check(storeA.getString("key") === "a", "Named store A should be isolated");
+				fw.check(storeB.getString("key") === "b", "Named store B should be isolated");
+
+				storeA.clear();
+				storeB.clear();
+
+				var changedKey = null;
+				UserSettings.onChanged(function(key) {
+					changedKey = key;
+				});
+				UserSettings.putString("test.changed", "yes");
+
+				return new Promise(function(resolve) {
+					setTimeout(resolve, 100);
+				}).then(function() {
+					fw.check(changedKey === "test.changed", "UserSettings.onChanged should fire for module changes");
+					UserSettings.onChanged(null);
+				});
+			})
+			.then(function() {
+				UserSettings.clear();
+				router.goto("secureStorage");
+			})
+			.catch(function(error) {
+				try { UserSettings.clear(); } catch (e) { }
+				fw.testFailed("UserSettings: " + error);
+			});
+	</JavaScript>
+	<Text Value="user settings"/>
+</Page>

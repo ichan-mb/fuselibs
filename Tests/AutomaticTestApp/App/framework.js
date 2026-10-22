@@ -26,11 +26,18 @@ function assertEqual(v1, v2)
     }
 }
 
+function check(condition, message)
+{
+    if(!condition)
+        throw new Error(message);
+}
+
 module.exports =
 {
     testStarted: testStarted,
     testFailed: testFailed,
     suiteStarted: suiteStarted,
     suitePassed: suitePassed,
-    assertEqual: assertEqual
+    assertEqual: assertEqual,
+    check: check
 }

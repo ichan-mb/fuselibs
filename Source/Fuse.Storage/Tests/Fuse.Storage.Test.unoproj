@@ -1,0 +1,13 @@
+{
+  "outputType": "test",
+  "references": [
+    "Fuse",
+    "Uno.Testing"
+  ],
+  "projects": [
+    "../../Fuse.Common/Tests/FuseTest/FuseTest.unoproj"
+  ],
+  "includes": [
+    "*.uno:source"
+  ]
+}

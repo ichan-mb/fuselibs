@@ -1,0 +1,54 @@
+<Page ux:Class="SecureStorage">
+	<Router ux:Dependency="router"/>
+	<JavaScript>
+		var fw = require('/framework.js');
+		var SecureStorage = require("FuseJS/SecureStorage");
+		var Environment = require("FuseJS/Environment");
+
+		fw.testStarted("SecureStorage");
+
+		function androidMajorVersion() {
+			var version = Environment.mobileOSVersion || "";
+			var dot = version.indexOf(".");
+			return parseInt(dot >= 0 ? version.substring(0, dot) : version, 10) || 0;
+		}
+
+		Promise.resolve()
+			.then(function() {
+				if (Environment.android && androidMajorVersion() < 6) {
+					console.log("SKIP: SecureStorage requires Android 6.0+");
+					router.goto("filesystem");
+					return;
+				}
+
+				if (!Environment.mobile) {
+					return SecureStorage.set("test.secret", "x").then(function() {
+						throw new Error("SecureStorage should reject on desktop");
+					}, function() { });
+				}
+
+				return SecureStorage.set("test.secret", "s3cr3t").then(function(ok) {
+					fw.check(ok === true, "SecureStorage.set should store a value");
+					return SecureStorage.hasKey("test.secret");
+				}).then(function(exists) {
+					fw.check(exists === true, "SecureStorage.hasKey should find the key");
+					return SecureStorage.get("test.secret");
+				}).then(function(value) {
+					fw.check(value === "s3cr3t", "SecureStorage.get should return the value");
+					return SecureStorage.remove("test.secret");
+				}).then(function(ok) {
+					fw.check(ok === true, "SecureStorage.remove should remove the key");
+					return SecureStorage.hasKey("test.secret");
+				}).then(function(exists) {
+					fw.check(exists === false, "SecureStorage key should be gone");
+				});
+			})
+			.then(function() {
+				router.goto("filesystem");
+			})
+			.catch(function(error) {
+				fw.testFailed("SecureStorage: " + error);
+			});
+	</JavaScript>
+	<Text Value="secure storage"/>
+</Page>

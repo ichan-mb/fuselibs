@@ -1,24 +1,125 @@
 <Page ux:Class="Storage">
-    <Router ux:Dependency="router"/>
-    <JavaScript>
-        var fw = require('/framework.js');
-        var Storage = require("FuseJS/Storage");
-        fw.testStarted("Storage");
-        Storage.write("storage.txt", "content").then(function(succeeded) {
-            if (succeeded) {
-                Storage.read("storage.txt").then(function(contents){
-                    fw.assertEqual("content", contents);
-                    router.goto("filesystem");
-                }, function(error){
-                    fw.testFailed("Could not read from file: " + error)
-                });
-            }
-            else {
-                fw.testFailed("Could not write to file");
-            }
-        }).catch(function(error){
-            fw.testFailed("Writing threw an error: " + error);
-        });
-    </JavaScript>
-    <Text Value="storage"/>
+	<Router ux:Dependency="router"/>
+	<JavaScript>
+		var fw = require('/framework.js');
+		var Storage = require("FuseJS/Storage");
+		var FileSystem = require("FuseJS/FileSystem");
+
+		fw.testStarted("Storage");
+
+		var textFile = "storage-test.txt";
+		var bufferFile = "storage-test.bin";
+		var copyFile = "storage-test-copy.txt";
+		var movedFile = "storage-test-moved.txt";
+		var directory = "storage-test-dir";
+
+		function removePath(path) {
+			try {
+				if (FileSystem.existsSync(path))
+					FileSystem.removeSync(path, true);
+			} catch (e) { }
+		}
+
+		function cleanup() {
+			var paths = [textFile, bufferFile, copyFile, movedFile, directory];
+			for (var i = 0; i < paths.length; i++)
+				removePath(Storage.dataDirectory + "/" + paths[i]);
+
+			removePath(Storage.cacheDirectory + "/storage-test-cache.txt");
+		}
+
+		cleanup();
+
+		Promise.resolve()
+			.then(function() {
+				return Storage.write(textFile, "hello");
+			})
+			.then(function(ok) {
+				fw.check(ok === true, "Storage.write should return true");
+				return Storage.exists(textFile);
+			})
+			.then(function(exists) {
+				fw.check(exists === true, "Storage.exists should find the file");
+				return Storage.read(textFile);
+			})
+			.then(function(content) {
+				fw.check(content === "hello", "Storage.read should return the contents");
+				return Storage.append(textFile, " world");
+			})
+			.then(function(ok) {
+				fw.check(ok === true, "Storage.append should return true");
+				return Storage.read(textFile);
+			})
+			.then(function(content) {
+				fw.check(content === "hello world", "Storage.append should append");
+				return Storage.getFileInfo(textFile);
+			})
+			.then(function(info) {
+				fw.check(info.exists === true, "Storage.getFileInfo should report exists");
+				fw.check(info.name === textFile, "Storage.getFileInfo should report the name");
+				fw.check(info.isDirectory === false, "Storage.getFileInfo should report a file");
+				fw.check(info.size === 11, "Storage.getFileInfo should report the size");
+				fw.check(info.lastModified instanceof Date, "Storage.getFileInfo should report a Date");
+
+				var bytes = new Uint8Array([0, 1, 2, 127, 128, 254, 255]);
+				return Storage.writeBuffer(bufferFile, bytes.buffer).then(function(ok) {
+					fw.check(ok === true, "Storage.writeBuffer should return true");
+					return Storage.readBuffer(bufferFile);
+				}).then(function(buffer) {
+					var read = new Uint8Array(buffer);
+					fw.check(read.length === bytes.length, "Storage.readBuffer should preserve the length");
+					for (var i = 0; i < bytes.length; i++)
+						fw.check(read[i] === bytes[i], "Storage.readBuffer should preserve byte " + i);
+				});
+			})
+			.then(function() {
+				return Storage.createDirectory(directory);
+			})
+			.then(function(ok) {
+				fw.check(ok === true, "Storage.createDirectory should return true");
+				return Storage.write(directory + "/nested.txt", "nested");
+			})
+			.then(function(ok) {
+				fw.check(ok === true, "Storage.write should support subdirectories");
+				return Storage.list(directory);
+			})
+			.then(function(entries) {
+				fw.check(entries.indexOf("nested.txt") >= 0, "Storage.list should list directory entries");
+				return Storage.copy(textFile, copyFile);
+			})
+			.then(function(ok) {
+				fw.check(ok === true, "Storage.copy should copy a file");
+				return Storage.move(copyFile, movedFile);
+			})
+			.then(function(ok) {
+				fw.check(ok === true, "Storage.move should move a file");
+				return Storage.read(movedFile);
+			})
+			.then(function(content) {
+				fw.check(content === "hello world", "Storage.move should preserve the content");
+				fw.check(typeof Storage.dataDirectory === "string" && Storage.dataDirectory.length > 0,
+					"Storage.dataDirectory should be exposed");
+				fw.check(typeof Storage.cacheDirectory === "string" && Storage.cacheDirectory.length > 0,
+					"Storage.cacheDirectory should be exposed");
+			})
+			.then(function() {
+				return Storage.write("../escape.txt", "x").then(function() {
+					throw new Error("Storage.write should reject parent-directory paths");
+				}, function() { });
+			})
+			.then(function() {
+				return Storage.exists("/absolute.txt").then(function() {
+					throw new Error("Storage.exists should reject absolute paths");
+				}, function() { });
+			})
+			.then(function() {
+				cleanup();
+				router.goto("userSettings");
+			})
+			.catch(function(error) {
+				cleanup();
+				fw.testFailed("Storage: " + error);
+			});
+	</JavaScript>
+	<Text Value="storage"/>
 </Page>

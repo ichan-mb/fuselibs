@@ -137,6 +137,21 @@
 - TypeScript and transpiler support in UX files (#1472)
 - Upgrade `V8Simple.net` for .NET 6.0 (#1483)
 
+### Fuse.Sensor
+- Fix the iOS `Info.plist` motion usage key (`NSMotionUsageDescription`), which made step counting crash on iOS 11+
+- iOS: report gravity and user acceleration in m/s² instead of g, matching Android and the documented contract
+- iOS: report the rotation vector for `ROTATION` instead of duplicating the gyroscope rotation rate
+- iOS: keep device-motion based sensors independent, so stopping one no longer stops `GRAVITY`, `USER_ACCELERATION` and `ROTATION`
+- iOS: `BATTERY` and `CONNECTION_STATE` report their current state on `startListening` and stop emitting after `stopListening`
+- iOS: detect connectivity with a host-independent reachability check instead of a DNS lookup
+- Android: use `ConnectivityManager` network callbacks for `CONNECTION_STATE`; the deprecated broadcast reported "disconnected" while connected
+- Android: `isSensing()` no longer returns `true` for a sensor that failed to start
+- Android: declare `ACCESS_NETWORK_STATE` and add `Android.ACTIVITY_RECOGNITION` to `Fuse.Android.Permissions` (needed for step counting on Android 10+)
+- Normalize battery `state` values and add `levelPercent`/`levelRatio` so battery level is comparable across platforms
+- Do not throw an uncaught JavaScript exception when `"error"` is emitted without a listener
+- Reject invalid `sensorType` arguments instead of throwing or silently using the accelerometer
+- Internal: replace the ten per-sensor tracker and provider classes with a single provider registry, one provider per platform
+
 ### Fuse.Shortcut
 - Add `updateShortcuts`, `removeShortcuts`, `clearShortcuts`, `getShortcuts`, `isSupported` and `getMaxShortcutCount`
 - Add `extras` payloads and `launchType` (`cold`/`resume`) to the `shortcutClicked` event
@@ -147,6 +162,25 @@
 - iOS: update shortcuts in place so their order is preserved
 - Android: avoid duplicate intent listeners and redundant shortcut clearing
 - iOS: call the shortcut `completionHandler`
+
+### Fuse.Storage
+- `FuseJS/Storage`: add `exists`/`existsSync`, `remove`, `append`/`appendSync`, `list`/`listSync`, and `createDirectory`/`createDirectorySync`
+- `FuseJS/Storage`: add `readBuffer`/`readBufferSync` and `writeBuffer`/`writeBufferSync` for `ArrayBuffer` data
+- `FuseJS/Storage`: add `getFileInfo`/`getFileInfoSync` with `name`, `size`, `lastModified`, `isDirectory` and `exists`
+- `FuseJS/Storage`: add `copy`/`copySync` and `move`/`moveSync` for files and directories
+- `FuseJS/Storage`: expose `dataDirectory` and `cacheDirectory` properties
+- `FuseJS/Storage`: write text and buffer data atomically where the platform supports it
+- `FuseJS/Storage`: validate arguments and confine paths to the application storage directory
+- `FuseJS/Storage`: scope desktop storage to a per-project directory
+- `FuseJS/UserSettings`: add `hasKey`, `keys` and `getAll`
+- `FuseJS/UserSettings`: add optional default values to `getString`, `getNumber` and `getBoolean`
+- `FuseJS/UserSettings`: add `open(name)` for named stores (`NSUserDefaults` suites, Android preference files and desktop JSON files)
+- `FuseJS/UserSettings`: add `onChanged(callback)` notifications for changes made through the module
+- `FuseJS/UserSettings`: use `apply()` for Android writes instead of blocking on `commit()`
+- `FuseJS/UserSettings`: avoid the previous float precision loss by using `double` on iOS and `long` for integral numbers on Android
+- `FuseJS/UserSettings`: return `0` for missing numbers on Android, matching the other platforms
+- Add `FuseJS/SecureStorage` backed by the iOS Keychain and the Android Keystore (Android 6.0+; desktop rejects)
+- Expose the native `SecureStorage` API to other Uno libraries
 
 ### Polyfills.Window
 - Blob and URL polyfill, enhance fetch, and sanitary check (#1508)

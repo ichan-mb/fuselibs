@@ -3,6 +3,9 @@
   "description": "Native Storage",
   "publisher": "Fuse Open",
   "outputType": "library",
+  "internalsVisibleTo": [
+    "Fuse.Storage.Test"
+  ],
   "references": [
     "Uno.Collections",
     "Uno.Data.Json",
@@ -16,7 +19,11 @@
   "includes": [
     "ApplicationDir.uno:source",
     "StorageModule.uno:source",
+    "SecureStorageModule.uno:source",
+    "SecureStorage.uno:source",
     "UserSettingsModule.uno:source",
-    "UserSettingsImpl.uno:source"
+    "UserSettingsImpl.uno:source",
+    "UserSettingsStore.uno:source",
+    "Android/SecureStorageApi23.java:java:Android"
   ]
 }

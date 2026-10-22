@@ -6,6 +6,8 @@
         <HttpJson ux:Template="httpJson" router="router"/>
         <WebSocket ux:Template="webSocket" router="router"/>
         <Storage ux:Template="storage" router="router"/>
+        <UserSettings ux:Template="userSettings" router="router"/>
+        <SecureStorage ux:Template="secureStorage" router="router"/>
         <FileSystem ux:Template="filesystem" router="router" />
         <Passed ux:Template="passed" router="router"/>
     </Navigator>
