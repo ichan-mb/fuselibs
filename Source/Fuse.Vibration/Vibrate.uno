@@ -28,9 +28,8 @@ namespace Fuse.Vibration
 			</StackPanel>
 		```
 
-		`Duration` is in seconds and defaults to `0.4`. On iOS, durations are
-		honored through Core Haptics on devices that support it; other devices
-		fall back to the system vibration, which has a fixed length.
+		`Duration` is in seconds and defaults to `0.4`. On iOS, the duration is
+		represented by a timed sequence of Taptic Engine impacts.
 
 		On iOS you can do vibration by leveraging Taptic Engine, and on Android
 		the types are mapped to the closest `VibrationEffect` or haptic feedback
@@ -63,8 +62,8 @@ namespace Fuse.Vibration
 		`Pattern` is a comma-separated list of millisecond durations. It starts
 		with an off duration and alternates off/on, matching Android's waveform
 		semantics. Use `Repeat` to loop from an index, or leave it at `-1` to
-		play once. On iOS, patterns require Core Haptics; other devices fall
-		back to a single system vibration.
+		play once. On iOS, patterns preserve their on/off rhythm through the
+		same impact sequencer.
 		```xml
 			<Button Text="Pattern">
 				<Clicked>

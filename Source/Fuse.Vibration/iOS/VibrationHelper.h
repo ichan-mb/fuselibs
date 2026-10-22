@@ -3,10 +3,9 @@
 /**
 	Shared iOS vibration backend.
 
-	Uses Core Haptics for timed vibrations and patterns where the hardware
-	supports it, and falls back to AudioToolbox's system vibration otherwise.
-	Keeping the engine and players in one place lets `cancel` stop an ongoing
-	vibration and lets `prepare` pre-warm the engine.
+	Uses a timed `UIImpactFeedbackGenerator` sequence for durations and
+	patterns. Amplitude maps to impact intensity and sharpness selects the
+	impact style. `cancel` stops the current sequence.
 */
 @interface FuseVibrationService : NSObject
 

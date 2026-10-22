@@ -42,7 +42,7 @@ namespace Fuse.Vibration
 
 		Pattern timings alternate off/on durations in milliseconds and start with
 		an off duration, matching Android's waveform semantics. On iOS, patterns
-		require Core Haptics; other devices fall back to a single system vibration.
+		preserve their on/off rhythm through the same impact sequencer.
 		```js
 			// Wait 100 ms, vibrate 50 ms, wait 100 ms, vibrate 50 ms, then loop.
 			vibration.vibrate([100, 50, 100, 50], { repeat: 0, amplitude: 0.7 });

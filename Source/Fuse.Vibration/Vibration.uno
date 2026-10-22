@@ -494,9 +494,6 @@ namespace Fuse.Vibration
 
 	[Require("source.include", "UIKit/UIKit.h")]
 	[Require("source.include", "iOS/VibrationHelper.h")]
-	[Require("xcode.framework", "AudioToolbox")]
-	[Require("xcode.framework", "CoreHaptics")]
-	[ForeignInclude(Language.ObjC, "AudioToolbox/AudioToolbox.h")]
 	extern(iOS) class IOSTapticFeedback
 	{
 		[Foreign(Language.ObjC)]
@@ -573,12 +570,6 @@ namespace Fuse.Vibration
 		public static extern(iOS) void Cancel()
 		@{
 			[[FuseVibrationService sharedInstance] cancel];
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static extern(iOS) void PlaySystemVibration()
-		@{
-			AudioServicesPlayAlertSound(kSystemSoundID_Vibrate);
 		@}
 
 		public static extern(iOS) void Perform(VibrationType style)
@@ -724,8 +715,6 @@ namespace Fuse.Vibration
 		@}
 	}
 
-	[Require("xcode.framework", "AudioToolbox")]
-	[ForeignInclude(Language.ObjC, "AudioToolbox/AudioToolbox.h")]
 	public static class Vibration
 	{
 		static bool IsValidDuration(double seconds)
@@ -788,13 +777,7 @@ namespace Fuse.Vibration
 
 		public static extern(iOS) bool Vibrate(double seconds)
 		{
-			if (!IsValidDuration(seconds))
-				return false;
-
-			if (!IOSTapticFeedback.Vibrate(seconds))
-				IOSTapticFeedback.PlaySystemVibration();
-
-			return true;
+			return IOSTapticFeedback.Vibrate(seconds);
 		}
 
 		public static extern(Android) bool Vibrate(double seconds, double amplitude, double sharpness, HapticUsage usage)
@@ -808,13 +791,7 @@ namespace Fuse.Vibration
 
 		public static extern(iOS) bool Vibrate(double seconds, double amplitude, double sharpness, HapticUsage usage)
 		{
-			if (!IsValidDuration(seconds))
-				return false;
-
-			if (!IOSTapticFeedback.Vibrate(seconds, amplitude, sharpness))
-				IOSTapticFeedback.PlaySystemVibration();
-
-			return true;
+			return IOSTapticFeedback.Vibrate(seconds, amplitude, sharpness);
 		}
 
 		/**
@@ -834,10 +811,7 @@ namespace Fuse.Vibration
 			if (pattern == null)
 				return false;
 
-			if (!IOSTapticFeedback.Vibrate(pattern))
-				IOSTapticFeedback.PlaySystemVibration();
-
-			return true;
+			return IOSTapticFeedback.Vibrate(pattern);
 		}
 
 		/**
