@@ -3,16 +3,18 @@
   "description": "Native Vibration",
   "publisher": "Fuse Open",
   "outputType": "library",
-  "projects": [
-    "../Fuse.Android.Permissions/Fuse.Android.Permissions.unoproj",
-    "../Fuse.Marshal/Fuse.Marshal.unoproj",
-    "../Fuse.Nodes/Fuse.Nodes.unoproj",
-    "../Fuse.Scripting/Fuse.Scripting.unoproj",
-    "../Fuse.Triggers/Fuse.Triggers.unoproj"
+  "references": [
+    "Fuse.Android.Permissions",
+    "Fuse.Marshal",
+    "Fuse.Nodes",
+    "Fuse.Scripting",
+    "Fuse.Triggers"
   ],
   "includes": [
     "Vibration.uno:source",
     "Vibrate.uno:source",
-    "VibrationModule.uno:source"
+    "VibrationModule.uno:source",
+    "iOS/VibrationHelper.h:cheader:iOS",
+    "iOS/VibrationHelper.m:csource:iOS"
   ]
 }
