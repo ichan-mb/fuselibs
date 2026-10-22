@@ -7,7 +7,8 @@
     "Fuse.Launcher.Test"
   ],
   "references": [
-    "Uno.Net.Http"
+    "Uno.Net.Http",
+    "Uno.Threading"
   ],
   "projects": [
     "../Fuse.Android.Permissions/Fuse.Android.Permissions.unoproj",
@@ -18,9 +19,9 @@
     "../Fuse.Triggers/Fuse.Triggers.unoproj"
   ],
   "includes": [
-    "Phone/PhoneLauncher.uno",
-    "Phone/PhoneTrigger.uno",
-    "Phone/PhoneUriHelper.uno",
-    "Phone/JS.uno"
+    "Phone/*.uno",
+    "Phone/PhoneUI.h:objcheader:iOS",
+    "Phone/PhoneUI.m:objcsource:iOS",
+    "android/*"
   ]
 }

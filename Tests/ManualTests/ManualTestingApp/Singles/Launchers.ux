@@ -13,12 +13,15 @@
 		<li>The "Find pizza"-button should search for pizza resturants on the map near the users current position</li>
 		<li>The "Find pizza near Fusetools"-button should search for pizza resturants on the map near the Fusetools offices in Oslo/Norway</li>
 		<li>The "Who you gonna call?"-button should try to call the Ghostbusters (1-800-555-2368)</li>
+		<li>The "Send SMS (JS)"-button should open the messaging app with a body for the Ghostbusters</li>
+		<li>The "FaceTime (JS)"-button should open FaceTime on iOS and log an error on other platforms</li>
 		</ul>
 	</InfoStack>
 	<StackPanel Margin="20">
 		<JavaScript>
 			var Maps = require("FuseJS/Maps");
 			var Email = require("FuseJS/Email");
+			var Phone = require("FuseJS/Phone");
 
 			function showFusetools() {
 				Maps.openAt(59.9117715, 10.7400957);
@@ -84,6 +87,25 @@
 				});
 			}
 
+			function sendSms() {
+				Phone.sms({
+					to: ["1-800-555-2368"],
+					body: "Hello from Fuse"
+				}).then(function(result) {
+					console.log("SMS: " + result.status);
+				}).catch(function(error) {
+					console.log("SMS failed: " + error);
+				});
+			}
+
+			function sendFaceTime() {
+				Phone.call("1-800-555-2368", { faceTime: true }).then(function(result) {
+					console.log("FaceTime: " + result.status);
+				}).catch(function(error) {
+					console.log("FaceTime failed: " + error);
+				});
+			}
+
 			module.exports = {
 				showFusetools: showFusetools,
 				findPizza: findPizza,
@@ -92,7 +114,9 @@
 				directionsToFusetools: directionsToFusetools,
 				directionsByAddress: directionsByAddress,
 				checkMapsAvailable: checkMapsAvailable,
-				sendRichEmail: sendRichEmail
+				sendRichEmail: sendRichEmail,
+				sendSms: sendSms,
+				sendFaceTime: sendFaceTime
 			};
 		</JavaScript>
 
@@ -180,6 +204,18 @@
 		<StdButton Text="Who you gonna call?">
 			<Clicked>
 				<Call Number="1-800-555-2368" />
+			</Clicked>
+		</StdButton>
+
+		<StdButton Text="Send SMS (JS)">
+			<Clicked>
+				<Callback Handler="{sendSms}" />
+			</Clicked>
+		</StdButton>
+
+		<StdButton Text="FaceTime (JS)">
+			<Clicked>
+				<Callback Handler="{sendFaceTime}" />
 			</Clicked>
 		</StdButton>
 	</StackPanel>

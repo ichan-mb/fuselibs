@@ -1,101 +1,162 @@
-using Uno.Compiler.ExportTargetInterop;
-using Fuse.Android.Permissions;
-using Fuse.Android.Bindings;
-using Fuse.iOS.Bindings;
+using Uno;
+using Uno.Threading;
 
 namespace Fuse.LauncherImpl
 {
 	public static class PhoneLauncher
 	{
+		/** Whether the platform can launch a phone call. */
+		public static bool CanCall()
+		{
+			if defined(Android)
+				return PhonePlatformAndroid.IsCallAvailable();
+			else if defined(iOS)
+				return PhonePlatformIOS.IsCallAvailable();
+			else
+				return false;
+		}
+
+		/** Whether the platform can compose an SMS message. */
+		public static bool CanSendSms()
+		{
+			if defined(Android)
+				return PhonePlatformAndroid.IsSmsAvailable();
+			else if defined(iOS)
+				return PhonePlatformIOS.IsSmsAvailable();
+			else
+				return false;
+		}
+
+		/** Whether the platform can launch a FaceTime call. */
+		public static bool CanFaceTime()
+		{
+			if defined(iOS)
+				return PhonePlatformIOS.IsFaceTimeAvailable();
+			else
+				return false;
+		}
+
+		/**
+			Launch a phone call.
+
+			The returned future resolves to `PhoneLaunchStatus.Opened` once the
+			platform hands the request to a phone application, and rejects with
+			a user-facing message when it cannot.
+		*/
+		public static Future<PhoneLaunchStatus> LaunchCall(PhoneCallOptions options)
+		{
+			var promise = new Promise<PhoneLaunchStatus>();
+
+			if (options == null)
+			{
+				promise.Reject(new ArgumentNullException(nameof(options)));
+				return promise;
+			}
+
+			if (string.IsNullOrEmpty(options.Number) || string.IsNullOrEmpty(options.Number.Trim()))
+			{
+				promise.Reject(new Exception("A phone number is required."));
+				return promise;
+			}
+
+			try
+			{
+				if defined(Android)
+					PhonePlatformAndroid.LaunchCall(options, promise);
+				else if defined(iOS)
+					PhonePlatformIOS.LaunchCall(options, promise);
+				else
+					promise.Reject(new Exception("Phone calls are not supported on this platform."));
+			}
+			catch (Exception e)
+			{
+				promise.Reject(e);
+			}
+
+			return promise;
+		}
+
+		/**
+			Compose an SMS message.
+
+			The returned future resolves to `PhoneLaunchStatus.Opened` after the
+			platform hands the message to a messaging application, or to
+			`PhoneLaunchStatus.Sent` / `PhoneLaunchStatus.Cancelled` when the iOS
+			in-app composer is used. It rejects with a user-facing message when
+			the message cannot be launched.
+		*/
+		public static Future<PhoneLaunchStatus> LaunchSms(SmsMessage message)
+		{
+			var promise = new Promise<PhoneLaunchStatus>();
+
+			if (message == null)
+			{
+				promise.Reject(new ArgumentNullException(nameof(message)));
+				return promise;
+			}
+
+			if (message.Recipients == null || message.Recipients.Length == 0)
+			{
+				promise.Reject(new Exception("At least one recipient is required."));
+				return promise;
+			}
+
+			for (int i = 0; i < message.Recipients.Length; i++)
+			{
+				if (string.IsNullOrEmpty(message.Recipients[i]) ||
+					string.IsNullOrEmpty(message.Recipients[i].Trim()))
+				{
+					promise.Reject(new Exception("Recipients must not be empty."));
+					return promise;
+				}
+			}
+
+			try
+			{
+				if defined(Android)
+					PhonePlatformAndroid.LaunchSms(message, promise);
+				else if defined(iOS)
+					PhonePlatformIOS.LaunchSms(message, promise);
+				else
+					promise.Reject(new Exception("SMS is not supported on this platform."));
+			}
+			catch (Exception e)
+			{
+				promise.Reject(e);
+			}
+
+			return promise;
+		}
+
+		/**
+			Launch the phone application with a number.
+
+			This legacy, fire-and-forget overload keeps the original signature.
+			It opens the dialer; use `LaunchCall(PhoneCallOptions)` to place the
+			call directly or to observe the result.
+		*/
 		public static void LaunchCall(string phoneNumber)
 		{
-			if defined(Android || iOS)
+			LaunchCall(new PhoneCallOptions
 			{
-				var uri = PhoneUriHelper.PhoneNumberToTelUri(phoneNumber);
-
-				if defined(Android)
-				{
-					var call = new AndroidCall(uri);
-					call.Begin();
-				}
-				if defined(iOS)
-				{
-					iOSDeviceInterop.LaunchUriiOS(uri);
-				}
-			}
+				Number = phoneNumber,
+				Mode = PhoneCallMode.Dial
+			}).Catch(e => { });
 		}
 
+		/**
+			Launch the messaging application with a number and body.
+
+			This legacy, fire-and-forget overload keeps the original signature.
+			Use `LaunchSms(SmsMessage)` to observe the result.
+		*/
 		public static void LaunchSms(string phoneNumber, string body)
 		{
-			if defined(Android || iOS)
+			LaunchSms(new SmsMessage
 			{
-				var uri = PhoneUriHelper.PhoneNumberToSmsUri(phoneNumber, body);
-
-				if defined(Android)
-				{
-					var sms = new AndroidSms(uri);
-					sms.Launch();
-				}
-				if defined(iOS)
-				{
-					iOSDeviceInterop.LaunchUriiOS(uri);
-				}
-			}
-		}
-	}
-
-	[ForeignInclude(Language.Java, "android.content.Intent", "android.net.Uri", "android.app.Activity")]
-	extern(Android) class AndroidCall
-	{
-		string _uri;
-
-		[Foreign(Language.Java)]
-		extern(Android) static string _action
-		{
-			get
-			@{
-				return Intent.ACTION_CALL;
-			@}
-		}
-
-		public AndroidCall(string uri)
-		{
-			_uri = uri;
-		}
-
-		public void Begin()
-		{
-			Permissions.Request(Permissions.Android.CALL_PHONE).Then(OnPermitted);
-		}
-
-		void OnPermitted(PlatformPermission permission)
-		{
-			AndroidDeviceInterop.LaunchIntent(_action, _uri);
-		}
-	}
-
-	[ForeignInclude(Language.Java, "android.content.Intent", "android.net.Uri", "android.app.Activity")]
-	extern(Android) class AndroidSms
-	{
-		string _uri;
-
-		[Foreign(Language.Java)]
-		extern(Android) static string _action
-		{
-			get
-			@{
-				return Intent.ACTION_VIEW;
-			@}
-		}
-
-		public AndroidSms(string uri)
-		{
-			_uri = uri;
-		}
-
-		public void Launch()
-		{
-			AndroidDeviceInterop.LaunchIntent(_action, _uri);
+				Recipients = new[] { phoneNumber },
+				Body = body
+			}).Catch(e => { });
 		}
 	}
 }

@@ -1,9 +1,3 @@
-using Uno;
-using Uno.Text;
-using Uno.IO;
-using Uno.Collections;
-using Uno.Compiler.ExportTargetInterop;
-using Fuse.Android.Permissions;
 using Uno.Net.Http;
 using Uno.Threading;
 using Fuse.LauncherImpl;
@@ -17,14 +11,58 @@ namespace Fuse
 			InterAppLauncher.LaunchUri(uri);
 		}
 
+		/** Whether the platform can launch a phone call. */
+		public static bool CanCall()
+		{
+			return PhoneLauncher.CanCall();
+		}
+
+		/** Whether the platform can compose an SMS message. */
+		public static bool CanSendSms()
+		{
+			return PhoneLauncher.CanSendSms();
+		}
+
+		/** Whether the platform can launch a FaceTime call. */
+		public static bool CanFaceTime()
+		{
+			return PhoneLauncher.CanFaceTime();
+		}
+
 		public static void LaunchCall(string phoneNumber)
 		{
 			PhoneLauncher.LaunchCall(phoneNumber);
 		}
 
+		/**
+			Launch a phone call.
+
+			The returned future resolves to `PhoneLaunchStatus.Opened` once the
+			platform hands the request to a phone application, and rejects with a
+			user-facing message when it cannot.
+		*/
+		public static Future<PhoneLaunchStatus> LaunchCall(PhoneCallOptions options)
+		{
+			return PhoneLauncher.LaunchCall(options);
+		}
+
 		public static void LaunchSms(string phoneNumber, string body)
 		{
 			PhoneLauncher.LaunchSms(phoneNumber, body);
+		}
+
+		/**
+			Compose an SMS message.
+
+			The returned future resolves to `PhoneLaunchStatus.Opened` after the
+			platform hands the message to a messaging application, or to
+			`PhoneLaunchStatus.Sent` / `PhoneLaunchStatus.Cancelled` when the iOS
+			in-app composer is used. It rejects with a user-facing message when
+			the message cannot be launched.
+		*/
+		public static Future<PhoneLaunchStatus> LaunchSms(SmsMessage message)
+		{
+			return PhoneLauncher.LaunchSms(message);
 		}
 
 		public static void LaunchMaps(double latitude, double longitude)
