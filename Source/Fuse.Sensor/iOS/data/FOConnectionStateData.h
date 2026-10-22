@@ -6,6 +6,6 @@
 
 @property (nonatomic, readonly, copy, getter=getStatusString) NSString* _statusString;
 
-- (instancetype)initWithwithState:(bool)state;
+- (instancetype)initWithState:(bool)state;
 
 @end

@@ -1,5 +1,4 @@
 using Uno;
-using Uno.UX;
 using Uno.Compiler.ExportTargetInterop;
 
 namespace Fuse.Sensor
@@ -16,13 +15,25 @@ namespace Fuse.Sensor
 		[Foreign(Language.Java)]
 		public static int GetSensorType(this Java.Object handle)
 		@{
-			return ((SensorData)handle).getSensorType().ordinal();
+			return ((SensorData)handle).getSensorType().code;
+		@}
+
+		[Foreign(Language.Java)]
+		public static double GetElapsed(this Java.Object handle)
+		@{
+			return ((SensorData)handle).getElapsed();
 		@}
 
 		[Foreign(Language.Java)]
 		public static float GetBatteryLevel(this Java.Object handle)
 		@{
 			return ((BatteryData)handle).getLevel();
+		@}
+
+		[Foreign(Language.Java)]
+		public static float GetBatteryLevelRatio(this Java.Object handle)
+		@{
+			return ((BatteryData)handle).getLevelRatio();
 		@}
 
 		[Foreign(Language.Java)]
@@ -46,15 +57,16 @@ namespace Fuse.Sensor
 		public static SensorData ConvertSensorData(Java.Object obj)
 		{
 			float[] data = SensorDataHelpers.GetData(obj);
-			return new SensorData(SensorDataHelpers.GetSensorType(obj), float3(data[0], data[1], data[2]));
+			return new SensorData(SensorDataHelpers.GetSensorType(obj), float3(data[0], data[1], data[2]), SensorTimestamp.Now(), SensorDataHelpers.GetElapsed(obj));
 		}
 
 		public static BatteryData ConvertBatteryData(Java.Object obj)
 		{
-			return new BatteryData(SensorDataHelpers.GetBatteryLevel(obj), SensorDataHelpers.GetBatteryState(obj));
+			var ratio = SensorDataHelpers.GetBatteryLevelRatio(obj);
+			return new BatteryData(SensorDataHelpers.GetBatteryLevel(obj), ratio * 100.0f, ratio, SensorDataHelpers.GetBatteryState(obj));
 		}
 
-		public static object ConvertConnectionStateData(Java.Object obj)
+		public static ConnectionStateData ConvertConnectionStateData(Java.Object obj)
 		{
 			return new ConnectionStateData(SensorDataHelpers.GetConnectionStatus(obj), SensorDataHelpers.GetConnectionStatusString(obj));
 		}

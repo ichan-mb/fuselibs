@@ -44,6 +44,10 @@
             <require androidManifest.permission="android.permission.ACCOUNT_MANAGER" />
         </method>
 
+        <method signature="_activity_recognition():Fuse.Android.Permissions.PlatformPermission">
+            <require androidManifest.permission="android.permission.ACTIVITY_RECOGNITION" />
+        </method>
+
         <method signature="_add_voicemail():Fuse.Android.Permissions.PlatformPermission">
             <require androidManifest.permission="android.permission.ADD_VOICEMAIL" />
         </method>

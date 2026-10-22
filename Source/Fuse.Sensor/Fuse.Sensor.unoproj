@@ -5,7 +5,7 @@
   "outputType": "library",
   "ios": {
     "pList": {
-      "nSMotionUsageDescription": "Require access to Motion data to enhance user experience using app"
+      "NSMotionUsageDescription": "Require access to Motion data to enhance user experience using app"
     }
   },
   "references": [
@@ -32,11 +32,15 @@
     "Android/sensors/BatterySensor.java:java:Android",
     "Android/sensors/ConnectionStateSensor.java:java:Android",
     "Android/sensors/PressureSensor.java:java:Android",
+    "Android/sensors/SensorHandle.java:java:Android",
     "Android/SensorType.java:java:Android",
     "iOS/data/FOBatteryData.h:objcheader:iOS",
     "iOS/data/FOBatteryData.m:objcsource:iOS",
     "iOS/data/FOConnectionStateData.h:objcheader:iOS",
     "iOS/data/FOConnectionStateData.m:objcsource:iOS",
+    "iOS/sensors/FOSensor.h:objcheader:iOS",
+    "iOS/sensors/FOSensorConfig.h:objcheader:iOS",
+    "iOS/sensors/FOSensorConfig.m:objcsource:iOS",
     "iOS/sensors/FOMotionManager.h:objcheader:iOS",
     "iOS/sensors/FOMotionManager.m:objcsource:iOS",
     "iOS/sensors/FOAccelerometer.h:objcheader:iOS",
@@ -57,6 +61,7 @@
     "iOS/sensors/FOConnection.m:objcsource:iOS",
     "iOS/sensors/FOPressure.h:objcheader:iOS",
     "iOS/sensors/FOPressure.m:objcsource:iOS",
+    "Android/Sensor.uxl:extensions",
     "*"
   ]
 }

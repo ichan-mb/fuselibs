@@ -1,7 +1,8 @@
 #import <Foundation/Foundation.h>
+#import "FOSensor.h"
 #import "FOBatteryData.h"
 
-@interface FOBattery : NSObject
+@interface FOBattery : NSObject <FOSensor>
 
 @property (nonatomic, readonly, getter=isSensing) BOOL sensing;
 @property (nonatomic, copy) void (^_onDataChanged)(FOBatteryData* batteryData);

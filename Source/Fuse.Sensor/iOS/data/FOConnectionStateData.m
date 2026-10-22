@@ -5,7 +5,7 @@
 @synthesize _status;
 @synthesize _statusString;
 
-- (instancetype)initWithwithState:(bool)state
+- (instancetype)initWithState:(bool)state
 {
     if (self = [super init])
     {

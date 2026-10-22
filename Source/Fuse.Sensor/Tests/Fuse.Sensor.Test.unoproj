@@ -1,0 +1,12 @@
+{
+  "outputType": "test",
+  "references": [
+    "Fuse.Sensor",
+    "Uno.Collections",
+    "Uno.Testing",
+    "Uno.Threading"
+  ],
+  "includes": [
+    "*.uno:source"
+  ]
+}

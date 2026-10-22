@@ -1,7 +1,8 @@
 #import <Foundation/Foundation.h>
+#import "FOSensor.h"
 #include <CoreMotion/CoreMotion.h>
 
-@interface FOPedometer : NSObject
+@interface FOPedometer : NSObject <FOSensor>
 
 @property (nonatomic, readonly, getter=isSensing) BOOL sensing;
 @property (nonatomic, copy) void (^_onDataChanged)(CMPedometerData* pedometerData);

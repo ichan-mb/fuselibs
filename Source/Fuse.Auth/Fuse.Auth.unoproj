@@ -5,7 +5,7 @@
   "outputType": "library",
   "ios": {
     "pList": {
-      "nSFaceIDUsageDescription": "Require access to FaceID for authenticating"
+      "NSFaceIDUsageDescription": "Require access to FaceID for authenticating"
     },
     "systemCapabilities": {
       "signInWithApple": true

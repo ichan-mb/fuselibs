@@ -29,6 +29,8 @@
 
 ### Fuse.Auth
 - Store platform sign-in credentials in `FuseJS/SecureStorage` where available, migrating existing `UserSettings` values on first read; Android versions before 6.0 continue to use `UserSettings`
+- Fix the `NSFaceIDUsageDescription` key casing in the project file
+- Document that `NSFaceIDUsageDescription` and `signInWithApple` must be declared in the application project; `ios.pList` and `ios.systemCapabilities` from a referenced library are not merged into the generated `Info.plist` and entitlements
 
 ### Fuse.Camera
 - Update permissions for Android 13 (#1487)
@@ -109,6 +111,40 @@
 - Validate that URLs are well-formed `http`/`https` URLs
 - Android: bump `androidx.browser` from 1.0.0 to 1.8.0
 
+### Fuse.Launcher.Maps
+- Add `MapLaunchOptions`, `MapLocation` and `MapLaunchStatus` with a `Future`-based `LaunchMaps` API
+- Add `IsMapAvailable()` and `FuseJS/Maps.isAvailable()`
+- Add zoom, pin labels, map types and directions with driving, walking, transit and cycling travel modes
+- Expose `open`, `search` and `directions` with options and promises in `FuseJS/Maps`; the legacy methods now return promises too
+- Extend `<LaunchMaps>` with `Query`, `Label`, `Zoom`, `MapType`, `NearLatitude`/`NearLongitude`, `AndroidPackage`, `PreferGoogleMaps` and `UseWebFallback`
+- Add the `<LaunchDirections>` trigger action
+- Add `LaunchDirections` to `Fuse.Launcher` and `Fuse.LauncherImpl.MapsLauncher`
+- Android: launch an implicit `geo:` intent, honor `AndroidPackage`, fall back to the default map app and then to a Google Maps web URL
+- Android: use `google.navigation:` for turn-by-turn navigation and Google Maps directions URLs otherwise
+- iOS: open directions with MapKit for travel modes, map type and traffic, and support the Google Maps app via `PreferGoogleMaps`
+- iOS: detect launch failures with `openURL:options:completionHandler:` and fall back to a web URL
+- Validate coordinates, zoom levels and search queries, and report invalid `<LaunchMaps>` coordinates instead of failing silently
+- Android: declare package-visibility queries for `geo:`
+- Add unit tests for Android, Apple Maps, Google Maps and Google Maps app URI building
+- Add README, API reference and usage guide
+
+### Fuse.Launcher.Phone
+- Add `PhoneCallOptions`, `SmsMessage` and `PhoneLaunchStatus` to observe launch results
+- Add `CanCall()` and `CanSendSms()` to check platform availability
+- Default to `ACTION_DIAL`; `PhoneCallMode.Call` places the call directly and falls back to the dialer when `CALL_PHONE` is denied
+- Android: use `ACTION_SENDTO` for SMS, pass `sms_body`/`EXTRA_TEXT`, and declare package-visibility queries
+- iOS: use `openURL:options:completionHandler:` and the `&body=` SMS form
+- iOS: add an in-app `MFMessageComposeViewController` composer with `Sent`/`Cancelled` results
+- Add `Subject`, `Attachments` and `PreferInAppComposer` to `SmsMessage`
+- Add `AndroidPackage` to `PhoneCallOptions` and `SmsMessage`, and `ChooserTitle` to `SmsMessage`
+- Add FaceTime video and audio calls (`FaceTime`, `FaceTimeAudioOnly` and `CanFaceTime()`)
+- Normalize numbers: remove separators, convert keypad letters, and preserve `+`, `*`, `#`, `,` and `;`
+- Expose `canCall`/`canSendSms`/`canFaceTime` and promise-returning `call`/`sms` in `FuseJS/Phone`, with argument validation
+- Expose `subject`, `attachments`, `preferInAppComposer`, `androidPackage` and `chooserTitle` in `FuseJS/Phone.sms`
+- Add `Mode` to the `<Call>` trigger action, and `Subject`/`Attachments`/`PreferInAppComposer`/`AndroidPackage`/`ChooserTitle` to `<Sms>`
+- Add README, API reference and usage guide
+- Add unit tests for number normalization, USSD, FaceTime and SMS URI building
+
 ### Fuse.LocalNotifications
 - Android: Fix compatibility with the Android 13 and indentation (#1473)
 
@@ -148,6 +184,8 @@
 - iOS: keep device-motion based sensors independent, so stopping one no longer stops `GRAVITY`, `USER_ACCELERATION` and `ROTATION`
 - iOS: `BATTERY` and `CONNECTION_STATE` report their current state on `startListening` and stop emitting after `stopListening`
 - iOS: detect connectivity with a host-independent reachability check instead of a DNS lookup
+- iOS: remove the unused `netinet6/in6.h` import in `FOReachability.m`; it is a private header and fails to compile on recent iOS SDKs
+- iOS: document that `STEP_COUNTER` and `PRESSURE` require `NSMotionUsageDescription` in the app's project file; `ios.pList` from a referenced library is not merged into the generated `Info.plist`
 - Android: use `ConnectivityManager` network callbacks for `CONNECTION_STATE`; the deprecated broadcast reported "disconnected" while connected
 - Android: `isSensing()` no longer returns `true` for a sensor that failed to start
 - Android: declare `ACCESS_NETWORK_STATE` and add `Android.ACTIVITY_RECOGNITION` to `Fuse.Android.Permissions` (needed for step counting on Android 10+)
@@ -155,6 +193,15 @@
 - Do not throw an uncaught JavaScript exception when `"error"` is emitted without a listener
 - Reject invalid `sensorType` arguments instead of throwing or silently using the accelerometer
 - Internal: replace the ten per-sensor tracker and provider classes with a single provider registry, one provider per platform
+- Add `isAvailable` and `getAvailable` to check which sensors the device supports
+- Add `getOnce(sensorType)`, a promise that resolves with a single reading and stops the sensor again if it was not already listening
+- `startListening(sensorType, interval)` accepts an optional sampling interval in milliseconds
+- Add per-sensor events (`"accelerometer"`, `"gyroscope"`, `"magnetometer"`, `"gravity"`, `"user_acceleration"`, `"rotation"`, `"step_counter"`, `"pressure"`, `"battery"`, `"connection_state"`) in addition to `"changed"`
+- Add a `timestamp` in milliseconds since the Unix epoch to every reading (sensor, battery and connectivity), so readings can be compared and sampled intervals measured
+- Add `elapsed`, the platform's sensor timestamp in seconds on the device's monotonic clock, for accurate interval measurement and integration; it is `0` for readings without a sensor timestamp (battery, connectivity, iOS step counter)
+- Desktop Preview now produces simulated sensor data (and reports those sensors as available), so sensor driven UI can be developed without a device
+- Add unit tests for the provider registry, sensor/event names, `getOnce` and the battery payload
+- Add package documentation: `Docs/README.md` (API reference, payloads, platform requirements) and `Docs/Guide.md` (task oriented walkthrough)
 
 ### Fuse.Shortcut
 - Add `updateShortcuts`, `removeShortcuts`, `clearShortcuts`, `getShortcuts`, `isSupported` and `getMaxShortcutCount`

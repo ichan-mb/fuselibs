@@ -2,7 +2,7 @@
 
 @interface FOPressure ()
 
-@property (nonatomic, strong) CMAltimeter *altemeter;;
+@property (nonatomic, strong) CMAltimeter *altimeter;
 
 @end
 
@@ -16,7 +16,7 @@
 {
     if (self = [super init])
     {
-        self.altemeter = [[CMAltimeter alloc] init];
+        self.altimeter = [[CMAltimeter alloc] init];
         self._onDataChanged = onDataChanged;
         self._onError = onError;
     }
@@ -36,7 +36,7 @@
     {
         return NO;
     }
-    [self.altemeter startRelativeAltitudeUpdatesToQueue:[[NSOperationQueue alloc] init]
+    [self.altimeter startRelativeAltitudeUpdatesToQueue:[[NSOperationQueue alloc] init]
                                              withHandler:^(CMAltitudeData* altimerData, NSError *error) {
                                                  if (error != nil) {
                                                      self._onError(error);
@@ -50,7 +50,7 @@
 
 - (BOOL)stopSensing
 {
-    [self.altemeter stopRelativeAltitudeUpdates];
+    [self.altimeter stopRelativeAltitudeUpdates];
     _sensing = NO;
     return YES;
 }

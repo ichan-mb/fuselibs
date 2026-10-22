@@ -129,6 +129,7 @@ namespace Fuse.Android.Permissions
             public static PlatformPermission ACCESS_SURFACE_FLINGER { get { return Internal.Android._access_surface_flinger(); } }
             public static PlatformPermission ACCESS_WIFI_STATE { get { return Internal.Android._access_wifi_state(); } }
             public static PlatformPermission ACCOUNT_MANAGER { get { return Internal.Android._account_manager(); } }
+            public static PlatformPermission ACTIVITY_RECOGNITION { get { return Internal.Android._activity_recognition(); } }
             public static PlatformPermission ADD_VOICEMAIL { get { return Internal.Android._add_voicemail(); } }
             public static PlatformPermission AUTHENTICATE_ACCOUNTS { get { return Internal.Android._authenticate_accounts(); } }
             public static PlatformPermission BATTERY_STATS { get { return Internal.Android._battery_stats(); } }

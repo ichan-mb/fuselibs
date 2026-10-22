@@ -1,835 +1,284 @@
 using Uno;
-using Uno.UX;
 using Uno.Compiler.ExportTargetInterop;
 
 namespace Fuse.Sensor
 {
+	/**
+		iOS implementation of every sensor type.
+
+		The concrete wrappers all implement the `FOSensor` protocol, so starting, stopping and
+		querying a sensor is shared. Only the creation of the wrapper and the shape of its data
+		depend on the sensor type.
+	*/
 	[Require("xcode.framework", "CoreMotion")]
-	[ForeignInclude(Language.ObjC, "iOS/sensors/FOAccelerometer.h")]
-	extern(iOS) class IOSAccelerometerProvider : ISensorTracker
-	{
-		ObjC.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> OnDataChanged, Action<string> OnDataError)
-		{
-			_OnDataChanged = OnDataChanged;
-			_OnDataError = OnDataError;
-			_sensor = InitSensor();
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) ObjC.Object InitSensor()
-		@{
-			FOAccelerometer* accel = [[FOAccelerometer alloc] initWithBlock:^void (CMAccelerometerData* accelerometerData)
-			{
-				// Normalize acceleration to match with android
-				float x = accelerometerData.acceleration.x * -9.81f;
-				float y = accelerometerData.acceleration.y * -9.81f;
-				float z = accelerometerData.acceleration.z * -9.81f;
-				@{IOSAccelerometerProvider:of(_this).OnDataChanged(float,float,float):call(x,y,z)};
-			}
-			error:^void (NSError* err)
-			{
-				if (err != nil)
-					@{IOSAccelerometerProvider:of(_this).OnError(string):call(err.localizedDescription)};
-			}
-			];
-			return accel;
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StartSensor(ObjC.Object handle)
-		@{
-			FOAccelerometer* accel = (FOAccelerometer*)handle;
-			bool started = [accel startSensing];
-			if (!started)
-				@{IOSAccelerometerProvider:of(_this).OnError(string):call(@"Accelerometer sensor is not available.")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StopSensor(ObjC.Object handle)
-		@{
-			FOAccelerometer* accel = (FOAccelerometer*)handle;
-			bool stopped = [accel stopSensing];
-			if (!stopped)
-				@{IOSAccelerometerProvider:of(_this).OnError(string):call(@"Stopping Failed")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) bool IsSensing(ObjC.Object handle)
-		@{
-			FOAccelerometer* accel = (FOAccelerometer*)handle;
-			return accel.isSensing;
-		@}
-
-		void OnDataChanged(float x, float y, float z)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(SensorType.ACCELEROMETER,x,y,z));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	[Require("xcode.framework", "CoreMotion")]
-	[ForeignInclude(Language.ObjC, "iOS/sensors/FOGyroscope.h")]
-	extern(iOS) class IOSGyroscopeProvider : ISensorTracker
-	{
-		ObjC.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> OnDataChanged, Action<string> OnDataError)
-		{
-			_OnDataChanged = OnDataChanged;
-			_OnDataError = OnDataError;
-			_sensor = InitSensor();
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) ObjC.Object InitSensor()
-		@{
-			FOGyroscope* gyro = [[FOGyroscope alloc] initWithBlock:^void (CMGyroData* gyroData)
-			{
-				@{IOSGyroscopeProvider:of(_this).OnDataChanged(float,float,float):call(gyroData.rotationRate.x,gyroData.rotationRate.y,gyroData.rotationRate.z)};
-			}
-			error:^void (NSError* err)
-			{
-				if (err != nil)
-					@{IOSGyroscopeProvider:of(_this).OnError(string):call(err.localizedDescription)};
-			}
-			];
-			return gyro;
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StartSensor(ObjC.Object handle)
-		@{
-			FOGyroscope* gyro = (FOGyroscope*)handle;
-			bool started = [gyro startSensing];
-			if (!started)
-				@{IOSGyroscopeProvider:of(_this).OnError(string):call(@"Gyroscope sensor is not available.")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StopSensor(ObjC.Object handle)
-		@{
-			FOGyroscope* gyro = (FOGyroscope*)handle;
-			bool stopped = [gyro stopSensing];
-			if (!stopped)
-				@{IOSGyroscopeProvider:of(_this).OnError(string):call(@"Stopping Failed")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) bool IsSensing(ObjC.Object handle)
-		@{
-			FOGyroscope* gyro = (FOGyroscope*)handle;
-			return gyro.isSensing;
-		@}
-
-		void OnDataChanged(float x, float y, float z)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(SensorType.GYROSCOPE,x,y,z));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	[Require("xcode.framework", "CoreMotion")]
-	[ForeignInclude(Language.ObjC, "iOS/sensors/FOMagnetometer.h")]
-	extern(iOS) class IOSMagnetometerProvider : ISensorTracker
-	{
-		ObjC.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> OnDataChanged, Action<string> OnDataError)
-		{
-			_OnDataChanged = OnDataChanged;
-			_OnDataError = OnDataError;
-			_sensor = InitSensor();
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) ObjC.Object InitSensor()
-		@{
-			FOMagnetometer* magneto = [[FOMagnetometer alloc] initWithBlock:^void (CMMagnetometerData* magnetoData)
-			{
-				@{IOSMagnetometerProvider:of(_this).OnDataChanged(float,float,float):call(magnetoData.magneticField.x,magnetoData.magneticField.y,magnetoData.magneticField.z)};
-			}
-			error:^void (NSError* err)
-			{
-				if (err != nil)
-					@{IOSMagnetometerProvider:of(_this).OnError(string):call(err.localizedDescription)};
-			}
-			];
-			return magneto;
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StartSensor(ObjC.Object handle)
-		@{
-			FOMagnetometer* magneto = (FOMagnetometer*)handle;
-			bool started = [magneto startSensing];
-			if (!started)
-				@{IOSMagnetometerProvider:of(_this).OnError(string):call(@"Magnetometer sensor is not available.")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StopSensor(ObjC.Object handle)
-		@{
-			FOMagnetometer* magneto = (FOMagnetometer*)handle;
-			bool stopped = [magneto stopSensing];
-			if (!stopped)
-				@{IOSMagnetometerProvider:of(_this).OnError(string):call(@"Stopping Failed")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) bool IsSensing(ObjC.Object handle)
-		@{
-			FOMagnetometer* magneto = (FOMagnetometer*)handle;
-			return magneto.isSensing;
-		@}
-
-		void OnDataChanged(float x, float y, float z)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(SensorType.MAGNETOMETER,x,y,z));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	[Require("xcode.framework", "CoreMotion")]
-	[ForeignInclude(Language.ObjC, "iOS/sensors/FODeviceMotion.h")]
-	extern(iOS) class IOSGravityProvider : ISensorTracker
-	{
-		ObjC.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> OnDataChanged, Action<string> OnDataError)
-		{
-			_OnDataChanged = OnDataChanged;
-			_OnDataError = OnDataError;
-			_sensor = InitSensor();
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) ObjC.Object InitSensor()
-		@{
-			FODeviceMotion* motion = [[FODeviceMotion alloc] initWithBlock:^void (CMDeviceMotion* deviceMotionData)
-			{
-				@{IOSGravityProvider:of(_this).OnDataChanged(float,float,float):call(deviceMotionData.gravity.x,deviceMotionData.gravity.y,deviceMotionData.gravity.z)};
-			}
-			error:^void (NSError* err)
-			{
-				if (err != nil)
-					@{IOSGravityProvider:of(_this).OnError(string):call(err.localizedDescription)};
-			}
-			];
-			return motion;
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StartSensor(ObjC.Object handle)
-		@{
-			FODeviceMotion* motion = (FODeviceMotion*)handle;
-			bool started = [motion startSensing];
-			if (!started)
-				@{IOSGravityProvider:of(_this).OnError(string):call(@"Gravity sensor is not available.")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StopSensor(ObjC.Object handle)
-		@{
-			FODeviceMotion* motion = (FODeviceMotion*)handle;
-			bool stopped = [motion stopSensing];
-			if (!stopped)
-				@{IOSGravityProvider:of(_this).OnError(string):call(@"Stopping Failed")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) bool IsSensing(ObjC.Object handle)
-		@{
-			FODeviceMotion* motion = (FODeviceMotion*)handle;
-			return motion.isSensing;
-		@}
-
-		void OnDataChanged(float x, float y, float z)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(SensorType.GRAVITY,x,y,z));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	[Require("xcode.framework", "CoreMotion")]
-	[ForeignInclude(Language.ObjC, "iOS/sensors/FODeviceMotion.h")]
-	extern(iOS) class IOSUserAccelerationProvider : ISensorTracker
-	{
-		ObjC.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> OnDataChanged, Action<string> OnDataError)
-		{
-			_OnDataChanged = OnDataChanged;
-			_OnDataError = OnDataError;
-			_sensor = InitSensor();
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) ObjC.Object InitSensor()
-		@{
-			FODeviceMotion* motion = [[FODeviceMotion alloc] initWithBlock:^void (CMDeviceMotion* deviceMotionData)
-			{
-				// Normalize acceleration to match with android
-				float x = deviceMotionData.userAcceleration.x * -1.0f;
-				float y = deviceMotionData.userAcceleration.y * -1.0f;
-				float z = deviceMotionData.userAcceleration.z * -1.0f;
-				@{IOSUserAccelerationProvider:of(_this).OnDataChanged(float,float,float):call(x,y,z)};
-			}
-			error:^void (NSError* err)
-			{
-				if (err != nil)
-					@{IOSUserAccelerationProvider:of(_this).OnError(string):call(err.localizedDescription)};
-			}
-			];
-			return motion;
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StartSensor(ObjC.Object handle)
-		@{
-			FODeviceMotion* motion = (FODeviceMotion*)handle;
-			bool started = [motion startSensing];
-			if (!started)
-				@{IOSUserAccelerationProvider:of(_this).OnError(string):call(@"User Accelerometer sensor is not available.")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StopSensor(ObjC.Object handle)
-		@{
-			FODeviceMotion* motion = (FODeviceMotion*)handle;
-			bool stopped = [motion stopSensing];
-			if (!stopped)
-				@{IOSUserAccelerationProvider:of(_this).OnError(string):call(@"Stopping Failed")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) bool IsSensing(ObjC.Object handle)
-		@{
-			FODeviceMotion* motion = (FODeviceMotion*)handle;
-			return motion.isSensing;
-		@}
-
-		void OnDataChanged(float x, float y, float z)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(SensorType.USER_ACCELERATION,x,y,z));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	[Require("xcode.framework", "CoreMotion")]
-	[ForeignInclude(Language.ObjC, "iOS/sensors/FODeviceMotion.h")]
-	extern(iOS) class IOSRotationProvider : ISensorTracker
-	{
-		ObjC.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> OnDataChanged, Action<string> OnDataError)
-		{
-			_OnDataChanged = OnDataChanged;
-			_OnDataError = OnDataError;
-			_sensor = InitSensor();
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) ObjC.Object InitSensor()
-		@{
-			FODeviceMotion* motion = [[FODeviceMotion alloc] initWithBlock:^void (CMDeviceMotion* deviceMotionData)
-			{
-				@{IOSRotationProvider:of(_this).OnDataChanged(float,float,float):call(deviceMotionData.rotationRate.x,deviceMotionData.rotationRate.y,deviceMotionData.rotationRate.z)};
-			}
-			error:^void (NSError* err)
-			{
-				if (err != nil)
-					@{IOSRotationProvider:of(_this).OnError(string):call(err.localizedDescription)};
-			}
-			];
-			return motion;
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StartSensor(ObjC.Object handle)
-		@{
-			FODeviceMotion* motion = (FODeviceMotion*)handle;
-			bool started = [motion startSensing];
-			if (!started)
-				@{IOSRotationProvider:of(_this).OnError(string):call(@"Rotation sensor is not available.")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StopSensor(ObjC.Object handle)
-		@{
-			FODeviceMotion* motion = (FODeviceMotion*)handle;
-			bool stopped = [motion stopSensing];
-			if (!stopped)
-				@{IOSRotationProvider:of(_this).OnError(string):call(@"Stopping Failed")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) bool IsSensing(ObjC.Object handle)
-		@{
-			FODeviceMotion* motion = (FODeviceMotion*)handle;
-			return motion.isSensing;
-		@}
-
-		void OnDataChanged(float x, float y, float z)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(SensorType.ROTATION,x,y,z));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	[Require("xcode.framework", "CoreMotion")]
-	[ForeignInclude(Language.ObjC, "iOS/sensors/FOPedometer.h")]
-	extern(iOS) class IOSPedometerProvider : ISensorTracker
-	{
-		ObjC.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> OnDataChanged, Action<string> OnDataError)
-		{
-			_OnDataChanged = OnDataChanged;
-			_OnDataError = OnDataError;
-			_sensor = InitSensor();
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) ObjC.Object InitSensor()
-		@{
-			FOPedometer* pedometer = [[FOPedometer alloc] initWithBlock:^void (CMPedometerData* pedometerData)
-			{
-				@{IOSPedometerProvider:of(_this).OnDataChanged(float,float,float):call([pedometerData.numberOfSteps floatValue],0.0f,0.0f)};
-			}
-			error:^void (NSError* err)
-			{
-				if (err != nil)
-					@{IOSPedometerProvider:of(_this).OnError(string):call(err.localizedDescription)};
-			}
-			];
-			return pedometer;
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StartSensor(ObjC.Object handle)
-		@{
-			FOPedometer* pedometer = (FOPedometer*)handle;
-			bool started = [pedometer startSensing];
-			if (!started)
-				@{IOSPedometerProvider:of(_this).OnError(string):call(@"Step counter sensor is not available.")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StopSensor(ObjC.Object handle)
-		@{
-			FOPedometer* pedometer = (FOPedometer*)handle;
-			bool stopped = [pedometer stopSensing];
-			if (!stopped)
-				@{IOSPedometerProvider:of(_this).OnError(string):call(@"Stopping Failed")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) bool IsSensing(ObjC.Object handle)
-		@{
-			FOPedometer* pedometer = (FOPedometer*)handle;
-			return pedometer.isSensing;
-		@}
-
-		void OnDataChanged(float x, float y, float z)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(SensorType.STEP_COUNTER,x,y,z));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
 	[Require("xcode.framework", "SystemConfiguration")]
-	[ForeignInclude(Language.ObjC, "iOS/sensors/FOPressure.h")]
-	extern(iOS) class IOSPressureProvider : ISensorTracker
+	[ForeignInclude(Language.ObjC,
+		"iOS/sensors/FOSensor.h",
+		"iOS/sensors/FOSensorConfig.h",
+		"iOS/sensors/FOAccelerometer.h",
+		"iOS/sensors/FOGyroscope.h",
+		"iOS/sensors/FOMagnetometer.h",
+		"iOS/sensors/FODeviceMotion.h",
+		"iOS/sensors/FOPedometer.h",
+		"iOS/sensors/FOPressure.h",
+		"iOS/sensors/FOBattery.h",
+		"iOS/sensors/FOConnection.h",
+		"iOS/data/FOBatteryData.h",
+		"iOS/data/FOConnectionStateData.h")]
+	extern(iOS) class IOSSensorProvider : ISensorProvider
 	{
+		readonly SensorType _sensorType;
 		ObjC.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
+		Action<SensorType, object> _onDataChanged;
+		Action<SensorType, string> _onDataError;
 
-		public void Init(Action<object> OnDataChanged, Action<string> OnDataError)
+		public IOSSensorProvider(SensorType sensorType)
 		{
-			_OnDataChanged = OnDataChanged;
-			_OnDataError = OnDataError;
-			_sensor = InitSensor();
+			_sensorType = sensorType;
 		}
 
-		public void StartListening()
+		public void Init(Action<SensorType, object> onDataChanged, Action<SensorType, string> onDataError)
 		{
-			StartSensor(_sensor);
+			_onDataChanged = onDataChanged;
+			_onDataError = onDataError;
+			_sensor = InitSensor((int)_sensorType);
+		}
+
+		public void StartListening(int intervalMs)
+		{
+			if (_sensor == null)
+			{
+				ReportError(SensorTracker.GetSensorName(_sensorType) + " sensor is not available.");
+				return;
+			}
+
+			// 100 Hz is the default rate of the CoreMotion wrappers.
+			SetSensorUpdateInterval((int)_sensorType, intervalMs > 0 ? intervalMs / 1000.0 : 0.01);
+
+			if (!StartSensor(_sensor))
+				ReportError(SensorTracker.GetSensorName(_sensorType) + " sensor is not available.");
 		}
 
 		public void StopListening()
 		{
-			StopSensor(_sensor);
+			if (_sensor != null && !StopSensor(_sensor))
+				ReportError("Stopping " + SensorTracker.GetSensorName(_sensorType) + " failed.");
 		}
 
 		public bool IsSensing()
 		{
-			return IsSensing(_sensor);
+			return _sensor != null && IsSensorSensing(_sensor);
+		}
+
+		/** Whether the device has hardware for @type. */
+		public static bool IsAvailable(SensorType type)
+		{
+			if (!SensorTracker.IsSupported(type))
+				return false;
+
+			return IsSensorAvailable((int)type);
 		}
 
 		[Foreign(Language.ObjC)]
-		extern(iOS) ObjC.Object InitSensor()
+		extern(iOS) static bool IsSensorAvailable(int sensorType)
 		@{
-			FOPressure* pressure = [[FOPressure alloc] initWithBlock:^void (CMAltitudeData* altitudeData)
+			return [FOSensorConfig isAvailable:sensorType];
+		@}
+
+		[Foreign(Language.ObjC)]
+		extern(iOS) void SetSensorUpdateInterval(int sensorType, double intervalSeconds)
+		@{
+			[FOSensorConfig setUpdateInterval:intervalSeconds forSensorType:sensorType];
+		@}
+
+		[Foreign(Language.ObjC)]
+		extern(iOS) ObjC.Object InitSensor(int sensorType)
+		@{
+			// The case values must match Fuse.Sensor.SensorType.
+			switch (sensorType)
 			{
-				// default ios pressure data in kPa, we normalize pressure data to match android value in hPa / mbar
-				float pressure = [altitudeData.pressure floatValue]*10;
-				@{IOSPressureProvider:of(_this).OnDataChanged(float,float,float):call(pressure,[altitudeData.relativeAltitude floatValue],0.0f)};
+				case 0: // ACCELEROMETER
+					return [[FOAccelerometer alloc] initWithBlock:^void (CMAccelerometerData* accelerometerData)
+					{
+						// Normalize acceleration to match Android.
+						float x = accelerometerData.acceleration.x * -9.81f;
+						float y = accelerometerData.acceleration.y * -9.81f;
+						float z = accelerometerData.acceleration.z * -9.81f;
+						@{IOSSensorProvider:of(_this).OnVectorDataChanged(float,float,float,double):call(x,y,z,accelerometerData.timestamp)};
+					}
+					error:^void (NSError* err)
+					{
+						if (err != nil)
+							@{IOSSensorProvider:of(_this).ReportError(string):call(err.localizedDescription)};
+					}
+					];
+
+				case 1: // GYROSCOPE
+					return [[FOGyroscope alloc] initWithBlock:^void (CMGyroData* gyroData)
+					{
+						@{IOSSensorProvider:of(_this).OnVectorDataChanged(float,float,float,double):call(gyroData.rotationRate.x,gyroData.rotationRate.y,gyroData.rotationRate.z,gyroData.timestamp)};
+					}
+					error:^void (NSError* err)
+					{
+						if (err != nil)
+							@{IOSSensorProvider:of(_this).ReportError(string):call(err.localizedDescription)};
+					}
+					];
+
+				case 2: // MAGNETOMETER
+					return [[FOMagnetometer alloc] initWithBlock:^void (CMMagnetometerData* magnetoData)
+					{
+						@{IOSSensorProvider:of(_this).OnVectorDataChanged(float,float,float,double):call(magnetoData.magneticField.x,magnetoData.magneticField.y,magnetoData.magneticField.z,magnetoData.timestamp)};
+					}
+					error:^void (NSError* err)
+					{
+						if (err != nil)
+							@{IOSSensorProvider:of(_this).ReportError(string):call(err.localizedDescription)};
+					}
+					];
+
+				case 3: // GRAVITY
+					return [[FODeviceMotion alloc] initWithBlock:^void (CMDeviceMotion* deviceMotionData)
+					{
+						// deviceMotion.gravity is expressed in g, while Android reports m/s2.
+						// It is also sign-inverted compared to Android's TYPE_GRAVITY.
+						float x = deviceMotionData.gravity.x * -9.81f;
+						float y = deviceMotionData.gravity.y * -9.81f;
+						float z = deviceMotionData.gravity.z * -9.81f;
+						@{IOSSensorProvider:of(_this).OnVectorDataChanged(float,float,float,double):call(x,y,z,deviceMotionData.timestamp)};
+					}
+					error:^void (NSError* err)
+					{
+						if (err != nil)
+							@{IOSSensorProvider:of(_this).ReportError(string):call(err.localizedDescription)};
+					}
+					];
+
+				case 4: // USER_ACCELERATION
+					return [[FODeviceMotion alloc] initWithBlock:^void (CMDeviceMotion* deviceMotionData)
+					{
+						// userAcceleration is expressed in g, while Android reports m/s2.
+						float x = deviceMotionData.userAcceleration.x * -9.81f;
+						float y = deviceMotionData.userAcceleration.y * -9.81f;
+						float z = deviceMotionData.userAcceleration.z * -9.81f;
+						@{IOSSensorProvider:of(_this).OnVectorDataChanged(float,float,float,double):call(x,y,z,deviceMotionData.timestamp)};
+					}
+					error:^void (NSError* err)
+					{
+						if (err != nil)
+							@{IOSSensorProvider:of(_this).ReportError(string):call(err.localizedDescription)};
+					}
+					];
+
+				case 5: // ROTATION
+					return [[FODeviceMotion alloc] initWithBlock:^void (CMDeviceMotion* deviceMotionData)
+					{
+						// The vector part of the attitude quaternion has the same shape as Android's
+						// TYPE_ROTATION_VECTOR. The reference frame differs: iOS uses a Z-vertical
+						// frame, Android an East-North-Up frame.
+						CMQuaternion q = deviceMotionData.attitude.quaternion;
+						@{IOSSensorProvider:of(_this).OnVectorDataChanged(float,float,float,double):call(q.x,q.y,q.z,deviceMotionData.timestamp)};
+					}
+					error:^void (NSError* err)
+					{
+						if (err != nil)
+							@{IOSSensorProvider:of(_this).ReportError(string):call(err.localizedDescription)};
+					}
+					];
+
+				case 6: // STEP_COUNTER
+					return [[FOPedometer alloc] initWithBlock:^void (CMPedometerData* pedometerData)
+					{
+						@{IOSSensorProvider:of(_this).OnVectorDataChanged(float,float,float,double):call([pedometerData.numberOfSteps floatValue],0.0f,0.0f,0.0)};
+					}
+					error:^void (NSError* err)
+					{
+						if (err != nil)
+							@{IOSSensorProvider:of(_this).ReportError(string):call(err.localizedDescription)};
+					}
+					];
+
+				case 7: // PRESSURE
+					return [[FOPressure alloc] initWithBlock:^void (CMAltitudeData* altitudeData)
+					{
+						// CoreMotion reports pressure in kPa; normalize it to hPa / mbar, like Android.
+						float pressure = [altitudeData.pressure floatValue]*10;
+						@{IOSSensorProvider:of(_this).OnVectorDataChanged(float,float,float,double):call(pressure,[altitudeData.relativeAltitude floatValue],0.0f,altitudeData.timestamp)};
+					}
+					error:^void (NSError* err)
+					{
+						if (err != nil)
+							@{IOSSensorProvider:of(_this).ReportError(string):call(err.localizedDescription)};
+					}
+					];
+
+				case 8: // BATTERY
+					return [[FOBattery alloc] initWithBlock:^void (FOBatteryData* batteryData)
+					{
+						@{IOSSensorProvider:of(_this).OnObjectDataChanged(ObjC.Object):call(batteryData)};
+					}
+					error:^void (NSError* err)
+					{
+						if (err != nil)
+							@{IOSSensorProvider:of(_this).ReportError(string):call(err.localizedDescription)};
+					}
+					];
+
+				case 9: // CONNECTION_STATE
+					return [[FOConnection alloc] initWithBlock:^void (FOConnectionStateData* status)
+					{
+						@{IOSSensorProvider:of(_this).OnObjectDataChanged(ObjC.Object):call(status)};
+					}
+					error:^void (NSError* err)
+					{
+						if (err != nil)
+							@{IOSSensorProvider:of(_this).ReportError(string):call(err.localizedDescription)};
+					}
+					];
 			}
-			error:^void (NSError* err)
-			{
-				if (err != nil)
-					@{IOSPressureProvider:of(_this).OnError(string):call(err.localizedDescription)};
-			}
-			];
-			return pressure;
+
+			return nil;
 		@}
 
 		[Foreign(Language.ObjC)]
-		extern(iOS) void StartSensor(ObjC.Object handle)
+		extern(iOS) bool StartSensor(ObjC.Object handle)
 		@{
-			FOPressure* pressure = (FOPressure*)handle;
-			bool started = [pressure startSensing];
-			if (!started)
-				@{IOSPressureProvider:of(_this).OnError(string):call(@"Pressure sensor is not available.")};
+			return [(id<FOSensor>)handle startSensing];
 		@}
 
 		[Foreign(Language.ObjC)]
-		extern(iOS) void StopSensor(ObjC.Object handle)
+		extern(iOS) bool StopSensor(ObjC.Object handle)
 		@{
-			FOPressure* pressure = (FOPressure*)handle;
-			bool stopped = [pressure stopSensing];
-			if (!stopped)
-				@{IOSPressureProvider:of(_this).OnError(string):call(@"Stopping Failed")};
+			return [(id<FOSensor>)handle stopSensing];
 		@}
 
 		[Foreign(Language.ObjC)]
-		extern(iOS) bool IsSensing(ObjC.Object handle)
+		extern(iOS) bool IsSensorSensing(ObjC.Object handle)
 		@{
-			FOPressure* pressure = (FOPressure*)handle;
-			return pressure.isSensing;
+			return [(id<FOSensor>)handle isSensing];
 		@}
 
-		void OnDataChanged(float x, float y, float z)
+		void OnVectorDataChanged(float x, float y, float z, double elapsed)
 		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(SensorType.PRESSURE,x,y,z));
+			if (_onDataChanged != null)
+				_onDataChanged(_sensorType, SensorDataHelpers.ConvertSensorData((int)_sensorType, x, y, z, elapsed));
 		}
 
-		void OnError(string error)
+		void OnObjectDataChanged(ObjC.Object data)
 		{
-			_OnDataError(error);
-		}
-	}
+			if (_onDataChanged == null)
+				return;
 
-	[ForeignInclude(Language.ObjC, "iOS/sensors/FOBattery.h", "iOS/data/FOBatteryData.h")]
-	extern(iOS) class IOSBatteryProvider : ISensorTracker
-	{
-		ObjC.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> OnDataChanged, Action<string> OnDataError)
-		{
-			_OnDataChanged = OnDataChanged;
-			_OnDataError = OnDataError;
-			_sensor = InitSensor();
+			if (_sensorType == SensorType.BATTERY)
+				_onDataChanged(_sensorType, SensorDataHelpers.ConvertBatteryData(data));
+			else
+				_onDataChanged(_sensorType, SensorDataHelpers.ConvertConnectionState(data));
 		}
 
-		public void StartListening()
+		void ReportError(string error)
 		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) ObjC.Object InitSensor()
-		@{
-			FOBattery* battery = [[FOBattery alloc] initWithBlock:^void (FOBatteryData* batteryData)
-			{
-				@{IOSBatteryProvider:of(_this).OnDataChanged(ObjC.Object):call(batteryData)};
-			}
-			error:^void (NSError* err)
-			{
-				if (err != nil)
-					@{IOSBatteryProvider:of(_this).OnError(string):call(err.localizedDescription)};
-			}
-			];
-			return battery;
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StartSensor(ObjC.Object handle)
-		@{
-			FOBattery* battery = (FOBattery*)handle;
-			bool started = [battery startSensing];
-			if (!started)
-				@{IOSBatteryProvider:of(_this).OnError(string):call(@"Battery monitoring could not be started.")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StopSensor(ObjC.Object handle)
-		@{
-			FOBattery* battery = (FOBattery*)handle;
-			bool stopped = [battery stopSensing];
-			if (!stopped)
-				@{IOSBatteryProvider:of(_this).OnError(string):call(@"Stopping Failed")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) bool IsSensing(ObjC.Object handle)
-		@{
-			FOBattery* battery = (FOBattery*)handle;
-			return battery.isSensing;
-		@}
-
-		void OnDataChanged(ObjC.Object newData)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertBatteryData(newData));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	[Require("xcode.framework", "SystemConfiguration")]
-	[ForeignInclude(Language.ObjC, "iOS/sensors/FOConnection.h", "iOS/data/FOConnectionStateData.h")]
-	extern(iOS) class IOSConnectionStateProvider : ISensorTracker
-	{
-		ObjC.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> OnDataChanged, Action<string> OnDataError)
-		{
-			_OnDataChanged = OnDataChanged;
-			_OnDataError = OnDataError;
-			_sensor = InitSensor();
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) ObjC.Object InitSensor()
-		@{
-			FOConnection* connection = [[FOConnection alloc] initWithBlock:^void (FOConnectionStateData * status)
-			{
-				@{IOSConnectionStateProvider:of(_this).OnDataChanged(ObjC.Object):call(status)};
-			}
-			error:^void (NSError* err)
-			{
-				if (err != nil)
-					@{IOSConnectionStateProvider:of(_this).OnError(string):call(err.localizedDescription)};
-			}
-			];
-			return connection;
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StartSensor(ObjC.Object handle)
-		@{
-			FOConnection* conn = (FOConnection*)handle;
-			bool started = [conn startSensing];
-			if (!started)
-				@{IOSConnectionStateProvider:of(_this).OnError(string):call(@"Connection State monitoring could not be started.")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) void StopSensor(ObjC.Object handle)
-		@{
-			FOConnection* conn = (FOConnection*)handle;
-			bool stopped = [conn stopSensing];
-			if (!stopped)
-				@{IOSConnectionStateProvider:of(_this).OnError(string):call(@"Stopping Failed")};
-		@}
-
-		[Foreign(Language.ObjC)]
-		extern(iOS) bool IsSensing(ObjC.Object handle)
-		@{
-			FOConnection* conn = (FOConnection*)handle;
-			return conn.isSensing;
-		@}
-
-		void OnDataChanged(ObjC.Object newData)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertConnectionState(newData));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
+			if (_onDataError != null)
+				_onDataError(_sensorType, error);
 		}
 	}
 }

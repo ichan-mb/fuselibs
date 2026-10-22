@@ -1,4 +1,6 @@
 using Uno;
+using Uno.Collections;
+using Uno.Threading;
 using Uno.UX;
 using Fuse.Scripting;
 
@@ -23,14 +25,38 @@ namespace Fuse.Sensor
 
 		Use [startListening](api:fuse/sensor/sensormodule/startlistening_bbef95e2.json) to get continual sensor data updates.
 		 And use [stopListening](api:fuse/sensor/sensormodule/stoplistening_bbef95e2.json) to stop getting continual sensor data updates.
+		 Use `isAvailable` to check whether the device has a sensor before starting it, and `getOnce`
+		 for a single reading.
 
 		You need to add a reference to `"Fuse.Sensor"` in your project file to use this feature.
 
 		This module is an @EventEmitter, so the methods from @EventEmitter can be used to listen to events.
+		Besides the `"changed"` event, every sensor type has its own event (`"accelerometer"`,
+		`"gyroscope"`, `"magnetometer"`, `"gravity"`, `"user_acceleration"`, `"rotation"`,
+		`"step_counter"`, `"pressure"`, `"battery"` and `"connection_state"`).
 
-		> Please note that this module will not work on Desktop Preview. When running on the device, not all devices have a complete sensor hardware,
+		> When running on the device, not all devices have a complete sensor hardware,
 		>  so not all sensor output data can be obtained, it all depends on the availability of sensors on the device.
 		>  Make sure to check "error" event for possible error that encounter.
+		>
+		> On Desktop Preview simulated sensor data is produced, so layouts can be developed without a device.
+
+		## iOS requirements
+
+		`STEP_COUNTER` and `PRESSURE` read CoreMotion data that iOS protects with a usage description. The
+		app must declare `NSMotionUsageDescription` in its own project file, otherwise iOS terminates the
+		app as soon as one of those sensors is used:
+
+		```json
+			"ios": {
+				"pList": {
+					"NSMotionUsageDescription": "Explain here why the app reads motion data"
+				}
+			}
+		```
+
+		Declaring it in `Fuse.Sensor.unoproj` is not enough: the build only applies `ios.pList` from the
+		app project, not from referenced libraries.
 
 		## Example
 
@@ -84,12 +110,43 @@ namespace Fuse.Sensor
 				x: value of x axis,
 				y: value of y axis,
 				z: value of z axis,
+				timestamp: milliseconds since the Unix epoch,
+				elapsed: seconds on the sensor's monotonic clock, or 0 when unavailable,
 			}
 		```
 		## Output
 
 		Data returned on the "changed" event argument are JavaScript objects with always have `type` property.
 		 Value of `type` property determine what type sensor data it contains.
+
+		## Timestamps
+
+		Every reading has two time values.
+
+		`timestamp` is milliseconds since the Unix epoch, captured when the sample reached the app.
+		It can be compared directly with `Date.now()` and converted with `new Date(data.timestamp)`.
+		Use it to relate readings to wall clock time and to other events in the app.
+
+		`elapsed` is seconds on the sensor's own monotonic clock (time since the device booted). It is
+		taken from the platform's sensor timestamp, so it does not jump when the wall clock is adjusted
+		and has no delivery delay. Use it to measure intervals and, for example, to integrate
+		acceleration over time. `elapsed` is `0` for readings that have no sensor timestamp (battery,
+		connectivity, and the iOS step counter).
+		```js
+			var Sensor = require("FuseJS/Sensor")
+			var lastElapsed = 0;
+
+			Sensor.on("accelerometer", function(data) {
+				if (lastElapsed !== 0 && data.elapsed !== 0)
+					console.log("interval: " + ((data.elapsed - lastElapsed) * 1000).toFixed(1) + " ms");
+
+				if (data.elapsed !== 0)
+					lastElapsed = data.elapsed;
+			});
+		```
+		`elapsed` is comparable between sensors on the same device, but not between devices. Battery
+		and connectivity readings carry a `timestamp` too, so they can still be ordered against
+		sensor readings.
 
 		Accelerometer, Gyroscope, Magnetometer, Gravity, User Acceleration and Rotation data all have same form of JavaScript object as desribed in the example below:
 		```js
@@ -166,11 +223,13 @@ namespace Fuse.Sensor
 			Sensor.on('changed', function(data) {
 				switch (data.type) {
 					case Sensor.BATTERY:
-						console.log("Battery level : " + data.level);
-						console.log("Battery state : " + data.state); // possible values : charging, unplug, full, not charging, unknown
+						console.log("Battery level : " + data.level); // platform specific, prefer levelPercent or levelRatio
+						console.log("Battery level percent : " + data.levelPercent); // 0-100 on both platforms
+						console.log("Battery level ratio : " + data.levelRatio); // 0.0-1.0 on both platforms
+						console.log("Battery state : " + data.state); // possible values : charging, full, unplugged, not_charging, unknown, unsupported
 						break;
 					case Sensor.CONNECTION_STATE:
-						console.log("connection state : " + data.state); // boolan value : true connected, false disconnected
+						console.log("connection state : " + data.state); // boolean value : true connected, false disconnected
 						console.log("connection state string : " + data.stateString); // possible values : 'connected' or 'disconnected'
 						break;
 				}
@@ -191,6 +250,56 @@ namespace Fuse.Sensor
 			var Sensor = require("FuseJS/Sensor")
 			Sensor.on("error", function(err) { ... })
 		```
+
+		## Availability
+
+		Not every device has every sensor, and the app should check before starting one:
+		```js
+			var Sensor = require("FuseJS/Sensor")
+
+			if (Sensor.isAvailable(Sensor.STEP_COUNTER)) {
+				Sensor.startListening(Sensor.STEP_COUNTER);
+			}
+
+			console.log("Available sensors: " + Sensor.getAvailable().join(", "));
+		```
+		`getAvailable()` returns an array of the `Sensor` constants that this device supports.
+
+		## One-shot reads
+
+		`getOnce(sensorType)` returns a promise that resolves with a single reading, in the same form
+		as the `"changed"` event. If the sensor is not already listening it is started for that one
+		reading and stopped again afterwards.
+		```js
+			var Sensor = require("FuseJS/Sensor")
+
+			Sensor.getOnce(Sensor.PRESSURE).then(function(data) {
+				console.log("Pressure: " + data.x + " hPa");
+			}).catch(function(err) {
+				console.log("Could not read the pressure sensor: " + err);
+			});
+		```
+
+		## Sampling rate
+
+		`startListening(sensorType, interval)` accepts an optional interval in milliseconds. It is a
+		hint: the actual rate also depends on the device, and some sensors (battery, connectivity, step
+		counter) are paced by the system.
+		```js
+			Sensor.startListening(Sensor.ACCELEROMETER, 16); // request roughly 60 Hz
+		```
+
+		## Per-sensor events
+
+		In addition to `"changed"`, every sensor type has its own event, so listeners do not have to
+		filter on `data.type`:
+		```js
+			var Sensor = require("FuseJS/Sensor")
+
+			Sensor.on("accelerometer", function(data) {
+				console.log("X axis : " + data.x + " Y axis : " + data.y + " Z axis : " + data.z);
+			});
+		```
 		@scriptproperty (int) ACCELEROMETER track accelerometer sensor.
 		@scriptproperty (int) GYROSCOPE track gyroscope sensor.
 		@scriptproperty (int) MAGNETOMETER track magnetometer sensor.
@@ -206,36 +315,29 @@ namespace Fuse.Sensor
 	public class SensorModule : NativeEventEmitterModule
 	{
 		static readonly SensorModule _instance;
-		static Fuse.Sensor.SensorType _sensorType;
-		AccelerometerTracker _acceleromaterTracker;
-		GyroscopeTracker _gyroscopeTracker;
-		MagnetometerTracker _magnetometerTracker;
-		UserAccelerationTracker _userAccelerationTracker;
-		GravityTracker _gravityTracker;
-		RotationTracker _rotationTracker;
-		PedometerTracker _pedometerTracker;
-		PressureTracker _pressureTracker;
-		BatteryTracker _batteryTracker;
-		ConnectionTracker _connectionTracker;
+		SensorTracker _tracker;
 
 		public SensorModule()
 			: base(false,
-				"changed", "error")
+				"changed", "error",
+				// One event per sensor type, see @SensorTracker.GetEventName. Every event name has to be
+				// registered here, otherwise emitting it throws in the JS EventEmitter.
+				"accelerometer", "gyroscope", "magnetometer", "gravity", "user_acceleration",
+				"rotation", "step_counter", "pressure", "battery", "connection_state")
 		{
 			if (_instance != null) return;
 
 			_instance = this;
 			Resource.SetGlobalKey(_instance, "FuseJS/Sensor");
-			_acceleromaterTracker = new AccelerometerTracker();
-			_gyroscopeTracker = new GyroscopeTracker();
-			_magnetometerTracker = new MagnetometerTracker();
-			_userAccelerationTracker = new UserAccelerationTracker();
-			_gravityTracker = new GravityTracker();
-			_rotationTracker = new RotationTracker();
-			_pedometerTracker = new PedometerTracker();
-			_pressureTracker = new PressureTracker();
-			_batteryTracker = new BatteryTracker();
-			_connectionTracker = new ConnectionTracker();
+
+			// Keep an internal listener registered on "error". The JS EventEmitter throws when
+			// "error" is emitted without a listener, which would turn a recoverable sensor error
+			// (unsupported sensor, desktop preview, ...) into an uncaught JavaScript exception.
+			On("error", new NativeEvent("sensorError"));
+
+			_tracker = new SensorTracker();
+			_tracker.DataChanged += DataChanged;
+			_tracker.DataError += OnError;
 
 			AddMember(new NativeProperty<int, int>("ACCELEROMETER", SensorType.ACCELEROMETER));
 			AddMember(new NativeProperty<int, int>("GYROSCOPE", SensorType.GYROSCOPE));
@@ -250,40 +352,13 @@ namespace Fuse.Sensor
 			AddMember(new NativeFunction("startListening", (NativeCallback)StartListening));
 			AddMember(new NativeFunction("isSensing", (NativeCallback)IsSensing));
 			AddMember(new NativeFunction("stopListening", (NativeCallback)StopListening));
-
-			_acceleromaterTracker.DataChanged += DataChanged;
-			_acceleromaterTracker.DataError += OnError;
-
-			_gyroscopeTracker.DataChanged += DataChanged;
-			_gyroscopeTracker.DataError += OnError;
-
-			_magnetometerTracker.DataChanged += DataChanged;
-			_magnetometerTracker.DataError += OnError;
-
-			_userAccelerationTracker.DataChanged += DataChanged;
-			_userAccelerationTracker.DataError += OnError;
-
-			_gravityTracker.DataChanged += DataChanged;
-			_gravityTracker.DataError += OnError;
-
-			_rotationTracker.DataChanged += DataChanged;
-			_rotationTracker.DataError += OnError;
-
-			_pedometerTracker.DataChanged += DataChanged;
-			_pedometerTracker.DataError += OnError;
-
-			_pressureTracker.DataChanged += DataChanged;
-			_pressureTracker.DataError += OnError;
-
-			_batteryTracker.DataChanged += DataChanged;
-			_batteryTracker.DataError += OnError;
-
-			_connectionTracker.DataChanged += DataChanged;
-			_connectionTracker.DataError += OnError;
+			AddMember(new NativeFunction("isAvailable", (NativeCallback)IsAvailable));
+			AddMember(new NativeFunction("getAvailable", (NativeCallback)GetAvailable));
+			AddMember(new NativePromise<object, Scripting.Object>("getOnce", (FutureFactory2<object>)GetOnce, ConvertData));
 		}
 
 		/**
-			@scriptmethod startListening(sensorType)
+			@scriptmethod startListening(sensorType, interval)
 
 			Starts the Sensor listening service.
 
@@ -294,62 +369,37 @@ namespace Fuse.Sensor
 			Use [stopListening](api:fuse/sensor/sensormodule/stoplistening_bbef95e2.json) to stop the service.
 
 			@param sensorType what type sensor that want to listen. see @SensorType for details
+			@param interval Optional desired sampling interval in milliseconds. Defaults to the platform
+				default. This is a hint; the actual rate also depends on the device.
 
 		*/
 		object StartListening(Context c, object[] args)
 		{
-			if (args.Length == 0)
+			SensorType sensorType;
+			if (!TryGetSensorType(args, out sensorType))
 			{
 				EmitError("Please Specify SensorType");
 				return null;
 			}
-			var sensorType = Marshal.ToInt(args[0]);
-			switch (sensorType)
+			if (!SensorTracker.IsSupported(sensorType))
 			{
-				case SensorType.ACCELEROMETER:
-					if (!_acceleromaterTracker.IsSensing())
-						_acceleromaterTracker.StartListening();
-					break;
-				case SensorType.GYROSCOPE:
-					if (!_gyroscopeTracker.IsSensing())
-						_gyroscopeTracker.StartListening();
-					break;
-				case SensorType.MAGNETOMETER:
-					if (!_magnetometerTracker.IsSensing())
-						_magnetometerTracker.StartListening();
-					break;
-				case SensorType.GRAVITY:
-					if (!_gravityTracker.IsSensing())
-						_gravityTracker.StartListening();
-					break;
-				case SensorType.USER_ACCELERATION:
-					if (!_userAccelerationTracker.IsSensing())
-						_userAccelerationTracker.StartListening();
-					break;
-				case SensorType.ROTATION:
-					if (!_rotationTracker.IsSensing())
-						_rotationTracker.StartListening();
-					break;
-				case SensorType.STEP_COUNTER:
-					if (!_pedometerTracker.IsSensing())
-						_pedometerTracker.StartListening();
-					break;
-				case SensorType.PRESSURE:
-					if (!_pressureTracker.IsSensing())
-						_pressureTracker.StartListening();
-					break;
-				case SensorType.BATTERY:
-					if (!_batteryTracker.IsSensing())
-						_batteryTracker.StartListening();
-					break;
-				case SensorType.CONNECTION_STATE:
-					if (!_connectionTracker.IsSensing())
-						_connectionTracker.StartListening();
-					break;
-				default:
-					EmitError("Unknown SensorType");
-					break;
+				EmitError("Unknown SensorType");
+				return null;
 			}
+
+			int intervalMs = 0;
+			if (args.Length > 1)
+			{
+				double interval;
+				if (!Marshal.TryToDouble(args[1], out interval) || interval < 0 || interval > 60000)
+				{
+					EmitError("Please Specify a valid interval in milliseconds");
+					return null;
+				}
+				intervalMs = (int)interval;
+			}
+
+			_tracker.StartListening(sensorType, intervalMs);
 			return null;
 		}
 
@@ -358,62 +408,30 @@ namespace Fuse.Sensor
 
 			Stops the Sensor listening service.
 
+			Calling this without a sensor type stops every sensor that is currently listening.
+
 			@param sensorType what type sensor that want to stop listen. see @SensorType for details
 		*/
 		object StopListening(Context c, object[] args)
 		{
 			if (args.Length == 0)
 			{
+				_tracker.StopAll();
+				return null;
+			}
+
+			SensorType sensorType;
+			if (!TryGetSensorType(args, out sensorType))
+			{
 				EmitError("Please Specify SensorType");
 				return null;
 			}
-			var sensorType = Marshal.ToInt(args[0]);
-			switch (sensorType)
+			if (!SensorTracker.IsSupported(sensorType))
 			{
-				case SensorType.ACCELEROMETER:
-					if (_acceleromaterTracker.IsSensing())
-						_acceleromaterTracker.StopListening();
-					break;
-				case SensorType.GYROSCOPE:
-					if (_gyroscopeTracker.IsSensing())
-						_gyroscopeTracker.StopListening();
-					break;
-				case SensorType.MAGNETOMETER:
-					if (_magnetometerTracker.IsSensing())
-						_magnetometerTracker.StopListening();
-					break;
-				case SensorType.GRAVITY:
-					if (_gravityTracker.IsSensing())
-						_gravityTracker.StopListening();
-					break;
-				case SensorType.USER_ACCELERATION:
-					if (_userAccelerationTracker.IsSensing())
-						_userAccelerationTracker.StopListening();
-					break;
-				case SensorType.ROTATION:
-					if (_rotationTracker.IsSensing())
-						_rotationTracker.StopListening();
-					break;
-				case SensorType.STEP_COUNTER:
-					if (_pedometerTracker.IsSensing())
-						_pedometerTracker.StopListening();
-					break;
-				case SensorType.PRESSURE:
-					if (_pressureTracker.IsSensing())
-						_pressureTracker.StopListening();
-					break;
-				case SensorType.BATTERY:
-					if (_batteryTracker.IsSensing())
-						_batteryTracker.StopListening();
-					break;
-				case SensorType.CONNECTION_STATE:
-					if (_connectionTracker.IsSensing())
-						_connectionTracker.StopListening();
-					break;
-				default:
-					EmitError("Unknown SensorType");
-					break;
+				EmitError("Unknown SensorType");
+				return null;
 			}
+			_tracker.StopListening(sensorType);
 			return null;
 		}
 
@@ -426,53 +444,132 @@ namespace Fuse.Sensor
 		*/
 		object IsSensing(Context c, object[] args)
 		{
-			if (args.Length == 0)
+			SensorType sensorType;
+			if (!TryGetSensorType(args, out sensorType))
 			{
 				EmitError("Please Specify SensorType");
-				return null;
+				return false;
 			}
-			var sensorType = Marshal.ToInt(args[0]);
-			switch (sensorType)
+			if (!SensorTracker.IsSupported(sensorType))
 			{
-				case SensorType.ACCELEROMETER:
-					return _acceleromaterTracker.IsSensing();
-				case SensorType.GYROSCOPE:
-					return _gyroscopeTracker.IsSensing();
-				case SensorType.MAGNETOMETER:
-					return _magnetometerTracker.IsSensing();
-				case SensorType.GRAVITY:
-					return _gravityTracker.IsSensing();
-				case SensorType.USER_ACCELERATION:
-					return _userAccelerationTracker.IsSensing();
-				case SensorType.ROTATION:
-					return _rotationTracker.IsSensing();
-				case SensorType.STEP_COUNTER:
-					return _pedometerTracker.IsSensing();
-				case SensorType.PRESSURE:
-					return _pressureTracker.IsSensing();
-				case SensorType.BATTERY:
-					return _batteryTracker.IsSensing();
-				case SensorType.CONNECTION_STATE:
-					return _connectionTracker.IsSensing();
-				default:
-					EmitError("Unknown SensorType");
-					break;
+				EmitError("Unknown SensorType");
+				return false;
 			}
-			return null;
+			return _tracker.IsSensing(sensorType);
 		}
 
 		/**
-			@scriptevent changed(location)
+			@scriptmethod isAvailable(sensorType)
+
+			Returns whether the device has the hardware (or platform support) for the sensor.
+
+			@param sensorType what type sensor that want to check. see @SensorType for details
+			@return true if the sensor can be used on this device
+		*/
+		object IsAvailable(Context c, object[] args)
+		{
+			SensorType sensorType;
+			if (!TryGetSensorType(args, out sensorType))
+			{
+				EmitError("Please Specify SensorType");
+				return false;
+			}
+
+			return SensorTracker.IsAvailable(sensorType);
+		}
+
+		/**
+			@scriptmethod getAvailable()
+
+			Returns an array with every @SensorType that is available on this device.
+
+			@return an array of sensor types
+		*/
+		object GetAvailable(Context c, object[] args)
+		{
+			var available = new List<object>();
+
+			for (int i = 0; i < SensorTracker.AllTypes.Length; i++)
+			{
+				var type = SensorTracker.AllTypes[i];
+				if (SensorTracker.IsAvailable(type))
+					available.Add((int)type);
+			}
+
+			return c.NewArray(available.ToArray());
+		}
+
+		/**
+			@scriptmethod getOnce(sensorType)
+
+			@return a promise that resolves with a single reading of the sensor.
+
+			The reading has the same form as the argument of the `"changed"` event. If the sensor is
+			not already listening it is started for this single reading and stopped again afterwards.
+
+			@param sensorType what type sensor that want to read. see @SensorType for details
+		*/
+		Future<object> GetOnce(Context c, object[] args)
+		{
+			var result = new Promise<object>();
+
+			SensorType sensorType;
+			if (!TryGetSensorType(args, out sensorType))
+			{
+				result.Reject(new Exception("Please Specify SensorType"));
+				return result;
+			}
+
+			if (!SensorTracker.IsSupported(sensorType))
+			{
+				result.Reject(new Exception("Unknown SensorType"));
+				return result;
+			}
+
+			_tracker.GetOnce(sensorType, result);
+			return result;
+		}
+
+		/** Validates the sensor type argument. Using Marshal.ToInt directly would throw a
+			MarshalException (or silently fall back to ACCELEROMETER) for non-numeric input. */
+		static bool TryGetSensorType(object[] args, out SensorType sensorType)
+		{
+			sensorType = SensorType.ACCELEROMETER;
+			if (args.Length == 0)
+				return false;
+
+			double value;
+			if (!Marshal.TryToDouble(args[0], out value))
+				return false;
+
+			if (value < 0 || value > 100 || value != (int)value)
+				return false;
+
+			sensorType = (SensorType)(int)value;
+			return true;
+		}
+
+		/**
+			@scriptevent changed(data)
 
 			Raised when the sensor changes.
 
 			Use [startListening](api:fuse/sensor/sensormodule/startlistening_bbef95e2.json) to get these events.
 
-			@param data will contain the new data, see @SensorData or @BatteryData or @InternetConnectionData
+			This event carries the data of every sensor type. To only receive the data of one sensor,
+			listen to its own event instead (`"accelerometer"`, `"gyroscope"`, `"magnetometer"`,
+			`"gravity"`, `"user_acceleration"`, `"rotation"`, `"step_counter"`, `"pressure"`,
+			`"battery"` or `"connection_state"`).
+
+			Every reading has `timestamp` (milliseconds since the Unix epoch) and `elapsed` (seconds on
+			the sensor's monotonic clock) properties, see [Timestamps](#timestamps).
+
+			@param data will contain the new data, see @SensorData or @BatteryData or @ConnectionStateData
 		*/
-		void DataChanged(object data)
+		void DataChanged(SensorType type, object data)
 		{
 			EmitFactory(ChangedArgsFactory, data);
+			EmitFactory(TypeChangedArgsFactory, Tuple.Create(type, data));
 		}
 
 		/**
@@ -489,12 +586,22 @@ namespace Fuse.Sensor
 
 		static object[] ChangedArgsFactory(Context context, object obj)
 		{
+			return new object[] { "changed", ConvertData(context, obj) };
+		}
+
+		static object[] TypeChangedArgsFactory(Context context, Tuple<SensorType, object> payload)
+		{
+			return new object[] { SensorTracker.GetEventName(payload.Item1), ConvertData(context, payload.Item2) };
+		}
+
+		static Scripting.Object ConvertData(Context context, object obj)
+		{
 			if (obj is BatteryData)
-				return new object[] { "changed", BatteryDataConverter(context, (BatteryData)obj) };
+				return BatteryDataConverter(context, (BatteryData)obj);
 			else if (obj is ConnectionStateData)
-				return new object[] { "changed", ConnectionDataConverter(context, (ConnectionStateData)obj) };
+				return ConnectionDataConverter(context, (ConnectionStateData)obj);
 			else
-				return new object[] { "changed", SensorDataConverter(context, (SensorData)obj) };
+				return SensorDataConverter(context, (SensorData)obj);
 		}
 
 		static Scripting.Object SensorDataConverter(Context context, SensorData sensorData)
@@ -506,6 +613,8 @@ namespace Fuse.Sensor
 				obj["x"] = sensorData.Data[0];
 				obj["y"] = sensorData.Data[1];
 				obj["z"] = sensorData.Data[2];
+				obj["timestamp"] = sensorData.Timestamp;
+				obj["elapsed"] = sensorData.Elapsed;
 			}
 			return obj;
 		}
@@ -517,7 +626,11 @@ namespace Fuse.Sensor
 			{
 				obj["type"] = (int)SensorType.BATTERY;
 				obj["level"] = sensorData.Level;
+				obj["levelPercent"] = sensorData.LevelPercent;
+				obj["levelRatio"] = sensorData.LevelRatio;
 				obj["state"] = sensorData.State;
+				obj["timestamp"] = sensorData.Timestamp;
+				obj["elapsed"] = sensorData.Elapsed;
 			}
 			return obj;
 		}
@@ -525,9 +638,14 @@ namespace Fuse.Sensor
 		static Scripting.Object ConnectionDataConverter(Context context, ConnectionStateData sensorData)
 		{
 			var obj = context.NewObject();
-			obj["type"] = (int)SensorType.CONNECTION_STATE;
-			obj["state"] = sensorData.ConnectionStatus;
-			obj["stateString"] = sensorData.ConnectionStatusString;
+			if(sensorData != null)
+			{
+				obj["type"] = (int)SensorType.CONNECTION_STATE;
+				obj["state"] = sensorData.ConnectionStatus;
+				obj["stateString"] = sensorData.ConnectionStatusString;
+				obj["timestamp"] = sensorData.Timestamp;
+				obj["elapsed"] = sensorData.Elapsed;
+			}
 			return obj;
 		}
 	}
@@ -546,9 +664,13 @@ namespace Fuse.Sensor
 		USER_ACCELERATION = 4,
 		/** Measures the orientation of a device by providing the three elements of the device's rotation vector. */
 		ROTATION = 5,
-		/** Number of steps taken by the user since the last reboot while the sensor was activated. */
+		/** Number of steps taken by the user since the last reboot while the sensor was activated.
+			Requires the ACTIVITY_RECOGNITION permission on Android 10 and later, which can be requested
+			with Fuse.Android.Permissions (Android.ACTIVITY_RECOGNITION). On iOS the app must declare
+			NSMotionUsageDescription in its own project file. */
 		STEP_COUNTER = 6,
-		/** Measures the ambient air pressure in hPa or mbar. */
+		/** Measures the ambient air pressure in hPa or mbar. On iOS the app must declare
+			NSMotionUsageDescription in its own project file. */
 		PRESSURE = 7,
 		/** Monitor battery level and state */
 		BATTERY = 8,

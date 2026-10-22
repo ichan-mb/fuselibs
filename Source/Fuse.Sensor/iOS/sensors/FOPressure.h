@@ -1,7 +1,8 @@
 #import <Foundation/Foundation.h>
+#import "FOSensor.h"
 #include <CoreMotion/CoreMotion.h>
 
-@interface FOPressure : NSObject
+@interface FOPressure : NSObject <FOSensor>
 
 @property (nonatomic, readonly, getter=isSensing) BOOL sensing;
 @property (nonatomic, copy) void (^_onDataChanged)(CMAltitudeData* altimerData);

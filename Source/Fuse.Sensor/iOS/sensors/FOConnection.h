@@ -1,8 +1,9 @@
 #import <Foundation/Foundation.h>
+#import "FOSensor.h"
 #import "FOReachability.h"
 #import "FOConnectionStateData.h"
 
-@interface FOConnection : NSObject
+@interface FOConnection : NSObject <FOSensor>
 
 @property (nonatomic, readonly, getter=isSensing) BOOL sensing;
 @property (nonatomic, copy) void (^_onDataChanged)(FOConnectionStateData * status);

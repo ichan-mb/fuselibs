@@ -17,22 +17,23 @@
 
 - (NSString *)stateString
 {
+    // These values are part of the public API, so they must match the Android implementation.
     switch (_state) {
         case UIDeviceBatteryStateCharging:
-            return @"Charging";
+            return @"charging";
 
         case UIDeviceBatteryStateFull:
-            return @"Full";
+            return @"full";
 
         case UIDeviceBatteryStateUnplugged:
-            return @"Unplugged";
+            return @"unplugged";
 
         case UIDeviceBatteryStateUnknown:
-            return @"Unknown";
+            return @"unknown";
 
         default:
             NSLog(@"Warning: Unknown state: %d", (int)_state);
-            return @"Unknown";
+            return @"unknown";
     }
 }
 

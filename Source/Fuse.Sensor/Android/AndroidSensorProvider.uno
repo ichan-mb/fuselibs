@@ -1,677 +1,136 @@
 using Uno;
-using Uno.UX;
 using Uno.Compiler.ExportTargetInterop;
 
 namespace Fuse.Sensor
 {
-	extern(Android) class AndroidAccelerometerProvider : ISensorTracker
-	{
-		Java.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
+	/**
+		Android implementation of every sensor type.
 
-		public void Init(Action<object> onDataChanged, Action<string> onDataError)
+		All native handles implement `com.fuse.sensorkit.SensorHandle`, so starting, stopping and
+		querying a sensor is shared regardless of how it is backed (SensorManager or a broadcast
+		receiver).
+	*/
+	extern(Android) class AndroidSensorProvider : ISensorProvider
+	{
+		readonly SensorType _sensorType;
+		Java.Object _sensor;
+		Action<SensorType, object> _onDataChanged;
+		Action<SensorType, string> _onDataError;
+
+		public AndroidSensorProvider(SensorType sensorType)
 		{
-			_OnDataChanged = onDataChanged;
-			_OnDataError = onDataError;
-			_sensor = InitSensor(OnDataChanged);
+			_sensorType = sensorType;
 		}
 
-		public void StartListening()
+		public void Init(Action<SensorType, object> onDataChanged, Action<SensorType, string> onDataError)
 		{
-			StartSensor(_sensor);
+			_onDataChanged = onDataChanged;
+			_onDataError = onDataError;
+			_sensor = InitSensor((int)_sensorType, OnDataChanged);
+		}
+
+		public void StartListening(int intervalMs)
+		{
+			if (_sensor == null)
+			{
+				ReportError(SensorTracker.GetSensorName(_sensorType) + " sensor is not available.");
+				return;
+			}
+
+			StartSensor(_sensor, intervalMs);
 		}
 
 		public void StopListening()
 		{
-			StopSensor(_sensor);
+			if (_sensor != null)
+				StopSensor(_sensor);
 		}
 
 		public bool IsSensing()
 		{
-			return IsSensing(_sensor);
+			return _sensor != null && IsSensorSensing(_sensor);
+		}
+
+		/** Whether the device has hardware for @type. */
+		public static bool IsAvailable(SensorType type)
+		{
+			if (!SensorTracker.IsSupported(type))
+				return false;
+
+			return IsSensorAvailable((int)type);
 		}
 
 		[Foreign(Language.Java)]
-		extern(Android) Java.Object InitSensor(Action<Java.Object> onDataChanged)
+		extern(Android) Java.Object InitSensor(int sensorType, Action<Java.Object> onDataChanged)
 		@{
-			return new com.fuse.sensorkit.AccelerometerSensor(onDataChanged);
+			com.fuse.sensorkit.SensorType moduleType = com.fuse.sensorkit.SensorType.fromCode(sensorType);
+			if (moduleType == null)
+				return null;
+
+			switch (moduleType) {
+				case ACCELEROMETER:     return new com.fuse.sensorkit.AccelerometerSensor(onDataChanged);
+				case GYROSCOPE:         return new com.fuse.sensorkit.GyroscopeSensor(onDataChanged);
+				case MAGNETOMETER:      return new com.fuse.sensorkit.MagnetometerSensor(onDataChanged);
+				case GRAVITY:           return new com.fuse.sensorkit.GravitySensor(onDataChanged);
+				case USER_ACCELERATION: return new com.fuse.sensorkit.UserAccelerationSensor(onDataChanged);
+				case ROTATION:          return new com.fuse.sensorkit.RotationSensor(onDataChanged);
+				case STEP_COUNTER:      return new com.fuse.sensorkit.PedometerSensor(onDataChanged);
+				case PRESSURE:          return new com.fuse.sensorkit.PressureSensor(onDataChanged);
+				case BATTERY:           return new com.fuse.sensorkit.BatterySensor(onDataChanged);
+				case CONNECTION_STATE:  return new com.fuse.sensorkit.ConnectionStateSensor(onDataChanged);
+			}
+			return null;
 		@}
 
 		[Foreign(Language.Java)]
-		extern(Android) void StartSensor(Java.Object handle)
+		extern(Android) static bool IsSensorAvailable(int sensorType)
+		@{
+			return com.fuse.sensorkit.AbstractSensor.isAvailable(com.fuse.sensorkit.SensorType.fromCode(sensorType));
+		@}
+
+		[Foreign(Language.Java)]
+		extern(Android) void StartSensor(Java.Object handle, int intervalMs)
 		@{
 			try {
-				((com.fuse.sensorkit.AccelerometerSensor)handle).start();
+				((com.fuse.sensorkit.SensorHandle)handle).start(intervalMs);
 			} catch (Exception e) {
-				@{AndroidAccelerometerProvider:of(_this).OnError(string):call(e.getMessage())};
+				@{AndroidSensorProvider:of(_this).ReportError(string):call(e.getMessage())};
 			}
 		@}
 
 		[Foreign(Language.Java)]
 		extern(Android) void StopSensor(Java.Object handle)
 		@{
-			((com.fuse.sensorkit.AccelerometerSensor)handle).stop();
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) bool IsSensing(Java.Object handle)
-		@{
-			return ((com.fuse.sensorkit.AccelerometerSensor)handle).isSensing();
-		@}
-
-		void OnDataChanged(Java.Object newData)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(newData));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	extern(Android) class AndroidGyroscopeProvider : ISensorTracker
-	{
-		Java.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> onDataChanged, Action<string> onDataError)
-		{
-			_OnDataChanged = onDataChanged;
-			_OnDataError = onDataError;
-			_sensor = InitSensor(OnDataChanged);
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.Java)]
-		extern(Android) Java.Object InitSensor(Action<Java.Object> onDataChanged)
-		@{
-			return new com.fuse.sensorkit.GyroscopeSensor(onDataChanged);
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StartSensor(Java.Object handle)
-		@{
 			try {
-				((com.fuse.sensorkit.GyroscopeSensor)handle).start();
+				((com.fuse.sensorkit.SensorHandle)handle).stop();
 			} catch (Exception e) {
-				@{AndroidGyroscopeProvider:of(_this).OnError(string):call(e.getMessage())};
+				@{AndroidSensorProvider:of(_this).ReportError(string):call(e.getMessage())};
 			}
 		@}
 
 		[Foreign(Language.Java)]
-		extern(Android) void StopSensor(Java.Object handle)
+		extern(Android) bool IsSensorSensing(Java.Object handle)
 		@{
-			((com.fuse.sensorkit.GyroscopeSensor)handle).stop();
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) bool IsSensing(Java.Object handle)
-		@{
-			return ((com.fuse.sensorkit.GyroscopeSensor)handle).isSensing();
+			return handle != null && ((com.fuse.sensorkit.SensorHandle)handle).isSensing();
 		@}
 
 		void OnDataChanged(Java.Object newData)
 		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(newData));
+			if (_onDataChanged == null)
+				return;
+
+			if (_sensorType == SensorType.BATTERY)
+				_onDataChanged(_sensorType, SensorDataHelpers.ConvertBatteryData(newData));
+			else if (_sensorType == SensorType.CONNECTION_STATE)
+				_onDataChanged(_sensorType, SensorDataHelpers.ConvertConnectionStateData(newData));
+			else
+				_onDataChanged(_sensorType, SensorDataHelpers.ConvertSensorData(newData));
 		}
 
-		void OnError(string error)
+		void ReportError(string error)
 		{
-			_OnDataError(error);
+			if (_onDataError != null)
+				_onDataError(_sensorType, error);
 		}
 	}
-
-	extern(Android) class AndroidMagnetometerProvider : ISensorTracker
-	{
-		Java.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> onDataChanged, Action<string> onDataError)
-		{
-			_OnDataChanged = onDataChanged;
-			_OnDataError = onDataError;
-			_sensor = InitSensor(OnDataChanged);
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.Java)]
-		extern(Android) Java.Object InitSensor(Action<Java.Object> onDataChanged)
-		@{
-			return new com.fuse.sensorkit.MagnetometerSensor(onDataChanged);
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StartSensor(Java.Object handle)
-		@{
-			try {
-				((com.fuse.sensorkit.MagnetometerSensor)handle).start();
-			} catch (Exception e) {
-				@{AndroidMagnetometerProvider:of(_this).OnError(string):call(e.getMessage())};
-			}
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StopSensor(Java.Object handle)
-		@{
-			((com.fuse.sensorkit.MagnetometerSensor)handle).stop();
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) bool IsSensing(Java.Object handle)
-		@{
-			return ((com.fuse.sensorkit.MagnetometerSensor)handle).isSensing();
-		@}
-
-		void OnDataChanged(Java.Object newData)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(newData));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	extern(Android) class AndroidUserAccelerationProvider : ISensorTracker
-	{
-		Java.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> onDataChanged, Action<string> onDataError)
-		{
-			_OnDataChanged = onDataChanged;
-			_OnDataError = onDataError;
-			_sensor = InitSensor(OnDataChanged);
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.Java)]
-		extern(Android) Java.Object InitSensor(Action<Java.Object> onDataChanged)
-		@{
-			return new com.fuse.sensorkit.UserAccelerationSensor(onDataChanged);
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StartSensor(Java.Object handle)
-		@{
-			try {
-				((com.fuse.sensorkit.UserAccelerationSensor)handle).start();
-			} catch (Exception e) {
-				@{AndroidUserAccelerationProvider:of(_this).OnError(string):call(e.getMessage())};
-			}
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StopSensor(Java.Object handle)
-		@{
-			((com.fuse.sensorkit.UserAccelerationSensor)handle).stop();
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) bool IsSensing(Java.Object handle)
-		@{
-			return ((com.fuse.sensorkit.UserAccelerationSensor)handle).isSensing();
-		@}
-
-		void OnDataChanged(Java.Object newData)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(newData));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	extern(Android) class AndroidGravityProvider : ISensorTracker
-	{
-		Java.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> onDataChanged, Action<string> onDataError)
-		{
-			_OnDataChanged = onDataChanged;
-			_OnDataError = onDataError;
-			_sensor = InitSensor(OnDataChanged);
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.Java)]
-		extern(Android) Java.Object InitSensor(Action<Java.Object> onDataChanged)
-		@{
-			return new com.fuse.sensorkit.GravitySensor(onDataChanged);
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StartSensor(Java.Object handle)
-		@{
-			try {
-				((com.fuse.sensorkit.GravitySensor)handle).start();
-			} catch (Exception e) {
-				@{AndroidGravityProvider:of(_this).OnError(string):call(e.getMessage())};
-			}
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StopSensor(Java.Object handle)
-		@{
-			((com.fuse.sensorkit.GravitySensor)handle).stop();
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) bool IsSensing(Java.Object handle)
-		@{
-			return ((com.fuse.sensorkit.GravitySensor)handle).isSensing();
-		@}
-
-		void OnDataChanged(Java.Object newData)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(newData));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	extern(Android) class AndroidRotationProvider : ISensorTracker
-	{
-		Java.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> onDataChanged, Action<string> onDataError)
-		{
-			_OnDataChanged = onDataChanged;
-			_OnDataError = onDataError;
-			_sensor = InitSensor(OnDataChanged);
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.Java)]
-		extern(Android) Java.Object InitSensor(Action<Java.Object> onDataChanged)
-		@{
-			return new com.fuse.sensorkit.RotationSensor(onDataChanged);
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StartSensor(Java.Object handle)
-		@{
-			try {
-				((com.fuse.sensorkit.RotationSensor)handle).start();
-			} catch (Exception e) {
-				@{AndroidRotationProvider:of(_this).OnError(string):call(e.getMessage())};
-			}
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StopSensor(Java.Object handle)
-		@{
-			((com.fuse.sensorkit.RotationSensor)handle).stop();
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) bool IsSensing(Java.Object handle)
-		@{
-			return ((com.fuse.sensorkit.RotationSensor)handle).isSensing();
-		@}
-
-		void OnDataChanged(Java.Object newData)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(newData));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	extern(Android) class AndroidPedometerProvider : ISensorTracker
-	{
-		Java.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> onDataChanged, Action<string> onDataError)
-		{
-			_OnDataChanged = onDataChanged;
-			_OnDataError = onDataError;
-			_sensor = InitSensor(OnDataChanged);
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.Java)]
-		extern(Android) Java.Object InitSensor(Action<Java.Object> onDataChanged)
-		@{
-			return new com.fuse.sensorkit.PedometerSensor(onDataChanged);
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StartSensor(Java.Object handle)
-		@{
-			try {
-				((com.fuse.sensorkit.PedometerSensor)handle).start();
-			} catch (Exception e) {
-				@{AndroidPedometerProvider:of(_this).OnError(string):call(e.getMessage())};
-			}
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StopSensor(Java.Object handle)
-		@{
-			((com.fuse.sensorkit.PedometerSensor)handle).stop();
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) bool IsSensing(Java.Object handle)
-		@{
-			return ((com.fuse.sensorkit.PedometerSensor)handle).isSensing();
-		@}
-
-		void OnDataChanged(Java.Object newData)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(newData));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	extern(Android) class AndroidPressureProvider : ISensorTracker
-	{
-		Java.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> onDataChanged, Action<string> onDataError)
-		{
-			_OnDataChanged = onDataChanged;
-			_OnDataError = onDataError;
-			_sensor = InitSensor(OnDataChanged);
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.Java)]
-		extern(Android) Java.Object InitSensor(Action<Java.Object> onDataChanged)
-		@{
-			return new com.fuse.sensorkit.PressureSensor(onDataChanged);
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StartSensor(Java.Object handle)
-		@{
-			try {
-				((com.fuse.sensorkit.PressureSensor)handle).start();
-			} catch (Exception e) {
-				@{AndroidPressureProvider:of(_this).OnError(string):call(e.getMessage())};
-			}
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StopSensor(Java.Object handle)
-		@{
-			((com.fuse.sensorkit.PressureSensor)handle).stop();
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) bool IsSensing(Java.Object handle)
-		@{
-			return ((com.fuse.sensorkit.PressureSensor)handle).isSensing();
-		@}
-
-		void OnDataChanged(Java.Object newData)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertSensorData(newData));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	extern(Android) class AndroidBatteryProvider : ISensorTracker
-	{
-		Java.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> onDataChanged, Action<string> onDataError)
-		{
-			_OnDataChanged = onDataChanged;
-			_OnDataError = onDataError;
-			_sensor = InitSensor(OnDataChanged);
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.Java)]
-		extern(Android) Java.Object InitSensor(Action<Java.Object> onDataChanged)
-		@{
-			return new com.fuse.sensorkit.BatterySensor(onDataChanged);
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StartSensor(Java.Object handle)
-		@{
-			try {
-				((com.fuse.sensorkit.BatterySensor)handle).start();
-			} catch (Exception e) {
-				@{AndroidBatteryProvider:of(_this).OnError(string):call(e.getMessage())};
-			}
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StopSensor(Java.Object handle)
-		@{
-			((com.fuse.sensorkit.BatterySensor)handle).stop();
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) bool IsSensing(Java.Object handle)
-		@{
-			return ((com.fuse.sensorkit.BatterySensor)handle).isSensing();
-		@}
-
-		void OnDataChanged(Java.Object newData)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertBatteryData(newData));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
-	extern(Android) class AndroidConnectionStateProvider : ISensorTracker
-	{
-		Java.Object _sensor;
-		Action<object> _OnDataChanged;
-		Action<string> _OnDataError;
-
-		public void Init(Action<object> onDataChanged, Action<string> onDataError)
-		{
-			_OnDataChanged = onDataChanged;
-			_OnDataError = onDataError;
-			_sensor = InitSensor(OnDataChanged);
-		}
-
-		public void StartListening()
-		{
-			StartSensor(_sensor);
-		}
-
-		public void StopListening()
-		{
-			StopSensor(_sensor);
-		}
-
-		public bool IsSensing()
-		{
-			return IsSensing(_sensor);
-		}
-
-		[Foreign(Language.Java)]
-		extern(Android) Java.Object InitSensor(Action<Java.Object> onDataChanged)
-		@{
-			return new com.fuse.sensorkit.ConnectionStateSensor(onDataChanged);
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StartSensor(Java.Object handle)
-		@{
-			try {
-				((com.fuse.sensorkit.ConnectionStateSensor)handle).start();
-			} catch (Exception e) {
-				@{AndroidConnectionStateProvider:of(_this).OnError(string):call(e.getMessage())};
-			}
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) void StopSensor(Java.Object handle)
-		@{
-			((com.fuse.sensorkit.ConnectionStateSensor)handle).stop();
-		@}
-
-		[Foreign(Language.Java)]
-		extern(Android) bool IsSensing(Java.Object handle)
-		@{
-			return ((com.fuse.sensorkit.ConnectionStateSensor)handle).isSensing();
-		@}
-
-		void OnDataChanged(Java.Object newData)
-		{
-			_OnDataChanged(SensorDataHelpers.ConvertConnectionStateData(newData));
-		}
-
-		void OnError(string error)
-		{
-			_OnDataError(error);
-		}
-	}
-
 }

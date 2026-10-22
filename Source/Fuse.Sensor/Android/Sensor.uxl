@@ -1,0 +1,7 @@
+<extensions backend="cplusplus" condition="ANDROID">
+
+	<!-- Required by ConnectionStateSensor. This is a normal permission, so it is granted at install time
+	     and does not require a runtime request. -->
+	<require androidManifest.permission="android.permission.ACCESS_NETWORK_STATE" />
+
+</extensions>

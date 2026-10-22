@@ -16,6 +16,11 @@ namespace Fuse
 
 		> For more information on what are the pre-request when implementing `Sign In With Apple` or `Google Sign In`, you can check the documentation on the apple developer website or android developer website
 		> for iOS add "SystemCapabilities": { "SignInWithApple":true }  in the unoproj file.
+		>
+		> That entry has to be in the **application** project file. Declaring it in a referenced library
+		> (including `Fuse.Auth.unoproj`) does not work: the build only applies `ios.systemCapabilities`
+		> from the app project, so the `com.apple.developer.applesignin` entitlement would be missing and
+		> Sign In With Apple would fail.
 
 		## Example
 

@@ -60,6 +60,11 @@ namespace Fuse.Android.Permissions.Internal
             return new PlatformPermission("android.permission.ACCOUNT_MANAGER");
         }
         [TargetSpecificImplementation]
+        internal static extern PlatformPermission _activity_recognition()
+        {
+            return new PlatformPermission("android.permission.ACTIVITY_RECOGNITION");
+        }
+        [TargetSpecificImplementation]
         internal static extern PlatformPermission _add_voicemail()
         {
             return new PlatformPermission("android.permission.ADD_VOICEMAIL");

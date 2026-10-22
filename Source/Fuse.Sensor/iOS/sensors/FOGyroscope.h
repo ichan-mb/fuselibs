@@ -1,7 +1,8 @@
 #import <Foundation/Foundation.h>
+#import "FOSensor.h"
 #include <CoreMotion/CoreMotion.h>
 
-@interface FOGyroscope : NSObject
+@interface FOGyroscope : NSObject <FOSensor>
 
 @property (nonatomic, readonly, getter=isSensing) BOOL sensing;
 @property (nonatomic, copy) void (^_onDataChanged)(CMGyroData* gyroscopeData);

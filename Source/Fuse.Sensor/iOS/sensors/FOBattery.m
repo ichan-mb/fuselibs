@@ -1,5 +1,13 @@
 #import "FOBattery.h"
 
+@interface FOBattery ()
+
+@property (nonatomic, assign) BOOL wasMonitoringEnabled;
+
+- (void)postBatteryData;
+
+@end
+
 @implementation FOBattery
 
 @synthesize _onDataChanged;
@@ -9,49 +17,77 @@
 {
     if (self = [super init])
     {
-        // Register for battery level and state change notifications.
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(batteryLevelChanged:)
-                                                     name:UIDeviceBatteryLevelDidChangeNotification object:nil];
-
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(batteryStateChanged:)
-                                                     name:UIDeviceBatteryStateDidChangeNotification object:nil];
-
         self._onDataChanged = onDataChanged;
         self._onError = onError;
+        self.wasMonitoringEnabled = NO;
     }
     return self;
+}
+
+- (void)dealloc
+{
+    // Never leave observers behind, even if the provider was never stopped.
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 #pragma mark Sensing
 
 - (BOOL)startSensing
 {
+    if (_sensing)
+        return YES;
+
+    self.wasMonitoringEnabled = [UIDevice currentDevice].batteryMonitoringEnabled;
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(batteryChanged:)
+                                                 name:UIDeviceBatteryLevelDidChangeNotification object:nil];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(batteryChanged:)
+                                                 name:UIDeviceBatteryStateDidChangeNotification object:nil];
+
     [UIDevice currentDevice].batteryMonitoringEnabled = YES;
     _sensing = YES;
+
+    // Android delivers the current state immediately through a sticky broadcast, so do the
+    // same here instead of making the app wait for the first change.
+    [self postBatteryData];
+
     return YES;
 }
 
 - (BOOL)stopSensing
 {
-    [UIDevice currentDevice].batteryMonitoringEnabled = NO;
+    if (!_sensing)
+        return YES;
+
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                    name:UIDeviceBatteryLevelDidChangeNotification
+                                                  object:nil];
+
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                    name:UIDeviceBatteryStateDidChangeNotification
+                                                  object:nil];
+
+    // Restore whatever the app had configured before we started monitoring.
+    [UIDevice currentDevice].batteryMonitoringEnabled = self.wasMonitoringEnabled;
     _sensing = NO;
     return YES;
 }
 
-- (void)batteryLevelChanged:(NSNotification *)notification
+- (void)batteryChanged:(NSNotification *)notification
 {
-    FOBatteryData *data = [[FOBatteryData alloc] initWithLevel:[UIDevice currentDevice].batteryLevel
-                                                     state:[UIDevice currentDevice].batteryState];
-
-    self._onDataChanged(data);
+    [self postBatteryData];
 }
 
-- (void)batteryStateChanged:(NSNotification *)notification
+- (void)postBatteryData
 {
+    if (!_sensing || !self._onDataChanged)
+        return;
+
     FOBatteryData *data = [[FOBatteryData alloc] initWithLevel:[UIDevice currentDevice].batteryLevel
-                                                     state:[UIDevice currentDevice].batteryState];
+                                                         state:[UIDevice currentDevice].batteryState];
 
     self._onDataChanged(data);
 }

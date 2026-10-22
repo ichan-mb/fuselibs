@@ -47,6 +47,9 @@ namespace Fuse
 				}
 			}
 		```
+		This has to be in the **application** project file. Declaring it in a referenced library (including
+		`Fuse.Auth.unoproj`) does not work: the build only applies `ios.pList` from the app project, so a
+		missing entry makes iOS terminate the app as soon as FaceID is used.
 	*/
 	public class BiometricModule : NativeModule
 	{

@@ -1,5 +1,4 @@
 using Uno;
-using Uno.UX;
 using Uno.Compiler.ExportTargetInterop;
 
 namespace Fuse.Sensor
@@ -31,17 +30,18 @@ namespace Fuse.Sensor
 			return [handle getStatusString];
 		@}
 
-		public static SensorData ConvertSensorData(int sensorType, float x, float y, float z)
+		public static SensorData ConvertSensorData(int sensorType, float x, float y, float z, double elapsed)
 		{
-			return new SensorData(sensorType,float3(x,y,z));
+			return new SensorData(sensorType, float3(x,y,z), SensorTimestamp.Now(), elapsed);
 		}
 
 		public static BatteryData ConvertBatteryData(ObjC.Object data)
 		{
-			return new BatteryData(SensorDataHelpers.GetBatteryLevel(data), SensorDataHelpers.GetBatteryState(data));
+			var level = SensorDataHelpers.GetBatteryLevel(data);
+			return new BatteryData(level, level * 100.0f, level, SensorDataHelpers.GetBatteryState(data));
 		}
 
-		public static object ConvertConnectionState(ObjC.Object data)
+		public static ConnectionStateData ConvertConnectionState(ObjC.Object data)
 		{
 			return new ConnectionStateData(SensorDataHelpers.GetConnectionState(data), SensorDataHelpers.GetConnectionStateString(data));
 		}
