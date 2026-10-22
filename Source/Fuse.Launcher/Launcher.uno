@@ -42,6 +42,42 @@ namespace Fuse
 			MapsLauncher.LaunchMaps(latitude, longitude, query);
 		}
 
+		/** Whether the platform can launch a map application. */
+		public static bool IsMapAvailable()
+		{
+			return MapsLauncher.IsAvailable();
+		}
+
+		/**
+			Open the platform map application.
+
+			The returned future resolves to `MapLaunchStatus.Opened` once the
+			platform hands the request to a map application, and rejects with a
+			user-facing message when it cannot.
+		*/
+		public static Future<MapLaunchStatus> LaunchMaps(MapLaunchOptions options)
+		{
+			return MapsLauncher.Launch(options);
+		}
+
+		/**
+			Open directions to a destination.
+
+			When `origin` is `null`, directions start at the current location.
+		*/
+		public static Future<MapLaunchStatus> LaunchDirections(
+			MapLocation origin, MapLocation destination)
+		{
+			return MapsLauncher.LaunchDirections(origin, destination);
+		}
+
+		/** Open directions using the given travel mode. */
+		public static Future<MapLaunchStatus> LaunchDirections(
+			MapLocation origin, MapLocation destination, MapTravelMode mode)
+		{
+			return MapsLauncher.LaunchDirections(origin, destination, mode);
+		}
+
 		public static void LaunchEmail(string to, string carbonCopy, string blindCarbonCopy, string subject, string message)
 		{
 			EmailLauncher.LaunchEmail(to, carbonCopy, blindCarbonCopy, subject, message);

@@ -7,20 +7,20 @@
     "Fuse.Launcher.Test"
   ],
   "references": [
-    "Uno.Net.Http"
+    "Uno.Net.Http",
+    "Uno.Threading"
   ],
   "projects": [
-    "../Fuse.Android.Permissions/Fuse.Android.Permissions.unoproj",
     "../Fuse.Android/Fuse.Android.unoproj",
-    "../Fuse.iOS/Fuse.iOS.unoproj",
+    "../Fuse.Common/Fuse.Common.unoproj",
     "../Fuse.Marshal/Fuse.Marshal.unoproj",
     "../Fuse.Nodes/Fuse.Nodes.unoproj",
     "../Fuse.Scripting/Fuse.Scripting.unoproj",
     "../Fuse.Triggers/Fuse.Triggers.unoproj"
   ],
   "includes": [
-    "Maps/MapsLauncher.uno",
-    "Maps/MapsTrigger.uno",
-    "Maps/JS.uno"
+    "Maps/*.uno",
+    "android/*",
+    "ios/*"
   ]
 }

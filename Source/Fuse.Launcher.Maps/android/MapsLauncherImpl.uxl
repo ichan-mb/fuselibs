@@ -1,0 +1,16 @@
+<extensions backend="cplusplus">
+
+	<processFile condition="ANDROID" name="MapsLauncherHelper.java" targetName="app/src/main/java/com/fuse/launcher/maps/MapsLauncherHelper.java" />
+
+	<require condition="ANDROID" androidManifest.rootElement>
+		<![CDATA[
+			<queries>
+				<intent>
+					<action android:name="android.intent.action.VIEW" />
+					<data android:scheme="geo" />
+				</intent>
+			</queries>
+		]]>
+	</require>
+
+</extensions>

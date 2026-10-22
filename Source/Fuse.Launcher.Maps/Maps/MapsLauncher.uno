@@ -1,71 +1,97 @@
 using Uno;
-using Uno.Compiler.ExportTargetInterop;
-using Fuse.Android.Permissions;
-using Uno.Net.Http;
-using Fuse.iOS.Bindings;
-using Fuse.Android.Bindings;
+using Uno.Threading;
 
 namespace Fuse.LauncherImpl
 {
-	[ForeignInclude(Language.Java, "android.content.Intent")]
-	[ForeignInclude(Language.ObjC, "UIKit/UIKit.h")]
 	public static class MapsLauncher
 	{
-		[Foreign(Language.Java)]
-		extern(Android) static string _actionView
+		/** Whether the platform can launch a map application. */
+		public static bool IsAvailable()
 		{
-			get
-			@{
-				return Intent.ACTION_VIEW;
-			@}
+			if defined(Android)
+				return MapsPlatformAndroid.IsAvailable();
+			else if defined(iOS)
+				return MapsPlatformIOS.IsAvailable();
+			else
+				return false;
+		}
+
+		/**
+			Open the platform map application.
+
+			The returned future resolves to `MapLaunchStatus.Opened` once the
+			platform hands the request to a map application, and rejects with a
+			user-facing message when it cannot.
+		*/
+		public static Future<MapLaunchStatus> Launch(MapLaunchOptions options)
+		{
+			var promise = new Promise<MapLaunchStatus>();
+
+			try
+			{
+				MapsUriHelper.Validate(options);
+
+				if defined(Android)
+					MapsPlatformAndroid.Launch(options, promise);
+				else if defined(iOS)
+					MapsPlatformIOS.Launch(options, promise);
+				else
+					promise.Reject(new Exception("Maps are not supported on this platform."));
+			}
+			catch (Exception e)
+			{
+				promise.Reject(e);
+			}
+
+			return promise;
+		}
+
+		/**
+			Open directions to a destination.
+
+			When `origin` is `null`, directions start at the current location.
+		*/
+		public static Future<MapLaunchStatus> LaunchDirections(
+			MapLocation origin, MapLocation destination)
+		{
+			return LaunchDirections(origin, destination, MapTravelMode.Driving);
+		}
+
+		/** Open directions using the given travel mode. */
+		public static Future<MapLaunchStatus> LaunchDirections(
+			MapLocation origin, MapLocation destination, MapTravelMode mode)
+		{
+			return Launch(new MapLaunchOptions
+			{
+				Origin = origin,
+				Destination = destination,
+				TravelMode = mode
+			});
 		}
 
 		public static void LaunchMaps(double latitude, double longitude)
 		{
-			if defined(Android || iOS)
+			Launch(new MapLaunchOptions
 			{
-				var latlon = latitude.ToString() + "," + longitude.ToString();
-
-				if defined(Android)
-					LaunchMapsAndroid("geo:" + latlon + "?q=" + latlon);
-				else if defined(iOS)
-					iOSDeviceInterop.LaunchUriiOS("http://maps.apple.com/maps?q=" + latlon + "&ll=" + latlon);
-			}
+				Location = new MapLocation(latitude, longitude)
+			}).Catch(e => { });
 		}
 
 		public static void LaunchMaps(string query)
 		{
-			query = Uri.EscapeDataString(query);
-			if defined(Android)
-				LaunchMapsAndroid("geo:0,0?q=" + query);
-			else if defined(iOS)
-				iOSDeviceInterop.LaunchUriiOS("http://maps.apple.com/maps?q=" + query);
+			Launch(new MapLaunchOptions
+			{
+				Query = query
+			}).Catch(e => { });
 		}
 
 		public static void LaunchMaps(double latitude, double longitude, string query)
 		{
-			if defined(Android || iOS)
+			Launch(new MapLaunchOptions
 			{
-				var latlon = latitude.ToString() + "," + longitude.ToString();
-				query = Uri.EscapeDataString(query);
-
-				if defined(Android)
-					LaunchMapsAndroid("geo:" + latlon + "?q=" + query);
-				if defined(iOS)
-					iOSDeviceInterop.LaunchUriiOS("http://maps.apple.com/maps?q=" + query + "&sll=" + latlon);
-			}
-		}
-
-		static extern(android) void LaunchMapsAndroid(string uri)
-		{
-			try
-			{
-				AndroidDeviceInterop.LaunchIntent(_actionView, uri, "com.google.android.apps.maps", "com.google.android.maps.MapsActivity");
-			}
-			catch (Exception e)
-			{
-				// ignore this error. Keeps behaviour in line with iOS
-			}
+				Location = new MapLocation(latitude, longitude),
+				Query = query
+			}).Catch(e => { });
 		}
 	}
 }

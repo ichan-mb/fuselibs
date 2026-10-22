@@ -1,0 +1,5 @@
+<extensions backend="cplusplus">
+
+	<require condition="IOS" xcode.framework="MapKit" />
+
+</extensions>

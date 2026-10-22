@@ -5,6 +5,11 @@
 		<li>The "send email"-button should try to send an e-mail to email@example.com, with the subject "test", and message "Hello to email@example.com"</li>
 		<li>The "fusetools.com"-button should open fusetools.com in a browser</li>
 		<li>The "Show fusetools on map" and "Show fusetools on map (JS)"-buttons should open a map-view around the fusetools offices in Oslo/Norway</li>
+		<li>The "Show Fuse with label (JS)"-button should open the map centered on Fusetools with a "Fuse" label and zoom level 16</li>
+		<li>The "Show Fuse with label (UX)"-button should open the map with a satellite base map, a "Fuse" label and zoom level 16</li>
+		<li>The "Directions to Fuse (JS)" and "Directions to Fuse (UX)"-buttons should open walking directions to the Fusetools offices</li>
+		<li>The "Directions by address (JS)"-button should open transit directions to the given address</li>
+		<li>The "Maps available? (JS)"-button should log whether a native map app is available</li>
 		<li>The "Find pizza"-button should search for pizza resturants on the map near the users current position</li>
 		<li>The "Find pizza near Fusetools"-button should search for pizza resturants on the map near the Fusetools offices in Oslo/Norway</li>
 		<li>The "Who you gonna call?"-button should try to call the Ghostbusters (1-800-555-2368)</li>
@@ -27,6 +32,45 @@
 				Maps.searchNear(59.9117715, 10.7400957, "pizza resturant");
 			}
 
+			function showFusetoolsLabeled() {
+				Maps.open({
+					latitude: 59.9117715,
+					longitude: 10.7400957,
+					label: "Fuse",
+					zoom: 16
+				}).then(function(result) {
+					console.log("Maps: " + result.status);
+				}).catch(function(error) {
+					console.log("Maps failed: " + error);
+				});
+			}
+
+			function directionsToFusetools() {
+				Maps.directions({
+					to: { latitude: 59.9117715, longitude: 10.7400957, label: "Fuse" },
+					mode: "walking"
+				}).then(function(result) {
+					console.log("Directions: " + result.status);
+				}).catch(function(error) {
+					console.log("Directions failed: " + error);
+				});
+			}
+
+			function directionsByAddress() {
+				Maps.directions({
+					to: "Some Street 1, Oslo",
+					mode: "transit"
+				}).then(function(result) {
+					console.log("Directions: " + result.status);
+				}).catch(function(error) {
+					console.log("Directions failed: " + error);
+				});
+			}
+
+			function checkMapsAvailable() {
+				console.log("Maps available: " + Maps.isAvailable());
+			}
+
 			function sendRichEmail() {
 				Email.compose({
 					to: ["email@example.com"],
@@ -44,6 +88,10 @@
 				showFusetools: showFusetools,
 				findPizza: findPizza,
 				findPizzaNearFusetools: findPizzaNearFusetools,
+				showFusetoolsLabeled: showFusetoolsLabeled,
+				directionsToFusetools: directionsToFusetools,
+				directionsByAddress: directionsByAddress,
+				checkMapsAvailable: checkMapsAvailable,
 				sendRichEmail: sendRichEmail
 			};
 		</JavaScript>
@@ -87,6 +135,45 @@
 		<StdButton Text="Find pizza near Fusetools">
 			<Clicked>
 				<Callback Handler="{findPizzaNearFusetools}" />
+			</Clicked>
+		</StdButton>
+
+		<StdButton Text="Show Fuse with label (JS)">
+			<Clicked>
+				<Callback Handler="{showFusetoolsLabeled}" />
+			</Clicked>
+		</StdButton>
+
+		<StdButton Text="Show Fuse with label (UX)">
+			<Clicked>
+				<LaunchMaps Latitude="59.9117715" Longitude="10.7400957"
+					Label="Fuse" Zoom="16" MapType="Satellite" />
+			</Clicked>
+		</StdButton>
+
+		<StdButton Text="Directions to Fuse (JS)">
+			<Clicked>
+				<Callback Handler="{directionsToFusetools}" />
+			</Clicked>
+		</StdButton>
+
+		<StdButton Text="Directions by address (JS)">
+			<Clicked>
+				<Callback Handler="{directionsByAddress}" />
+			</Clicked>
+		</StdButton>
+
+		<StdButton Text="Directions to Fuse (UX)">
+			<Clicked>
+				<LaunchDirections Latitude="59.9139" Longitude="10.7522"
+					DestinationLatitude="59.9117715" DestinationLongitude="10.7400957"
+					DestinationLabel="Fuse" TravelMode="Walking" />
+			</Clicked>
+		</StdButton>
+
+		<StdButton Text="Maps available? (JS)">
+			<Clicked>
+				<Callback Handler="{checkMapsAvailable}" />
 			</Clicked>
 		</StdButton>
 
