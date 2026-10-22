@@ -754,7 +754,7 @@ namespace Fuse.Vibration
 		}
 
 		/**
-			Pre-warms the haptic engine. Returns `false` when the device cannot
+			Prepares the platform haptics. Returns `false` when the device cannot
 			vibrate.
 		*/
 		public static extern(Android) bool Prepare()

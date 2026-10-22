@@ -26,7 +26,7 @@ namespace Fuse.Vibration
 		* `vibrate([seconds | type | pattern | options])` - starts a vibration. Returns `true` when a vibration was started, otherwise `false`.
 		* `primitive(name, [scale])` - plays a native haptic primitive such as `click` or `thud`.
 		* `cancel()` - stops any ongoing vibration.
-		* `prepare()` - pre-warms the haptic engine to reduce latency on the next vibration.
+		* `prepare()` - returns whether haptics are available; kept as a preparation hook.
 		* `isSupported()` - returns whether the device can vibrate.
 		* `hasAmplitudeControl()` - returns whether the device can vary vibration strength.
 
@@ -347,7 +347,7 @@ namespace Fuse.Vibration
 
 		/**
 			@scriptmethod prepare()
-			Pre-warms the haptic engine to reduce latency on the next vibration.
+			Returns whether haptics are available. Kept as a preparation hook.
 			@return (bool) whether the device can vibrate.
 		*/
 		static object Prepare(Scripting.Context context, object[] args)
