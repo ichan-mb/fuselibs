@@ -2,10 +2,7 @@ using Uno;
 using Uno.UX;
 using Uno.Compiler.ExportTargetInterop;
 
-using Fuse;
 using Fuse.Controls;
-using Fuse.Controls.Native;
-using Fuse.Controls.Native.iOS;
 
 namespace Fuse.Controls.Native.iOS
 {
@@ -20,17 +17,32 @@ namespace Fuse.Controls.Native.iOS
 	{
 		DatePicker _host;
 		IDisposable _valueChangedEvent;
+		bool _suppressValueChanged;
+
+		string _locale = "";
+		string _calendar = "";
+		int _firstDayOfWeek;
+		float4 _tintColor = float4(0);
 
 		[UXConstructor]
 		public DatePickerView([UXParameter("Host")]DatePicker host) : base(Create())
 		{
 			_host = host;
 
-			// The native control might reject values outside of the min/max range, so make sure we set min/max first
-			MinValue = _host.MinValue;
-			MaxValue = _host.MaxValue;
+			_locale = _host.Locale;
+			_calendar = _host.Calendar;
+			_firstDayOfWeek = _host.FirstDayOfWeek;
+			_tintColor = _host.TintColor;
+
+			if (_host.HasMinValue)
+				MinValue = _host.MinValue;
+			if (_host.HasMaxValue)
+				MaxValue = _host.MaxValue;
 			Value = _host.Value;
 			Style = _host.Style;
+
+			ApplyLocaleAndCalendar();
+			ApplyTint();
 
 			_valueChangedEvent = UIControlEvent.AddValueChangedCallback(Handle, OnValueChanged);
 		}
@@ -38,14 +50,18 @@ namespace Fuse.Controls.Native.iOS
 		public override void Dispose()
 		{
 			base.Dispose();
-			_valueChangedEvent.Dispose();
+			if (_valueChangedEvent != null)
+				_valueChangedEvent.Dispose();
 			_valueChangedEvent = null;
 			_host = null;
 		}
 
 		void OnValueChanged(ObjC.Object sender, ObjC.Object args)
 		{
-			_host.OnNativeViewValueChanged(Value);
+			if (_suppressValueChanged || _host == null)
+				return;
+
+			_host.OnNativeViewValueChanged(Value, true);
 		}
 
 		public DatePickerStyle Style
@@ -69,20 +85,80 @@ namespace Fuse.Controls.Native.iOS
 			}
 			set
 			{
-				// hack to make rendering native datepicker on compact mode correctly
-				if (value == DatePickerStyle.Default || value == DatePickerStyle.Compact)
-					_host.Height = new Size(30, Unit.Points);
-				else
-					_host.Height = new Size(100, Unit.Percent);
-
 				SetDatePickerStyle(Handle, value);
+
+				// Some iOS versions reset the selected date when the preferred style changes,
+				// so re-apply the value from the host after changing the style.
+				if (_host != null)
+					Value = _host.Value;
+			}
+		}
+
+		public string DateFormat
+		{
+			set
+			{
+				// iOS renders the compact label itself; this property is Android-only.
+			}
+		}
+
+		public string Locale
+		{
+			set
+			{
+				value = value ?? "";
+				if (value == _locale)
+					return;
+
+				_locale = value;
+				ApplyLocaleAndCalendar();
+			}
+		}
+
+		public string Calendar
+		{
+			set
+			{
+				value = value ?? "";
+				if (value == _calendar)
+					return;
+
+				_calendar = value;
+				ApplyLocaleAndCalendar();
+			}
+		}
+
+		public int FirstDayOfWeek
+		{
+			set
+			{
+				if (value == _firstDayOfWeek)
+					return;
+
+				_firstDayOfWeek = value;
+				ApplyLocaleAndCalendar();
+			}
+		}
+
+		public float4 TintColor
+		{
+			set
+			{
+				_tintColor = value;
+				ApplyTint();
 			}
 		}
 
 		public DateTime Value
 		{
 			get { return DateTimeConverterHelpers.ConvertNSDateToDateTime(DateTimeConverterHelpers.ReconstructUtcDate(GetDate(Handle))); }
-			set { SetDate(Handle, DateTimeConverterHelpers.ReconstructUtcDate(DateTimeConverterHelpers.ConvertDateTimeToNSDate(value))); }
+			set
+			{
+				var wasSuppressed = _suppressValueChanged;
+				_suppressValueChanged = true;
+				SetDate(Handle, DateTimeConverterHelpers.ReconstructUtcDate(DateTimeConverterHelpers.ConvertDateTimeToNSDate(value)));
+				_suppressValueChanged = wasSuppressed;
+			}
 		}
 
 		public DateTime MinValue
@@ -95,14 +171,32 @@ namespace Fuse.Controls.Native.iOS
 			set { SetMaxValue(Handle, DateTimeConverterHelpers.ReconstructUtcDate(DateTimeConverterHelpers.ConvertDateTimeToNSDate(value))); }
 		}
 
+		void ApplyLocaleAndCalendar()
+		{
+			if (_host == null)
+				return;
+
+			var wasSuppressed = _suppressValueChanged;
+			_suppressValueChanged = true;
+			SetLocaleAndCalendar(Handle, _locale, _calendar, _firstDayOfWeek);
+			Value = _host.Value;
+			_suppressValueChanged = wasSuppressed;
+		}
+
+		void ApplyTint()
+		{
+			if (_host == null)
+				return;
+
+			SetTintColor(Handle, _tintColor.X, _tintColor.Y, _tintColor.Z, _tintColor.W);
+		}
+
 		public void OnRooted()
 		{
-			// Do nothing
 		}
 
 		public void OnUnrooted()
 		{
-			// Do nothing
 		}
 
 		[Foreign(Language.ObjC)]
@@ -119,11 +213,61 @@ namespace Fuse.Controls.Native.iOS
 		@}
 
 		[Foreign(Language.ObjC)]
+		void SetLocaleAndCalendar(ObjC.Object datePickerHandle, string localeId, string calendarId, int firstDayOfWeek)
+		@{
+			UIDatePicker* dp = (UIDatePicker*)datePickerHandle;
+
+			if (localeId == nil || [localeId length] == 0)
+				[dp setLocale:nil];
+			else
+				[dp setLocale:[NSLocale localeWithLocaleIdentifier:localeId]];
+
+			NSCalendar* calendar = nil;
+			if (calendarId != nil && [calendarId length] > 0)
+			{
+				@try
+				{
+					calendar = [[NSCalendar alloc] initWithCalendarIdentifier:calendarId];
+				}
+				@catch (NSException* e)
+				{
+					calendar = nil;
+				}
+			}
+
+			if (calendar == nil)
+				calendar = [dp calendar];
+
+			if (calendar == nil && firstDayOfWeek >= 1 && firstDayOfWeek <= 7)
+				calendar = [NSCalendar currentCalendar];
+
+			if (calendar != nil)
+			{
+				if (firstDayOfWeek >= 1 && firstDayOfWeek <= 7)
+				{
+					calendar = (NSCalendar*)[calendar copy];
+					[calendar setFirstWeekday:(NSInteger)firstDayOfWeek];
+				}
+				[dp setCalendar:calendar];
+			}
+		@}
+
+		[Foreign(Language.ObjC)]
+		void SetTintColor(ObjC.Object datePickerHandle, float r, float g, float b, float a)
+		@{
+			UIDatePicker* dp = (UIDatePicker*)datePickerHandle;
+			if (a <= 0)
+				[dp setTintColor:nil];
+			else
+				[dp setTintColor:[UIColor colorWithRed:r green:g blue:b alpha:a]];
+		@}
+
+		[Foreign(Language.ObjC)]
 		void SetDate(ObjC.Object datePickerHandle, ObjC.Object date)
 		@{
 			UIDatePicker *dp = (UIDatePicker *)datePickerHandle;
 
-			[dp setDate:date animated:true];
+			[dp setDate:date animated:false];
 		@}
 
 		[Foreign(Language.ObjC)]

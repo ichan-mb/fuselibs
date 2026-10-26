@@ -12,9 +12,11 @@
     "../Fuse.Drawing/Fuse.Drawing.unoproj",
     "../Fuse.Elements/Fuse.Elements.unoproj",
     "../Fuse.Nodes/Fuse.Nodes.unoproj",
-    "../Fuse.Scripting/Fuse.Scripting.unoproj"
+    "../Fuse.Scripting/Fuse.Scripting.unoproj",
+    "../Fuse.Triggers/Fuse.Triggers.unoproj"
   ],
   "includes": [
-    "*"
+    "*",
+    "Android/FuseDatePicker.java:java:Android"
   ]
 }

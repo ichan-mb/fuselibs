@@ -2,10 +2,7 @@ using Uno;
 using Uno.UX;
 using Uno.Compiler.ExportTargetInterop;
 
-using Fuse;
 using Fuse.Controls;
-using Fuse.Controls.Native;
-using Fuse.Controls.Native.iOS;
 
 namespace Fuse.Controls.Native.iOS
 {
@@ -20,14 +17,24 @@ namespace Fuse.Controls.Native.iOS
 	{
 		TimePicker _host;
 		IDisposable _valueChangedEvent;
+		bool _suppressValueChanged;
+
+		string _locale = "";
+		float4 _tintColor = float4(0);
 
 		[UXConstructor]
 		public TimePickerView([UXParameter("Host")]TimePicker host) : base(Create())
 		{
 			_host = host;
 
+			_locale = _host.Locale;
+			_tintColor = _host.TintColor;
+
 			Value = _host.Value;
 			Style = _host.Style;
+
+			ApplyLocale();
+			ApplyTint();
 
 			_valueChangedEvent = UIControlEvent.AddValueChangedCallback(Handle, OnValueChanged);
 		}
@@ -35,20 +42,18 @@ namespace Fuse.Controls.Native.iOS
 		public override void Dispose()
 		{
 			base.Dispose();
-			_valueChangedEvent.Dispose();
+			if (_valueChangedEvent != null)
+				_valueChangedEvent.Dispose();
 			_valueChangedEvent = null;
 			_host = null;
 		}
 
 		void OnValueChanged(ObjC.Object sender, ObjC.Object args)
 		{
-			_host.OnNativeViewValueChanged(Value);
-		}
+			if (_suppressValueChanged || _host == null)
+				return;
 
-		public DateTime Value
-		{
-			get { return DateTimeConverterHelpers.ConvertNSDateToDateTime(DateTimeConverterHelpers.ReconstructUtcTime(GetTime(Handle))); }
-			set { SetTime(Handle, DateTimeConverterHelpers.ReconstructUtcTime(DateTimeConverterHelpers.ConvertDateTimeToNSDate(value))); }
+			_host.OnNativeViewValueChanged(Value, true);
 		}
 
 		public TimePickerStyle Style
@@ -72,32 +77,84 @@ namespace Fuse.Controls.Native.iOS
 			}
 			set
 			{
-				// hack to make rendering native datepicker on compact mode correctly
-				if (value == TimePickerStyle.Default || value == TimePickerStyle.Compact)
-					_host.Height = new Size(30, Unit.Points);
-				else
-					_host.Height = new Size(100, Unit.Percent);
-
 				SetTimePickerStyle(Handle, value);
+
+				// Some iOS versions reset the selected time when the preferred style changes,
+				// so re-apply the value from the host after changing the style.
+				if (_host != null)
+					Value = _host.Value;
 			}
 		}
 
-		// Dummy prop, as the iOS API doesn't provide an explicit API for this.
+		// Dummy property: UIDatePicker does not expose an explicit 12/24-hour API.
+		// Use Locale to select a locale with the preferred time format.
 		public bool Is24HourView
 		{
-			set {
-				// Do nothing
+			set
+			{
 			}
+		}
+
+		public string Locale
+		{
+			set
+			{
+				value = value ?? "";
+				if (value == _locale)
+					return;
+
+				_locale = value;
+				ApplyLocale();
+			}
+		}
+
+		public float4 TintColor
+		{
+			set
+			{
+				_tintColor = value;
+				ApplyTint();
+			}
+		}
+
+		public DateTime Value
+		{
+			get { return DateTimeConverterHelpers.ConvertNSDateToDateTime(DateTimeConverterHelpers.ReconstructUtcTime(GetTime(Handle))); }
+			set
+			{
+				var wasSuppressed = _suppressValueChanged;
+				_suppressValueChanged = true;
+				SetTime(Handle, DateTimeConverterHelpers.ReconstructUtcTime(DateTimeConverterHelpers.ConvertDateTimeToNSDate(value)));
+				_suppressValueChanged = wasSuppressed;
+			}
+		}
+
+		void ApplyLocale()
+		{
+			if (_host == null)
+				return;
+
+			var wasSuppressed = _suppressValueChanged;
+			_suppressValueChanged = true;
+			SetLocale(Handle, _locale);
+			Value = _host.Value;
+			_suppressValueChanged = wasSuppressed;
+		}
+
+		void ApplyTint()
+		{
+			if (_host == null)
+				return;
+
+			SetTintColor(Handle, _tintColor.X, _tintColor.Y, _tintColor.Z, _tintColor.W);
 		}
 
 		public void OnRooted()
 		{
-			// Do nothing
 		}
 
 		public void OnUnrooted()
 		{
-			// Do nothing
 		}
 
 		[Foreign(Language.ObjC)]
@@ -114,11 +171,32 @@ namespace Fuse.Controls.Native.iOS
 		@}
 
 		[Foreign(Language.ObjC)]
+		void SetLocale(ObjC.Object timePickerHandle, string localeId)
+		@{
+			UIDatePicker* dp = (UIDatePicker*)timePickerHandle;
+
+			if (localeId == nil || [localeId length] == 0)
+				[dp setLocale:nil];
+			else
+				[dp setLocale:[NSLocale localeWithLocaleIdentifier:localeId]];
+		@}
+
+		[Foreign(Language.ObjC)]
+		void SetTintColor(ObjC.Object timePickerHandle, float r, float g, float b, float a)
+		@{
+			UIDatePicker* dp = (UIDatePicker*)timePickerHandle;
+			if (a <= 0)
+				[dp setTintColor:nil];
+			else
+				[dp setTintColor:[UIColor colorWithRed:r green:g blue:b alpha:a]];
+		@}
+
+		[Foreign(Language.ObjC)]
 		void SetTime(ObjC.Object datePickerHandle, ObjC.Object time)
 		@{
 			UIDatePicker *dp = (UIDatePicker *)datePickerHandle;
 
-			[dp setDate:time animated:true];
+			[dp setDate:time animated:false];
 		@}
 
 		[Foreign(Language.ObjC)]
@@ -160,7 +238,7 @@ namespace Fuse.Controls.Native.iOS
 			if (@available(iOS 13.4, *))
 			{
 				UIDatePicker *dp = (UIDatePicker *)timePickerHandle;
-				UIDatePickerStyle datePickerStyle;
+				UIDatePickerStyle datePickerStyle = UIDatePickerStyleAutomatic;
 				switch (style)
 				{
 					case 0:

@@ -21,6 +21,33 @@ namespace Fuse.Controls
 		properties, subsequent values read from the property may not match the written value, as the time component will have
 		been truncated.
 
+		If `MinValue` or `MaxValue` is not set, the `DatePicker` does not apply a bound in that direction;
+		the underlying platform control may still impose its own limits. Values written outside the
+		configured range are clamped to it.
+
+		`DatePicker` exposes a `ValueChanged` event that fires for any change to `Value`, including
+		programmatic changes, and a `DateSelected` event that fires only when the user selects a date
+		in the native picker. In UX, the @DateSelected trigger can be used to run actions when the
+		user picks a date:
+		```xml
+			<DatePicker>
+				<DateSelected>
+					<!-- actions to perform when the user picks a date -->
+				</DateSelected>
+			</DatePicker>
+		```
+
+		## Presentation and localization
+
+		`DateFormat` controls the date format of the compact label on Android. `Locale` sets the
+		picker locale on both platforms. `Calendar` selects the calendar system on iOS, while Android
+		follows the locale. `FirstDayOfWeek` sets the first day of the week using the
+		`java.util.Calendar` numbering (1 is Sunday, 7 is Saturday), and `TintColor` sets the accent
+		color. `TintColor` is fully supported on iOS and best-effort on Android.
+		```xml
+			<DatePicker Locale="fr-FR" FirstDayOfWeek="2" DateFormat="EEE d MMM yyyy" TintColor="#2196F3" />
+		```
+
 		Note that this control should not be used to deal with historic dates, as calendar/date and timestamp translation is
 		inconsistent between different locales due to when and where different calendar systems were adopted. However, the
 		behavior is consistent for all dates since at least 1900 including all representable future dates.
