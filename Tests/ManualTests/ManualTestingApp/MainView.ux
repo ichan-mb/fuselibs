@@ -116,6 +116,8 @@
 			<DuotoneEffectsPage />
 			<DropShadowView/>
 			<PlaySoundView/>
+			<AudioPlayerView/>
+			<AudioRecorderView/>
 			<StrokeAndFills/>
 			<DataBindingPage/>
 			<TodoListPage/>

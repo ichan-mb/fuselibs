@@ -1,0 +1,128 @@
+<Page Title="Audio Player" ux:Class="AudioPlayerView">
+	<InfoStack ux:Key="Info">
+		<p>Tests AudioPlayer: play/pause/stop, seeking, volume, balance, rate, looping and the playback events.</p>
+		<p>The first waveform is extracted from the bundled sound. The second one follows playback: it only works on Android and needs the microphone permission.</p>
+	</InfoStack>
+
+	<ScrollView>
+		<StackPanel ItemSpacing="8">
+			<AudioPlayer ux:Name="player"
+			             File="../Assets/wilhelm.wav"
+			             Volume="{=volume}"
+			             Balance="{=balance}"
+			             Rate="{=rate}"
+			             Loop="{=loop}"
+			             PlaybackStarted="{onStarted}"
+			             PlaybackCompleted="{onCompleted}"
+			             PlaybackError="{onError}"
+			             PositionChanged="{onPosition}">
+				<SampleConfig />
+			</AudioPlayer>
+
+			<Text Value="{state}" />
+			<Text Value="{positionText}" FontSize="12" />
+
+			<StackPanel Orientation="Horizontal" ItemSpacing="8">
+				<StdButton Text="Play">
+					<Clicked>
+						<Play Target="player" />
+					</Clicked>
+				</StdButton>
+				<StdButton Text="Pause">
+					<Clicked>
+						<Pause Target="player" />
+					</Clicked>
+				</StdButton>
+				<StdButton Text="Stop">
+					<Clicked>
+						<Stop Target="player" />
+					</Clicked>
+				</StdButton>
+				<StdButton Text="Seek mid" Clicked="{seekMiddle}" />
+			</StackPanel>
+
+			<Text Value="Volume" FontSize="12" />
+			<Slider Minimum="0" Maximum="1" Value="{=volume}" />
+
+			<Text Value="Balance" FontSize="12" />
+			<Slider Minimum="-1" Maximum="1" Value="{=balance}" />
+
+			<Text Value="Rate" FontSize="12" />
+			<Slider Minimum="0.25" Maximum="2" Value="{=rate}" />
+
+			<StackPanel Orientation="Horizontal" ItemSpacing="8">
+				<Switch Value="{=loop}" />
+				<Text Value="Loop" VerticalAlignment="Center" />
+			</StackPanel>
+
+			<Text Value="Waveform extracted from the file" FontSize="12" />
+			<Waveform File="../Assets/wilhelm.wav" Height="56" BarCount="48" BarColor="#4cc2ff" Mirrored="false" />
+
+			<Text Value="Live waveform (Android only, microphone permission required)" FontSize="12" TextWrapping="Wrap" />
+			<Waveform Player="player" Height="56" BarCount="48" BarColor="#7cf7a0" Mirrored="false" />
+
+			<Text Value="{log}" FontSize="12" TextWrapping="Wrap" />
+		</StackPanel>
+	</ScrollView>
+
+	<JavaScript>
+		var Observable = require("FuseJS/Observable");
+
+		var state = Observable("-");
+		var positionText = Observable("0.00 s");
+		var log = Observable("");
+		var lines = [];
+
+		var volume = Observable(1);
+		var balance = Observable(0);
+		var rate = Observable(1);
+		var loop = Observable(false);
+
+		function addLog(line) {
+			lines.unshift(line);
+			if (lines.length > 12)
+				lines.pop();
+			log.value = lines.join("\n");
+		}
+
+		function onStarted(args) {
+			state.value = "Playing";
+			addLog("PlaybackStarted");
+		}
+
+		function onCompleted(args) {
+			state.value = "Stopped (completed)";
+			addLog("PlaybackCompleted");
+		}
+
+		function onError(args) {
+			state.value = "Error";
+			addLog("PlaybackError " + args.errorMessage);
+		}
+
+		function onPosition(args) {
+			positionText.value = args.position.toFixed(2) + " / " + args.duration.toFixed(2) + " s";
+		}
+
+		function seekMiddle() {
+			var half = player.getDuration() / 2;
+			player.seek(half);
+			addLog("seek(" + half.toFixed(2) + ")");
+		}
+
+		module.exports = {
+			state: state,
+			positionText: positionText,
+			log: log,
+			volume: volume,
+			balance: balance,
+			rate: rate,
+			loop: loop,
+			onStarted: onStarted,
+			onCompleted: onCompleted,
+			onError: onError,
+			onPosition: onPosition,
+			seekMiddle: seekMiddle
+		};
+	</JavaScript>
+</Page>

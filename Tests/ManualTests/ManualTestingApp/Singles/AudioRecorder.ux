@@ -1,0 +1,153 @@
+<Page Title="Audio Recorder" ux:Class="AudioRecorderView">
+	<InfoStack ux:Key="Info">
+		<p>Tests AudioRecorder: permission handling, start/pause/resume/stop, level metering, the MaxDuration limit and playing the recording back.</p>
+		<p>Grant the microphone permission first. The recording stops by itself after 10 seconds and fires RecordingCompleted.</p>
+	</InfoStack>
+
+	<ScrollView>
+		<StackPanel ItemSpacing="8">
+			<AudioRecorder ux:Name="recorder"
+			               Format="M4A"
+			               Source="VoiceRecognition"
+			               MaxDuration="10"
+			               LevelChanged="{onLevel}"
+			               PermissionChanged="{onPermission}"
+			               RecordingStarted="{onStarted}"
+			               RecordingStopped="{onStopped}"
+			               RecordingCompleted="{onCompleted}"
+			               RecordingError="{onError}" />
+
+			<AudioPlayer ux:Name="playback" Url="{recordingUrl}" PlaybackError="{onPlaybackError}" />
+
+			<Text Value="{state}" />
+			<Text Value="{durationText} · permission {permissionText}" FontSize="12" />
+
+			<StdButton Text="Request microphone permission" Clicked="{requestPermission}" />
+
+			<StackPanel Orientation="Horizontal" ItemSpacing="8">
+				<StdButton Text="Start">
+					<Clicked>
+						<StartRecording Target="recorder" />
+					</Clicked>
+				</StdButton>
+				<StdButton Text="Pause">
+					<Clicked>
+						<PauseRecording Target="recorder" />
+					</Clicked>
+				</StdButton>
+				<StdButton Text="Resume">
+					<Clicked>
+						<ResumeRecording Target="recorder" />
+					</Clicked>
+				</StdButton>
+				<StdButton Text="Stop">
+					<Clicked>
+						<StopRecording Target="recorder" />
+					</Clicked>
+				</StdButton>
+			</StackPanel>
+
+			<Text Value="Level meter (both platforms)" FontSize="12" />
+			<Waveform Recorder="recorder" Height="56" BarCount="48" BarColor="#ffb400" />
+
+			<Text Value="Envelope of the recording" FontSize="12" />
+			<Waveform FilePath="{recordingPath}" Height="56" BarCount="48" BarColor="#ff7ab2" Mirrored="false" />
+
+			<StackPanel Orientation="Horizontal" ItemSpacing="8">
+				<StdButton Text="Play recording" Clicked="{playRecording}" />
+				<StdButton Text="Stop playback">
+					<Clicked>
+						<Stop Target="playback" />
+					</Clicked>
+				</StdButton>
+			</StackPanel>
+
+			<Text Value="{log}" FontSize="12" TextWrapping="Wrap" />
+		</StackPanel>
+	</ScrollView>
+
+	<JavaScript>
+		var Observable = require("FuseJS/Observable");
+
+		var state = Observable("-");
+		var durationText = Observable("0.0 s");
+		var permissionText = Observable("not requested");
+		var recordingPath = Observable("");
+		var recordingUrl = Observable("");
+		var log = Observable("");
+		var lines = [];
+
+		function addLog(line) {
+			lines.unshift(line);
+			if (lines.length > 12)
+				lines.pop();
+			log.value = lines.join("\n");
+		}
+
+		function onLevel(args) {
+			durationText.value = args.position.toFixed(1) + " s";
+		}
+
+		function onPermission(args) {
+			permissionText.value = args.granted ? "granted" : "denied";
+			addLog("PermissionChanged " + args.granted);
+		}
+
+		function onStarted(args) {
+			state.value = "Recording";
+			addLog("RecordingStarted");
+		}
+
+		function onStopped(args) {
+			state.value = "Stopped";
+			setRecording(args.filePath);
+			addLog("RecordingStopped");
+		}
+
+		function onCompleted(args) {
+			state.value = "Stopped (limit reached)";
+			setRecording(args.filePath);
+			addLog("RecordingCompleted (limit reached)");
+		}
+
+		function onError(args) {
+			addLog("RecordingError " + args.errorMessage);
+		}
+
+		function onPlaybackError(args) {
+			addLog("Playback error " + args.errorMessage);
+		}
+
+		function setRecording(path) {
+			recordingPath.value = path;
+			recordingUrl.value = path;
+			addLog(path);
+		}
+
+		function requestPermission() {
+			recorder.requestPermission();
+		}
+
+		function playRecording() {
+			playback.play();
+		}
+
+		module.exports = {
+			state: state,
+			durationText: durationText,
+			permissionText: permissionText,
+			recordingPath: recordingPath,
+			recordingUrl: recordingUrl,
+			log: log,
+			onLevel: onLevel,
+			onPermission: onPermission,
+			onStarted: onStarted,
+			onStopped: onStopped,
+			onCompleted: onCompleted,
+			onError: onError,
+			onPlaybackError: onPlaybackError,
+			requestPermission: requestPermission,
+			playRecording: playRecording
+		};
+	</JavaScript>
+</Page>
