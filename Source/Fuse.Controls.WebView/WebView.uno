@@ -1,92 +1,17 @@
 using Uno;
-using Uno.Collections;
 using Uno.UX;
-using Fuse.Input;
-using Fuse.Gestures;
-using Fuse.Animations;
-using Fuse.Elements;
-using Fuse.Triggers;
-using Fuse.Scripting;
 using Fuse.Navigation;
+using Fuse.Elements;
 
 namespace Fuse.Controls
 {
-
-	public interface ISourceReceiver
-	{
-		string Source { get; set; }
-	}
-
-	public interface IWebView : IProgress, IBaseNavigation, ISourceReceiver
-	{
-		void Eval(string js, Action<string> resultHandler);
-		void Eval(string js);
-		string BaseUrl { get; set; }
-		string Url { get; set; }
-		string DocumentTitle { get; }
-		event EventHandler PageLoaded;
-		event EventHandler BeginLoading;
-		event EventHandler UrlChanged;
-		event EventHandler URISchemeHandler;
-		event EventHandler BeginDownload;
-		event EventHandler FileDownloaded;
-		void LoadHtml(string html);
-		void LoadHtml(string html, string baseUrl);
-		void LoadUrl(string url);
-		void Stop();
-		void Reload();
-		FileSource File { get; set; }
-		bool ZoomEnabled { get; set; }
-		bool ScrollEnabled { get; set; }
-	}
-
-	/**
-		`<HTML/>` is a semantic utility node used to feed a @WebView component or a @LoadHtml action with raw HTML:
-
-		```XML
-		<NativeViewHost>
-			<WebView>
-				<HTML>
-					<![CDATA[
-						<h1>Boom!</h1>
-					]]>
-				</HTML>
-			</WebView>
-		</NativeViewHost>
-
-		<LoadHtml>
-			<HTML>
-				<![CDATA[
-					<h1>Bang!</h1>
-				]]>
-			</HTML>
-		</LoadHtml>
-		```
-	*/
-	public sealed class HTML : Uno.UX.PropertyObject
-	{
-		internal ISourceReceiver Receiver;
-
-		[UXContent]
-		public string Source
-		{
-			get
-			{
-				return Receiver.Source;
-			}
-			set
-			{
-				Receiver.Source = value;
-			}
-		}
-	}
 
 	/**
 		Displays web content natively on android and iOS.
 
 		As the WebView is native only, it needs to be contained in a @NativeViewHost.
 
-		The WebView can be used to present web content either over the http protocol or by loading HTML as a string, and hooks into some useful triggers for building a customized browsing experience, such as @PageBeginLoading, @WhilePageLoading and @PageLoaded.
+		The WebView can be used to present web content either over the http protocol or by loading HTML as a string, and hooks into some useful triggers for building a customized browsing experience, such as @PageBeginLoading, @WhilePageLoading, @PageLoaded and @PageFailed.
 		Navigation triggers like @GoBack and @GoForward are complemented with WebView-specific ones, like @Reload, @LoadUrl and @LoadHtml. It can also be used to drive a @ProgressAnimation.
 
 		The @EvaluateJS trigger is noteworthy, since it allows arbitrary JavaScript to be run in the WebView's context and the resulting data be fed back into Fuse:
@@ -125,7 +50,7 @@ namespace Fuse.Controls
 		<LoadHtml TargetNode="myWebView" BaseUrl="http://my.domain" Source="{html}"/>
 		```
 	*/
-	public partial class WebView : Panel, IWebView
+	public partial class WebView : Panel, IWebViewError, IWebViewSession
 	{
 
 
@@ -184,6 +109,11 @@ namespace Fuse.Controls
 		*/
 		public event EventHandler FileDownloaded;
 
+		/**
+			Callback that fires when a page fails to load
+		*/
+		public event EventHandler<PageErrorEventArgs> PageError;
+
 
 		HTML _html;
 
@@ -216,17 +146,12 @@ namespace Fuse.Controls
 			WebViewClient = _fallbackClient;
 		}
 
-		protected override void OnRooted()
-		{
-			base.OnRooted();
-		}
+		readonly FallbackWebViewClient _fallbackClient = new FallbackWebViewClient();
 
-		protected override void OnUnrooted()
-		{
-			base.OnUnrooted();
-		}
-
-		readonly IWebView _fallbackClient = new FallbackWebViewClient();
+		Fuse.Controls.ExternalNavigationPolicy _externalNavigationPolicy = Fuse.Controls.ExternalNavigationPolicy.Allow;
+		Fuse.Controls.NewWindowPolicy _newWindowPolicy = Fuse.Controls.NewWindowPolicy.OpenInWebView;
+		string _userAgent;
+		string _userAgentSuffix;
 
 		IWebView _webViewClient;
 		public IWebView WebViewClient
@@ -251,6 +176,10 @@ namespace Fuse.Controls
 					_webViewClient.BeginDownload -= BeginDownload;
 					_webViewClient.FileDownloaded -= FileDownloaded;
 
+					var oldErrorClient = _webViewClient as IWebViewError;
+					if (oldErrorClient != null)
+						oldErrorClient.PageError -= OnPageError;
+
 					url = _webViewClient.Url;
 					source = _webViewClient.Source ?? "";
 					baseUrl = _webViewClient.BaseUrl;
@@ -271,6 +200,10 @@ namespace Fuse.Controls
 					_webViewClient.BeginDownload += BeginDownload;
 					_webViewClient.FileDownloaded += FileDownloaded;
 
+					var errorClient = _webViewClient as IWebViewError;
+					if (errorClient != null)
+						errorClient.PageError += OnPageError;
+
 					_webViewClient.BaseUrl = baseUrl;
 					_webViewClient.Source = source;
 					_webViewClient.ZoomEnabled = zoomEnabled;
@@ -281,6 +214,17 @@ namespace Fuse.Controls
 						_webViewClient.Url = url;
 					}
 					_webViewClient.File = file;
+
+					var policyClient = _webViewClient as IWebViewNavigationPolicyClient;
+					if (policyClient != null)
+					{
+						policyClient.SetExternalNavigationPolicy(ExternalNavigationPolicy);
+						policyClient.SetNewWindowPolicy(NewWindowPolicy);
+					}
+
+					var userAgentClient = _webViewClient as IWebViewUserAgentClient;
+					if (userAgentClient != null)
+						userAgentClient.SetUserAgent(_userAgent, _userAgentSuffix);
 
 					applyFallbackCalls(_webViewClient);
 				}
@@ -293,10 +237,6 @@ namespace Fuse.Controls
 		*/
 		public bool ZoomEnabled {
 			set {
-				if(WebViewClient != _fallbackClient){
-					debug_log("ZoomEnabled cannot be changed once rooted");
-					return;
-				}
 				WebViewClient.ZoomEnabled = value;
 			}
 			get { return WebViewClient.ZoomEnabled; }
@@ -308,19 +248,171 @@ namespace Fuse.Controls
 		*/
 		public bool ScrollEnabled {
 			set {
-				if(WebViewClient != _fallbackClient){
-					debug_log("ScrollEnabled cannot be changed once rooted");
-					return;
-				}
 				WebViewClient.ScrollEnabled = value;
 			}
 			get { return WebViewClient.ScrollEnabled; }
 		}
 
+		/**
+			Determines how navigations to URLs that are not handled inside the WebView are treated.
+			Defaults to `Allow`.
+		*/
+		public Fuse.Controls.ExternalNavigationPolicy ExternalNavigationPolicy
+		{
+			get { return _externalNavigationPolicy; }
+			set
+			{
+				_externalNavigationPolicy = value;
+				var client = WebViewClient as IWebViewNavigationPolicyClient;
+				if (client != null)
+					client.SetExternalNavigationPolicy(value);
+			}
+		}
+
+		/**
+			Determines what happens when the page tries to open a new window, for example with
+			`target="_blank"` or `window.open()`. Defaults to `OpenInWebView`.
+		*/
+		public Fuse.Controls.NewWindowPolicy NewWindowPolicy
+		{
+			get { return _newWindowPolicy; }
+			set
+			{
+				_newWindowPolicy = value;
+				var client = WebViewClient as IWebViewNavigationPolicyClient;
+				if (client != null)
+					client.SetNewWindowPolicy(value);
+			}
+		}
+
+		/**
+			Overrides the User-Agent header sent by the WebView. When empty, the default
+			user agent is used, optionally with @UserAgentSuffix appended.
+		*/
+		public string UserAgent
+		{
+			get { return _userAgent; }
+			set
+			{
+				_userAgent = value ?? "";
+				ApplyUserAgent();
+			}
+		}
+
+		/**
+			Appends this string to the default User-Agent. Ignored when @UserAgent is set.
+		*/
+		public string UserAgentSuffix
+		{
+			get { return _userAgentSuffix; }
+			set
+			{
+				_userAgentSuffix = value ?? "";
+				ApplyUserAgent();
+			}
+		}
+
+		void ApplyUserAgent()
+		{
+			var client = WebViewClient as IWebViewUserAgentClient;
+			if (client != null)
+				client.SetUserAgent(_userAgent, _userAgentSuffix);
+		}
+
+		/**
+			Loads a URL with additional HTTP headers. `headerNames` and `headerValues`
+			must have the same length; extra entries are ignored.
+		*/
+		public void LoadUrl(string url, string[] headerNames, string[] headerValues)
+		{
+			var client = WebViewClient as IWebViewRequestClient;
+			if (client != null)
+				client.LoadUrlWithHeaders(url ?? "about:blank", headerNames, headerValues);
+			else
+				LoadUrl(url);
+		}
+
+		/**
+			Performs a POST navigation with an `application/x-www-form-urlencoded` body.
+		*/
+		public void PostUrl(string url, string body)
+		{
+			var client = WebViewClient as IWebViewRequestClient;
+			if (client != null)
+				client.PostUrl(url ?? "about:blank", body ?? "");
+			else
+				LoadUrl(url);
+		}
+
+		/**
+			Retrieves the cookie header string for the given URL.
+		*/
+		public void GetCookies(string url, Action<string> resultHandler)
+		{
+			var session = WebViewClient as IWebViewSession;
+			if (session != null)
+				session.GetCookies(url ?? "", resultHandler);
+			else if (resultHandler != null)
+				resultHandler("");
+		}
+
+		/**
+			Sets a cookie for the given URL.
+		*/
+		public void SetCookie(string url, string cookie)
+		{
+			var session = WebViewClient as IWebViewSession;
+			if (session != null)
+				session.SetCookie(url ?? "", cookie ?? "");
+		}
+
+		/**
+			Removes all cookies.
+		*/
+		public void ClearCookies()
+		{
+			var session = WebViewClient as IWebViewSession;
+			if (session != null)
+				session.ClearCookies();
+		}
+
+		/**
+			Clears the WebView cache.
+		*/
+		public void ClearCache()
+		{
+			var session = WebViewClient as IWebViewSession;
+			if (session != null)
+				session.ClearCache();
+		}
+
+		/**
+			Clears local storage, session storage and related web storage.
+		*/
+		public void ClearStorage()
+		{
+			var session = WebViewClient as IWebViewSession;
+			if (session != null)
+				session.ClearStorage();
+		}
+
+		/**
+			Reloads the current page while ignoring cached responses.
+		*/
+		public void ReloadIgnoringCache()
+		{
+			var session = WebViewClient as IWebViewSession;
+			if (session != null)
+				session.ReloadIgnoringCache();
+		}
+
 		void applyFallbackCalls(IWebView client)
 		{
-			FallbackWebViewClient fbc = _fallbackClient as FallbackWebViewClient;
-			fbc.ApplyBufferedCalls(client);
+			// When the client is reset to the fallback (for example on dispose),
+			// replaying into the fallback itself would re-buffer the calls forever.
+			if (client == (IWebView)_fallbackClient) return;
+
+			_fallbackClient.ApplyBufferedCalls(client);
 		}
 
 		void OnPageChanged(object sender, EventArgs args)
@@ -346,6 +438,12 @@ namespace Fuse.Controls
 		{
 			if (PageLoaded != null)
 				PageLoaded(this, EventArgs.Empty);
+		}
+
+		void OnPageError(object sender, PageErrorEventArgs args)
+		{
+			if (PageError != null)
+				PageError(this, args);
 		}
 
 		public string DocumentTitle
@@ -466,114 +564,6 @@ namespace Fuse.Controls
 			if (HistoryChanged != null)
 				HistoryChanged(this);
 		}
-	}
-
-	internal interface BufferedWebViewCall
-	{
-		void Apply(IWebView wv);
-	}
-
-	internal class LoadHtmlCall : BufferedWebViewCall
-	{
-		readonly string html;
-		readonly string baseUrl;
-		public LoadHtmlCall(string html, string baseUrl)
-		{
-			this.html = html;
-			this.baseUrl = baseUrl;
-		}
-		public void Apply(IWebView wv)
-		{
-			wv.LoadHtml(html,baseUrl);
-		}
-	}
-
-	internal class JavaScriptCall : BufferedWebViewCall
-	{
-		public readonly Action<string> Handler;
-		public readonly string Script;
-
-		public JavaScriptCall(string script, Action<string> handler)
-		{
-			Script = script;
-			Handler = handler;
-		}
-
-		public void Apply(IWebView wv)
-		{
-			if (Handler != null)
-			{
-				wv.Eval(Script, Handler);
-			}
-			else
-			{
-				wv.Eval(Script);
-			}
-		}
-
-	}
-
-	internal class FallbackWebViewClient : IWebView
-	{
-		public FileSource File { get; set; }
-
-		List<BufferedWebViewCall> _bufferedCalls;
-
-		public FallbackWebViewClient()
-		{
-			_bufferedCalls = new List<BufferedWebViewCall>();
-			ZoomEnabled = true;
-			ScrollEnabled = true;
-		}
-
-		public void ApplyBufferedCalls(IWebView wv)
-		{
-			while(_bufferedCalls.Count > 0)
-			{
-				var call = _bufferedCalls[0];
-				call.Apply(wv);
-				_bufferedCalls.Remove(call);
-			}
-		}
-
-		public string Source { get; set; }
-		public string BaseUrl { get; set; }
-		public string Url { get; set; }
-		public bool CanGoBack { get { return false; } }
-		public bool CanGoForward { get { return false; } }
-		public string DocumentTitle { get { return ""; } }
-		public event HistoryChangedHandler HistoryChanged;
-		public void GoBack() { }
-		public void GoForward() { }
-		public void Reload() { }
-		public void Stop() { }
-		public void Eval(string js)
-		{
-			_bufferedCalls.Add(new JavaScriptCall(js, null));
-		}
-		public void Eval(string js, Action<string> resultHandler)
-		{
-			_bufferedCalls.Add(new JavaScriptCall(js, resultHandler));
-		}
-		public void LoadUrl(string url) { }
-		public void LoadHtml(string html)
-		{
-			LoadHtml(html, "");
-		}
-		public void LoadHtml(string html, string baseUrl)
-		{
-			_bufferedCalls.Add(new LoadHtmlCall(html,baseUrl));
-		}
-		public event ValueChangedHandler<double> ProgressChanged;
-		public event EventHandler PageLoaded;
-		public event EventHandler BeginLoading;
-		public event EventHandler UrlChanged;
-		public event EventHandler URISchemeHandler;
-		public event EventHandler BeginDownload;
-		public event EventHandler FileDownloaded;
-		public double Progress { get { return 0.0; } }
-		public bool ZoomEnabled { get; set; }
-		public bool ScrollEnabled { get; set; }
 	}
 
 }

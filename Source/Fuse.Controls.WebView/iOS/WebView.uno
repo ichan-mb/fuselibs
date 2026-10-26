@@ -1,9 +1,5 @@
 using Uno;
 using Uno.UX;
-using Uno.Platform;
-using Uno.Collections;
-using Fuse;
-using Fuse.Elements;
 using Fuse.Navigation;
 using Uno.Compiler.ExportTargetInterop;
 using Fuse.Controls;
@@ -11,158 +7,27 @@ using Fuse.Controls;
 namespace Fuse.iOS.Controls
 {
 
-	[Require("source.include", "iOS/NoZoomDelegate.h")]
-	[Require("source.include", "WebKit/WebKit.h")]
-	static extern(iOS) class WKWebViewHelpers
-	{
-		[Foreign(Language.ObjC)]
-		public static void EvalOnWebViewWithHandler(ObjC.Object webview, string js, Action<string> handler)
-		@{
-				WKWebView* wv = webview;
-				[wv evaluateJavaScript:js completionHandler:^(id result, NSError* error) {
-					handler(result);
-				}];
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static void EvalOnWebView(ObjC.Object webview, string js)
-		@{
-				WKWebView* wv = webview;
-				[wv evaluateJavaScript:js completionHandler:nil];
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static void LoadHTML(ObjC.Object webview, string html, string baseURL)
-		@{
-				WKWebView* wv = webview;
-				[wv loadHTMLString:html baseURL:[NSURL URLWithString:baseURL]];
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static string GenBaseUrl(string path)
-		@{
-				NSString *resourcePath = [[[[NSBundle bundleForClass:[StrongUnoObject class]] resourcePath]
-					stringByReplacingOccurrencesOfString:@"/" withString:@"//"]
-					stringByReplacingOccurrencesOfString:@" " withString:@"%20"];
-
-				return resourcePath;
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static ObjC.Object CreateWebView(bool zoomEnabled, bool scrollEnabled)
-		@{
-			WKWebView* wv = [[WKWebView alloc] init];
-			wv.scrollView.delegate = zoomEnabled ? NULL : [[NoZoomDelegate alloc] init];
-			wv.scrollView.scrollEnabled = scrollEnabled;
-			wv.allowsBackForwardNavigationGestures = YES;
-			wv.allowsLinkPreview = NO;
-
-			return wv;
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static string GetURL(ObjC.Object handle)
-		@{
-			WKWebView* wv = handle;
-			return wv.URL.absoluteString;
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static bool GetIsLoading(ObjC.Object handle)
-		@{
-			WKWebView* wv = handle;
-			return wv.loading;
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static void LoadURL(ObjC.Object handle, String url)
-		@{
-			WKWebView* wv = handle;
-			id nsurl = [NSURL URLWithString:url];
-			id request = [[NSURLRequest alloc] initWithURL:nsurl];
-			[wv loadRequest:request];
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static double GetEstimatedProgress(ObjC.Object handle)
-		@{
-			WKWebView* wv = handle;
-			return wv.estimatedProgress;
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static string GetTitle(ObjC.Object handle)
-		@{
-			WKWebView* wv = handle;
-			return wv.title;
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static bool GetCanGoBack(ObjC.Object handle)
-		@{
-			WKWebView* wv = handle;
-			return wv.canGoBack;
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static void GoBack(ObjC.Object handle)
-		@{
-			WKWebView* wv = handle;
-			[wv goBack];
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static bool GetCanGoForward(ObjC.Object handle)
-		@{
-			WKWebView* wv = handle;
-			return wv.canGoForward;
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static void GoForward(ObjC.Object handle)
-		@{
-			WKWebView* wv = handle;
-			[wv goForward];
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static void Reload(ObjC.Object handle)
-		@{
-			WKWebView* wv = handle;
-			[wv reload];
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static void StopLoading(ObjC.Object handle)
-		@{
-			WKWebView* wv = handle;
-			[wv stopLoading];
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static void FreeMemory()
-		@{
-			id cache = [NSURLCache sharedURLCache];
-			if(cache!=nil)
-				[cache removeAllCachedResponses];
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static void SetNavigationDelegate(ObjC.Object webViewHandle, ObjC.Object delegateHandle)
-		@{
-			[webViewHandle setNavigationDelegate:delegateHandle];
-		@}
-	}
-
 	extern (iOS) public class WebView :
 		Fuse.Controls.Native.iOS.LeafView,
-		Fuse.Controls.IWebView
+		Fuse.Controls.IWebViewError,
+		Fuse.Controls.IWebViewNavigationPolicyClient,
+		Fuse.Controls.IWebViewSession,
+		Fuse.Controls.IWebViewUserAgentClient,
+		Fuse.Controls.IWebViewRequestClient
 	{
 
 		public event ValueChangedHandler<double> ProgressChanged;
 		Fuse.Controls.WebView _webViewHost;
 		readonly ObjC.Object Handle;
 		readonly ObjC.Object NavigationDelegate;
+		readonly ObjC.Object UIDelegate;
+		bool _zoomEnabled;
+		bool _scrollEnabled;
+		Fuse.Controls.ExternalNavigationPolicy _externalNavigationPolicy;
+		Fuse.Controls.NewWindowPolicy _newWindowPolicy;
+		string _userAgent;
+		string _userAgentSuffix;
+		bool _isDisposed;
 
 		public static WebView Create(Fuse.Controls.WebView webViewHost, string[] schemes)
 		{
@@ -174,32 +39,50 @@ namespace Fuse.iOS.Controls
 		{
 			_webViewHost = webViewHost;
 			Handle = wvHandle;
+			_zoomEnabled = webViewHost.ZoomEnabled;
+			_scrollEnabled = webViewHost.ScrollEnabled;
+			_externalNavigationPolicy = webViewHost.ExternalNavigationPolicy;
+			_newWindowPolicy = webViewHost.NewWindowPolicy;
+			_userAgent = webViewHost.UserAgent;
+			_userAgentSuffix = webViewHost.UserAgentSuffix;
+
 			NavigationDelegate = NavDelegate.Create(OnBeginNavigation, OnFinishNavigation, OnURLChanged, OnCustomURI, schemes, HasURISchemeHandler);
 			WKWebViewHelpers.SetNavigationDelegate(Handle, NavigationDelegate);
+
+			UIDelegate = WKWebViewHelpers.CreateUIDelegate((int)_newWindowPolicy);
+			WKWebViewHelpers.SetUIDelegate(Handle, UIDelegate);
+
+			WKWebViewHelpers.SetUserAgent(Handle, _userAgent, _userAgentSuffix);
+
+			// Observe estimatedProgress/canGoBack/canGoForward so progress and
+			// history notifications are driven by WebKit instead of per-frame polling.
+			NavDelegate.Attach(Handle, NavigationDelegate, OnProgressChanged, OnHistoryChanged, OnPageError, OnBeginDownload, OnFileDownloaded, (int)_externalNavigationPolicy);
+
 			Fuse.Platform.AppEvents.LowMemoryWarning += OnLowMemory;
 			_webViewHost.WebViewClient = this;
 		}
 
 		public override void Dispose()
 		{
-			_webViewHost.WebViewClient = null;
-			_webViewHost = null;
-			base.Dispose();
-		}
+			if (_isDisposed) return;
+			_isDisposed = true;
 
-		public event HistoryChangedHandler HistoryChanged
-		{
-			add { throw new NotImplementedException(); }
-			remove { throw new NotImplementedException(); }
+			NavDelegate.Detach(NavigationDelegate);
+			WKWebViewHelpers.ClearUIDelegate(Handle);
+			Fuse.Platform.AppEvents.LowMemoryWarning -= OnLowMemory;
+
+			if (_webViewHost != null)
+			{
+				_webViewHost.WebViewClient = null;
+				_webViewHost = null;
+			}
+
+			base.Dispose();
 		}
 
 		~WebView()
 		{
-			if (Handle != null)
-				Fuse.Platform.AppEvents.LowMemoryWarning -= OnLowMemory;
-			if(_isUpdating)
-				_isUpdating = false;
-				UpdateManager.RemoveAction(OnUpdate);
+			Fuse.Platform.AppEvents.LowMemoryWarning -= OnLowMemory;
 		}
 
 		void OnLowMemory()
@@ -219,13 +102,13 @@ namespace Fuse.iOS.Controls
 
 		public void LoadHtml(string html)
 		{
-			LoadHtml(html, "");
+			LoadHtml(html, BaseUrl);
 		}
 
 		public void LoadHtml(string html, string baseUrl)
 		{
-			WKWebViewHelpers.LoadHTML(Handle, html, baseUrl);
-			StartProgressUpdate();
+			if (_isDisposed || string.IsNullOrEmpty(html)) return;
+			WKWebViewHelpers.LoadHTML(Handle, html, baseUrl ?? "");
 		}
 
 		public string Url
@@ -236,35 +119,20 @@ namespace Fuse.iOS.Controls
 
 		public void LoadUrl(string url)
 		{
+			if (_isDisposed) return;
 			if (url == null || url == "") url = "about:blank";
 			WKWebViewHelpers.LoadURL(Handle, url);
-			StartProgressUpdate();
-		}
-
-		bool _isUpdating = false;
-		void StartProgressUpdate()
-		{
-			if (!_isUpdating)
-				UpdateManager.AddAction(OnUpdate);
-		}
-
-		void OnUpdate()
-		{
-			OnProgressChanged();
-			if (!Loading)
-			{
-				_isUpdating = false;
-				UpdateManager.RemoveAction(OnUpdate);
-			}
 		}
 
 		public void Eval(string js)
 		{
+			if (_isDisposed) return;
 			WKWebViewHelpers.EvalOnWebView(Handle, js);
 		}
 
 		public void Eval(string js, Action<string> onResult)
 		{
+			if (_isDisposed) return;
 			WKWebViewHelpers.EvalOnWebViewWithHandler(Handle, js, onResult);
 		}
 
@@ -294,6 +162,7 @@ namespace Fuse.iOS.Controls
 
 		void OnProgressChanged()
 		{
+			if (_isDisposed) return;
 			if (ProgressChanged != null)
 				ProgressChanged(this, new ValueChangedArgs<double>(Progress));
 		}
@@ -301,14 +170,118 @@ namespace Fuse.iOS.Controls
 
 		void OnBeginNavigation()
 		{
+			if (_isDisposed) return;
 			if(BeginLoading != null)
 				BeginLoading(this, EventArgs.Empty);
 		}
 
 		void OnURLChanged()
 		{
+			if (_isDisposed) return;
 			if(UrlChanged != null)
 				UrlChanged(this, EventArgs.Empty);
+		}
+
+		void OnHistoryChanged()
+		{
+			if (_isDisposed) return;
+			if(HistoryChanged != null)
+				HistoryChanged(this);
+		}
+
+		void OnPageError(string url, string description, int code, int httpStatusCode, bool isMainFrame)
+		{
+			if (_isDisposed) return;
+			if (PageError != null)
+				PageError(this, new PageErrorEventArgs(url, description, code, httpStatusCode, isMainFrame));
+		}
+
+		void OnBeginDownload(string url)
+		{
+			if (_isDisposed) return;
+			if (BeginDownload != null)
+				BeginDownload(this, new DownloadEventArgs(url, null));
+		}
+
+		void OnFileDownloaded(string url, string path)
+		{
+			if (_isDisposed) return;
+			if (FileDownloaded != null)
+				FileDownloaded(this, new DownloadEventArgs(url, path));
+		}
+
+		void IWebViewNavigationPolicyClient.SetExternalNavigationPolicy(Fuse.Controls.ExternalNavigationPolicy policy)
+		{
+			_externalNavigationPolicy = policy;
+			if (!_isDisposed)
+				NavDelegate.SetExternalNavigationPolicy(NavigationDelegate, (int)policy);
+		}
+
+		void IWebViewNavigationPolicyClient.SetNewWindowPolicy(Fuse.Controls.NewWindowPolicy policy)
+		{
+			_newWindowPolicy = policy;
+			if (!_isDisposed)
+				WKWebViewHelpers.SetUIDelegateNewWindowPolicy(UIDelegate, (int)policy);
+		}
+
+		void IWebViewUserAgentClient.SetUserAgent(string userAgent, string userAgentSuffix)
+		{
+			_userAgent = userAgent;
+			_userAgentSuffix = userAgentSuffix;
+			if (!_isDisposed)
+				WKWebViewHelpers.SetUserAgent(Handle, userAgent, userAgentSuffix);
+		}
+
+		void IWebViewRequestClient.LoadUrlWithHeaders(string url, string[] headerNames, string[] headerValues)
+		{
+			if (_isDisposed) return;
+			WKWebViewHelpers.LoadUrlWithHeaders(Handle, url, headerNames, headerValues);
+		}
+
+		void IWebViewRequestClient.PostUrl(string url, string body)
+		{
+			if (_isDisposed) return;
+			WKWebViewHelpers.PostUrl(Handle, url, body);
+		}
+
+		void IWebViewSession.GetCookies(string url, Action<string> resultHandler)
+		{
+			if (_isDisposed)
+			{
+				if (resultHandler != null) resultHandler("");
+				return;
+			}
+			WKWebViewHelpers.GetCookies(Handle, url, resultHandler);
+		}
+
+		void IWebViewSession.SetCookie(string url, string cookie)
+		{
+			if (!_isDisposed)
+				WKWebViewHelpers.SetCookie(Handle, url, cookie);
+		}
+
+		void IWebViewSession.ClearCookies()
+		{
+			if (!_isDisposed)
+				WKWebViewHelpers.ClearCookies(Handle);
+		}
+
+		void IWebViewSession.ClearCache()
+		{
+			if (!_isDisposed)
+				WKWebViewHelpers.ClearCache(Handle);
+		}
+
+		void IWebViewSession.ClearStorage()
+		{
+			if (!_isDisposed)
+				WKWebViewHelpers.ClearStorage(Handle);
+		}
+
+		void IWebViewSession.ReloadIgnoringCache()
+		{
+			if (!_isDisposed)
+				WKWebViewHelpers.ReloadIgnoringCache(Handle);
 		}
 
 		public bool HasURISchemeHandler()
@@ -318,17 +291,18 @@ namespace Fuse.iOS.Controls
 
 		void OnCustomURI(string url)
 		{
+			if (_isDisposed) return;
 			if(URISchemeHandler!=null)
 				URISchemeHandler(this, new URISchemeEventArgs(url));
 		}
 
 		void OnFinishNavigation()
 		{
+			if (_isDisposed) return;
 			if(PageLoaded != null)
 				PageLoaded(this, EventArgs.Empty);
 		}
 
-		public bool Loading { get { return WKWebViewHelpers.GetIsLoading(Handle); } }
 		public double Progress { get { return WKWebViewHelpers.GetEstimatedProgress(Handle); } }
 		public string DocumentTitle { get { return WKWebViewHelpers.GetTitle(Handle); } }
 		public bool CanGoBack { get { return WKWebViewHelpers.GetCanGoBack(Handle); } }
@@ -341,10 +315,31 @@ namespace Fuse.iOS.Controls
 		public event EventHandler PageLoaded;
 		public event EventHandler UrlChanged;
 		public event EventHandler URISchemeHandler;
-		public bool ZoomEnabled { get; set; }
-		public bool ScrollEnabled { get; set; }
+		public event HistoryChangedHandler HistoryChanged;
+		public event EventHandler<PageErrorEventArgs> PageError;
 
-		// Not implemented
+		public bool ZoomEnabled
+		{
+			get { return _zoomEnabled; }
+			set
+			{
+				_zoomEnabled = value;
+				if (!_isDisposed)
+					WKWebViewHelpers.SetZoomEnabled(Handle, value);
+			}
+		}
+
+		public bool ScrollEnabled
+		{
+			get { return _scrollEnabled; }
+			set
+			{
+				_scrollEnabled = value;
+				if (!_isDisposed)
+					WKWebViewHelpers.SetScrollEnabled(Handle, value);
+			}
+		}
+
 		public event EventHandler BeginDownload;
 		public event EventHandler FileDownloaded;
 	}

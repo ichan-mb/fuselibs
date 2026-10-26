@@ -20,14 +20,22 @@ namespace Fuse.Android.Controls.WebViewUtils
 			_handler = handler;
 		}
 
-		public void Execute(Java.Object webViewHandle, string expression)
+		public void Execute(Java.Object webViewHandle, string interfaceName)
 		{
-			webViewHandle.LoadUrl("javascript:"+expression);
+			webViewHandle.EvaluateJavascript(interfaceName, JavaScript);
 		}
 
-		public void HandleResult(string result){
+		public void HandleResult(string result)
+		{
 			if(_handler!=null)
 				_handler(result);
+		}
+
+		public void HandleError(string message)
+		{
+			debug_log("WebView.Eval failed: " + message);
+			if(_handler!=null)
+				_handler(null);
 		}
 	}
 
@@ -37,14 +45,18 @@ namespace Fuse.Android.Controls.WebViewUtils
 		EvaluateJsCommand _currentRequest;
 		Java.Object _webViewHandle;
 		string _interfaceName;
+		bool _isDisposed;
+
 		public JSEvalRequestManager(Java.Object webViewHandle)
 		{
 			_webViewHandle = webViewHandle;
-			_webViewHandle.AddJavascriptInterface(_interfaceName = "FuseJSInterface", OnJsResult);
+			_webViewHandle.AddJavascriptInterface(_interfaceName = "FuseJSInterface", OnJsResult, OnJsError);
 		}
 
 		public void EvaluateJs(string js, Action<string> handler)
 		{
+			if (_isDisposed) return;
+
 			var cmd = new EvaluateJsCommand(js, handler);
 			_evaluateRequests.Add(cmd);
 			if(_evaluateRequests.Count==1)
@@ -53,21 +65,45 @@ namespace Fuse.Android.Controls.WebViewUtils
 
 		void NextRequest()
 		{
+			if (_isDisposed || _webViewHandle == null) return;
 			if(_evaluateRequests.Count==0) return;
 			_currentRequest = _evaluateRequests[0];
 			_evaluateRequests.RemoveAt(0);
-			_currentRequest.Execute(_webViewHandle, CreateExpression(_currentRequest.JavaScript));
-		}
-
-		string CreateExpression(string original){
-			return _interfaceName+".onResult( eval(\'"+original+"\') );";
+			_currentRequest.Execute(_webViewHandle, _interfaceName);
 		}
 
 		void OnJsResult(string result)
 		{
-			_currentRequest.HandleResult(result);
+			if (_isDisposed) return;
+
+			var request = _currentRequest;
 			_currentRequest = null;
+
+			if (request != null)
+				request.HandleResult(result);
+
 			NextRequest();
+		}
+
+		void OnJsError(string message)
+		{
+			if (_isDisposed) return;
+
+			var request = _currentRequest;
+			_currentRequest = null;
+
+			if (request != null)
+				request.HandleError(message);
+
+			NextRequest();
+		}
+
+		public void Dispose()
+		{
+			_isDisposed = true;
+			_evaluateRequests.Clear();
+			_currentRequest = null;
+			_webViewHandle = null;
 		}
 	}
 }
