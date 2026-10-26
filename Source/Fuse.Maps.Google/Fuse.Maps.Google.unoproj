@@ -1,0 +1,18 @@
+{
+  "copyright": "Copyright (c) Fuse Open",
+  "description": "Google Maps provider for Fuse.Maps",
+  "publisher": "Fuse Open",
+  "outputType": "library",
+  "isTransitive": true,
+  "projects": [
+    "../Fuse.Maps/Fuse.Maps.unoproj"
+  ],
+  "includes": [
+    "README.md:file",
+    "GoogleMapProvider.uno:source",
+    "iOS/*",
+    "iOS/GoogleMapDelegate.h:cheader:iOS",
+    "iOS/GoogleMapDelegate.m:csource:iOS",
+    "iOS/google.ios.uxl:extensions"
+  ]
+}

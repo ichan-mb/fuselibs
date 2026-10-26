@@ -1,0 +1,24 @@
+<extensions backend="cplusplus" condition="IOS">
+	<define COCOAPODS />
+
+	<require cocoapods.podfile.target>
+		pod 'GoogleMaps'
+	</require>
+
+	<!--
+		Google Maps is a static framework with Objective-C categories, so the
+		app must link with -ObjC.
+	-->
+	<require cocoapods.podfile.post>
+		<![CDATA[
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['OTHER_LDFLAGS'] ||= ['$(inherited)']
+      config.build_settings['OTHER_LDFLAGS'] << '-ObjC'
+    end
+  end
+end
+		]]>
+	</require>
+</extensions>
