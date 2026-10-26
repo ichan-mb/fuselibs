@@ -1,4 +1,3 @@
-using Uno.Threading;
 using Uno;
 using Uno.UX;
 using Uno.Compiler.ExportTargetInterop;
@@ -22,6 +21,7 @@ namespace Fuse.Audio
 			});
 		@}
 
+		[Foreign(Language.ObjC)]
 		public static void PlaySoundFromByteArray(byte[] byteArray)
 		@{
 			uArray* arr = $0;

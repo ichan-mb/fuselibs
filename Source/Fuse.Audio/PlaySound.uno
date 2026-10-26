@@ -1,4 +1,3 @@
-using Fuse.Triggers;
 using Fuse.Triggers.Actions;
 using Uno.UX;
 namespace Fuse

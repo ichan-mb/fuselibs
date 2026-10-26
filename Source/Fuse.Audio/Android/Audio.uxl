@@ -1,0 +1,7 @@
+<extensions backend="cplusplus" condition="ANDROID">
+	<!-- Required by MediaRecorder / AudioRecord / Visualizer -->
+	<require androidManifest.permission="android.permission.RECORD_AUDIO" />
+
+	<!-- Required when AudioPlayer.Url is used to stream -->
+	<require androidManifest.permission="android.permission.INTERNET" />
+</extensions>

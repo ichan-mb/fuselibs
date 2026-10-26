@@ -1,0 +1,122 @@
+<App>
+	<StackPanel Margin="20" ItemSpacing="20">
+
+		<Text Value="Audio" FontSize="24" FontWeight="Bold" />
+
+		<!-- Playback -->
+		<StackPanel Orientation="Vertical" ItemSpacing="10">
+			<Text Value="Playback" FontSize="18" FontWeight="Bold" />
+
+			<AudioPlayer ux:Name="player" File="music.mp3" PositionChanged="{onPosition}" />
+
+			<StackPanel Orientation="Horizontal" ItemSpacing="10">
+				<Button Text="Play">
+					<Clicked>
+						<Play Target="player" />
+					</Clicked>
+				</Button>
+				<Button Text="Pause">
+					<Clicked>
+						<Pause Target="player" />
+					</Clicked>
+				</Button>
+				<Button Text="Stop">
+					<Clicked>
+						<Stop Target="player" />
+					</Clicked>
+				</Button>
+			</StackPanel>
+
+			<Slider Minimum="0" Maximum="1" Value="{Property player.Progress}" />
+
+			<Text Value="{positionText}" />
+		</StackPanel>
+
+		<Rectangle Height="2" Fill="#ddd" />
+
+		<!-- Recording with level metering -->
+		<StackPanel Orientation="Vertical" ItemSpacing="10">
+			<Text Value="Recording" FontSize="18" FontWeight="Bold" />
+
+			<AudioRecorder ux:Name="recorder"
+			               Source="VoiceRecognition"
+			               MaxDuration="30"
+			               LevelChanged="{onLevel}"
+			               PermissionChanged="{onPermission}"
+			               RecordingStopped="{onRecordingStopped}"
+			               RecordingCompleted="{onRecordingCompleted}" />
+
+			<StackPanel Orientation="Horizontal" ItemSpacing="10">
+				<Button Text="Record">
+					<Clicked>
+						<StartRecording Target="recorder" />
+					</Clicked>
+				</Button>
+				<Button Text="Stop">
+					<Clicked>
+						<StopRecording Target="recorder" />
+					</Clicked>
+				</Button>
+				<Button Text="Allow Microphone">
+					<Clicked>
+						<RequestRecordingPermission Target="recorder" />
+					</Clicked>
+				</Button>
+			</StackPanel>
+
+			<!-- Input level meter -->
+			<Waveform Recorder="recorder" Height="48" BarCount="48" BarColor="#0a0" />
+
+			<!-- Static waveform of the recording that was just made -->
+			<Waveform FilePath="{recordingPath}" Height="48" BarColor="#08f" Mirrored="false" />
+
+			<Text Value="{durationText}" />
+			<Text Value="{statusText}" />
+		</StackPanel>
+	</StackPanel>
+
+	<JavaScript>
+		var Observable = require("FuseJS/Observable");
+
+		var durationText = Observable("0.0 s");
+		var positionText = Observable("0.0 / 0.0 s");
+		var statusText = Observable("");
+		var recordingPath = Observable("");
+
+		function onPosition(args) {
+			positionText.value = args.position.toFixed(1) + " / " + args.duration.toFixed(1) + " s";
+		}
+
+		function onLevel(args) {
+			// The Waveform control draws the level itself; here we just show the duration
+			durationText.value = args.position.toFixed(1) + " s";
+		}
+
+		function onPermission(args) {
+			statusText.value = args.granted
+				? "Microphone permission granted"
+				: "Microphone permission denied";
+		}
+
+		function onRecordingStopped(args) {
+			statusText.value = "Saved to " + args.filePath;
+			recordingPath.value = args.filePath;
+		}
+
+		function onRecordingCompleted(args) {
+			statusText.value = "Reached the recording limit: " + args.filePath;
+		}
+
+		module.exports = {
+			durationText: durationText,
+			positionText: positionText,
+			statusText: statusText,
+			recordingPath: recordingPath,
+			onPosition: onPosition,
+			onLevel: onLevel,
+			onPermission: onPermission,
+			onRecordingStopped: onRecordingStopped,
+			onRecordingCompleted: onRecordingCompleted
+		};
+	</JavaScript>
+</App>

@@ -8,11 +8,20 @@
   ],
   "projects": [
     "../Fuse.Android.Permissions/Fuse.Android.Permissions.unoproj",
+    "../Fuse.Marshal/Fuse.Marshal.unoproj",
     "../Fuse/Fuse.unoproj"
   ],
   "includes": [
     "*",
+    "Docs/**:file",
+    "Android/Audio.uxl:extensions",
     "Apple/AudioHelper.h:cheader:iOS",
+    "Apple/AudioPlayerCallbacks.h:cheader:iOS",
+    "Apple/AudioPlayerCallbacks.mm:csource:iOS",
+    "Apple/AudioRecorderCallbacks.h:cheader:iOS",
+    "Apple/AudioRecorderCallbacks.mm:csource:iOS",
+    "Apple/AudioWaveform.h:cheader:iOS",
+    "Apple/AudioWaveform.mm:csource:iOS",
     "Apple/AudioHelper.m:csource:iOS"
   ]
 }

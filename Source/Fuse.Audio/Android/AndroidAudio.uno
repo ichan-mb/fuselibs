@@ -1,7 +1,5 @@
 using Uno;
-using Uno.IO;
 using Uno.UX;
-using Uno.Threading;
 using Fuse.Android.Bindings;
 using Uno.Compiler.ExportTargetInterop;
 
@@ -115,8 +113,6 @@ namespace Fuse.Audio
 
 		public static void PlaySoundFromByteArray(byte[] byteArray)
 		{
-			var buf = ForeignDataView.Create(byteArray);
-
 			if (global::Android.Base.Versions.ApiLevel < 23)
 				PlaySoundFromByteArrayInner(AndroidDeviceInterop.MakeBufferInputStream(byteArray));
 			else
