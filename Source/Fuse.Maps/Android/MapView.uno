@@ -1,19 +1,12 @@
 using Uno;
 using Uno.Collections;
-using Fuse;
+using Uno.Threading;
 using Fuse.Controls;
 using Fuse.Android.Permissions;
 using Uno.Compiler.ExportTargetInterop;
 
 namespace Fuse.Maps.Android
 {
-	enum TouchAction
-	{
-		DOWN = 0,
-		UP = 1,
-		MOVE = 2
-	}
-
 	[Require("gradle.dependency.implementation", "com.google.android.gms:play-services-maps:17.0.0")]
 	extern (Android) public class MapView : Fuse.Controls.Native.Android.LeafView, IMapView
 	{
@@ -21,102 +14,131 @@ namespace Fuse.Maps.Android
 		public Action OnReady { get; set; }
 		MarkerIconCache _markerGraphicsCache;
 
-		public static MapView Create(Fuse.Controls.MapView mapViewHost)
+		public static MapView Create(IMapViewHost host)
 		{
 			var m = ForeignHelpers.CreateMap();
-			return new MapView(mapViewHost, m);
+			return new MapView(host, m);
 		}
 
 		Java.Object _mapView;
-		Fuse.Controls.MapView _mapViewHost;
+		IMapViewHost _host;
 
-
-		MapView(Fuse.Controls.MapView mapViewHost, Java.Object map) : base(map)
+		MapView(IMapViewHost host, Java.Object map) : base(map)
 		{
 			IsReady = false;
 			_mapView = map;
-			_mapViewHost = mapViewHost;
+			_host = host;
 			_markerGraphicsCache = new MarkerIconCache(UpdateMarkers);
 			ForeignHelpers.SetMapEventHandlers(
 				_mapView,
 				OnMapReady,
-				HandleLocationLongPress,
-				HandleLocationTapped,
-				OnAnimationStart,
-				OnAnimationEnd,
-				SetLocationFromMap,
-				HandleMarkerTapped,
-				HandleOverlayTapped,
-				OnTouchEvent
+				OnLocationLongPress,
+				OnLocationTapped,
+				OnCameraIdle,
+				OnMarkerTapped,
+				OnOverlayTapped,
+				OnMarkerSelected,
+				OnMarkerDeselected,
+				OnMarkerDragStarted,
+				OnMarkerDragging,
+				OnMarkerDragEnded
 				);
 			ForeignHelpers.Configure(_mapView);
-			SemanticControl.MapViewClient = this;
+
+			Fuse.Platform.Lifecycle.EnteringForeground += OnEnteringForeground;
+			Fuse.Platform.Lifecycle.EnteringBackground += OnEnteringBackground;
+		}
+
+		void OnEnteringForeground(Fuse.Platform.ApplicationState state)
+		{
+			if (_mapView != null)
+				ForeignHelpers.Resume(_mapView);
+		}
+
+		void OnEnteringBackground(Fuse.Platform.ApplicationState state)
+		{
+			if (_mapView != null)
+				ForeignHelpers.Pause(_mapView);
 		}
 
 		public override void Dispose()
 		{
-			SemanticControl.MapViewClient = null;
+			Fuse.Platform.Lifecycle.EnteringForeground -= OnEnteringForeground;
+			Fuse.Platform.Lifecycle.EnteringBackground -= OnEnteringBackground;
+
 			IsReady = false;
-			if (_mapView!=null)
+			_markerStates.Clear();
+
+			if (_mapView != null)
 				ForeignHelpers.Destroy(_mapView);
 			_mapView = null;
-			_mapViewHost = null;
+
+			var host = _host;
+			_host = null;
+			if (host != null)
+				host.OnViewDisposed(this);
+
 			base.Dispose();
 		}
 
-		Fuse.Controls.MapView SemanticControl
+		void OnCameraIdle()
 		{
-			get { return _mapViewHost; }
+			if (_host != null)
+				_host.OnCameraChanged();
 		}
 
-		void SetLocationFromMap(double lat, double lng)
+		void OnLocationTapped(double latitude, double longitude)
 		{
-			if (SemanticControl.UserInteractingWithMap)
-				SemanticControl.UpdateRestState();
+			if (_host != null)
+				_host.OnLocationTapped(latitude, longitude);
 		}
 
-		void OnAnimationStart()
+		void OnLocationLongPress(double latitude, double longitude)
 		{
-			//We count map animations as user interactions
-			SemanticControl.OnMapInteractionStart();
+			if (_host != null)
+				_host.OnLocationLongPress(latitude, longitude);
 		}
 
-		void OnAnimationEnd()
+		void OnMarkerTapped(int uid, string title)
 		{
-			SemanticControl.OnMapInteractionEnd();
+			if (_host != null)
+				_host.OnMarkerTapped(uid, title);
 		}
 
-		void OnTouchEvent(int action, float x, float y)
+		void OnMarkerSelected(int uid)
 		{
-			switch(action)
-			{
-				case TouchAction.DOWN:
-					SemanticControl.OnMapInteractionStart();
-					break;
-				case TouchAction.UP:
-					SemanticControl.OnMapInteractionEnd();
-					break;
-			}
+			if (_host != null)
+				_host.OnMarkerSelected(uid);
 		}
 
-		public void HandleLocationTapped(double latitude, double longitude)
+		void OnMarkerDeselected(int uid)
 		{
-			SemanticControl.HandleLocationTapped(latitude,longitude);
+			if (_host != null)
+				_host.OnMarkerDeselected(uid);
 		}
 
-		public void HandleLocationLongPress(double latitude, double longitude)
+		void OnMarkerDragStarted(int uid)
 		{
-			SemanticControl.HandleLocationLongPress(latitude,longitude);
+			if (_host != null)
+				_host.OnMarkerDragStarted(uid);
 		}
 
-		public void HandleMarkerTapped(int uid, string title)
+		void OnMarkerDragging(int uid, double latitude, double longitude)
 		{
-			SemanticControl.HandleMarkerTapped(uid, title);
+			if (_host != null)
+				_host.OnMarkerDragging(uid, latitude, longitude);
 		}
 
-		public void HandleOverlayTapped(int id)
+		void OnMarkerDragEnded(int uid, double latitude, double longitude)
 		{
-			SemanticControl.HandleOverlayTapped(id);
+			if (_host != null)
+				_host.OnMarkerDragEnded(uid, latitude, longitude);
+		}
+
+		void OnOverlayTapped(int id)
+		{
+			if (_host != null)
+				_host.OnOverlayTapped(id);
 		}
 
 		internal void OnMapReady()
@@ -127,9 +149,12 @@ namespace Fuse.Maps.Android
 			ShowMyLocation = _showLocation;
 			ConfigUI();
 			ConfigGestures();
+			ApplyPadding();
+			ApplyZoomLimits();
 			UpdateMarkers();
 			UpdateOverlays();
-			OnReady();
+			if (OnReady != null)
+				OnReady();
 		}
 
 		MapStyle _mapStyleInternal;
@@ -148,6 +173,9 @@ namespace Fuse.Maps.Android
 						case MapStyle.Hybrid:
 							ForeignHelpers.SetHybridStyle(_mapView);
 						break;
+						case MapStyle.Terrain:
+							ForeignHelpers.SetTerrainStyle(_mapView);
+						break;
 						default:
 							ForeignHelpers.SetNormalStyle(_mapView);
 						break;
@@ -163,50 +191,199 @@ namespace Fuse.Maps.Android
 			}
 		}
 
-		public ObservableList<MapMarker> Markers
-		{
-			get
-			{
-				return SemanticControl.Markers;
-			}
-		}
+		Dictionary<int, MarkerState> _markerStates = new Dictionary<int, MarkerState>();
+		List<int> _removedMarkerUids = new List<int>();
 
 		public void UpdateMarkers(){
-			if (!IsReady) return;
-			ForeignHelpers.Clear(_mapView);
-			foreach(MapMarker m in Markers)
+			if (!IsReady || _mapView == null || _host == null) return;
+
+			var markers = _host.Markers;
+
+			var currentUids = new HashSet<int>();
+			foreach (MapMarker marker in markers)
+				currentUids.Add(marker.uid);
+
+			_removedMarkerUids.Clear();
+			foreach (var pair in _markerStates)
 			{
-				ForeignHelpers.AddMarker(
-					_mapView,
-					m.Latitude,
-					m.Longitude,
-					m.Label,
-					_markerGraphicsCache.Get(m.IconFile),
-					m.IconAnchorX,
-					m.IconAnchorY,
-					m.uid
-				);
+				if (!currentUids.Contains(pair.Key))
+					_removedMarkerUids.Add(pair.Key);
+			}
+
+			foreach (var uid in _removedMarkerUids)
+			{
+				ForeignHelpers.RemoveMarker(_mapView, uid);
+				_markerStates.Remove(uid);
+			}
+
+			foreach (MapMarker m in markers)
+			{
+				var state = MarkerState.From(m, _markerGraphicsCache.Get(m.IconFile));
+
+				MarkerState previous;
+				if (_markerStates.TryGetValue(m.uid, out previous))
+				{
+					if (!state.Differs(previous))
+						continue;
+
+					ForeignHelpers.UpdateMarker(
+						_mapView,
+						m.uid,
+						state.Latitude,
+						state.Longitude,
+						state.Label,
+						state.Snippet,
+						state.IconPath,
+						state.IconAnchorX,
+						state.IconAnchorY,
+						(int)Uno.Color.ToArgb(state.Color),
+						state.Draggable
+					);
+				}
+				else
+				{
+					ForeignHelpers.AddMarker(
+						_mapView,
+						state.Latitude,
+						state.Longitude,
+						state.Label,
+						state.Snippet,
+						state.IconPath,
+						state.IconAnchorX,
+						state.IconAnchorY,
+						(int)Uno.Color.ToArgb(state.Color),
+						state.Draggable,
+						m.uid
+					);
+				}
+
+				_markerStates[m.uid] = state;
 			}
 		}
 
-		public ObservableList<MapOverlay> Overlays
+		public void SelectMarker(int uid)
 		{
-			get
+			if (IsReady && _mapView != null)
+				ForeignHelpers.SelectMarker(_mapView, uid);
+		}
+
+		public void DeselectMarker(int uid)
+		{
+			if (IsReady && _mapView != null)
+				ForeignHelpers.DeselectMarker(_mapView, uid);
+		}
+
+		public void UpdateRoutes()
+		{
+			if (!IsReady || _mapView == null) return;
+
+			ForeignHelpers.ClearRoutes(_mapView);
+
+			foreach (MapRoute route in _host.Routes)
 			{
-				return SemanticControl.Overlays;
+				if (route.NeedsCalculation)
+				{
+					route.MarkCalculationStarted();
+
+					var callback = new RouteProgressCallback(_host, route.Uid, route.Generation);
+					ForeignHelpers.StartRouteCalculation(
+						_mapView,
+						route.FromLatitude,
+						route.FromLongitude,
+						route.ToLatitude,
+						route.ToLongitude,
+						(int)route.Mode,
+						callback.OnSuccess,
+						callback.OnError
+					);
+				}
+
+				if (route.Visible && route.HasPolyline)
+				{
+					ForeignHelpers.AddRoutePolyline(
+						_mapView,
+						route.Uid,
+						route.GetPolylineArray(),
+						(int)Uno.Color.ToArgb(route.StrokeColor),
+						route.LineWidth,
+						route.Alpha,
+						route.ZIndex
+					);
+				}
+			}
+		}
+
+		class RouteProgressCallback
+		{
+			readonly IMapViewHost _host;
+			readonly int _uid;
+			readonly int _generation;
+
+			public RouteProgressCallback(IMapViewHost host, int uid, int generation)
+			{
+				_host = host;
+				_uid = uid;
+				_generation = generation;
+			}
+
+			public void OnSuccess(string encoded)
+			{
+				if (_host != null)
+					_host.OnRouteResult(_uid, _generation, encoded);
+			}
+
+			public void OnError(string message)
+			{
+				if (_host != null)
+					_host.OnRouteError(_uid, _generation, message);
 			}
 		}
 
 		public void UpdateOverlays()
 		{
-			if (!IsReady) return;
+			if (!IsReady || _mapView == null || _host == null) return;
 			ForeignHelpers.ClearOverlays(_mapView);
-			foreach(MapOverlay p in Overlays)
+
+			foreach(MapOverlay p in _host.Overlays)
 			{
+				if (!p.Visible) continue;
+
+				if (p.Type == OverlayType.Image)
+				{
+					ForeignHelpers.AddImageOverlay(
+						_mapView,
+						_markerGraphicsCache.Get(p.ImageFile),
+						p.MinLatitude,
+						p.MinLongitude,
+						p.MaxLatitude,
+						p.MaxLongitude,
+						p.Alpha,
+						p.ZIndex,
+						p.Uid
+					);
+					continue;
+				}
+
+				if (p.Type == OverlayType.Tile)
+				{
+					ForeignHelpers.AddTileOverlay(
+						_mapView,
+						p.TileUrlTemplate,
+						p.TileMinZoom,
+						p.TileMaxZoom,
+						p.Alpha,
+						p.ZIndex,
+						p.Uid
+					);
+					continue;
+				}
+
 				int[] pattern = new int[] { p.DashPattern.X, p.DashPattern.Y };
 				ForeignHelpers.AddOverlay(
 					_mapView, p.Type,
-					p.GetCordinatesArray(),
+					p.GetCoordinatesArray(),
+					p.GetHolesCoordinatesArray(),
+					p.GetHoleLengthsArray(),
 					(int)Uno.Color.ToArgb(p.StrokeColor),
 					(int)Uno.Color.ToArgb(p.FillColor),
 					p.LineWidth,
@@ -218,6 +395,8 @@ namespace Fuse.Maps.Android
 					p.CenterLatitude,
 					p.CenterLongitude,
 					p.Radius,
+					p.ZIndex,
+					p.Alpha,
 					p.Uid
 					);
 			}
@@ -225,46 +404,56 @@ namespace Fuse.Maps.Android
 
 		public void SetLocation(double latitude, double longitude)
 		{
-			if (IsReady) ForeignHelpers.SetPosition(_mapView, latitude, longitude, 0.0);
+			if (IsReady && _mapView != null)
+				ForeignHelpers.SetPosition(_mapView, latitude, longitude, 0.0);
 		}
 
 		public double Bearing {
 			get {
+				if (!IsReady || _mapView == null) return 0.0;
 				return ForeignHelpers.GetOrientation(_mapView);
 			}
 		}
 
 		public double Tilt {
 			get {
+				if (!IsReady || _mapView == null) return 0.0;
 				return ForeignHelpers.GetTilt(_mapView);
 			}
 		}
 
 		public double Latitude {
 			get {
+				if (!IsReady || _mapView == null) return 0.0;
 				return ForeignHelpers.GetPositionLat(_mapView);
 			}
 		}
 
 		public double Longitude {
 			get {
+				if (!IsReady || _mapView == null) return 0.0;
 				return ForeignHelpers.GetPositionLong(_mapView);
 			}
 		}
 
 		public void MoveTo(double latitude, double longitude, double zoomlevel, double tilt, double orientation)
 		{
-			ForeignHelpers.MoveCamera(_mapView, latitude, longitude, (float)zoomlevel, (float)tilt, (float)orientation, 0.0);
+			if (IsReady && _mapView != null)
+				ForeignHelpers.MoveCamera(_mapView, latitude, longitude, (float)zoomlevel, (float)tilt, (float)orientation, 0.0);
 		}
 
 		public void ShowAllMarkers()
 		{
-			ForeignHelpers.ShowAllMarkers(_mapView);
+			if (IsReady && _mapView != null)
+				ForeignHelpers.ShowAllMarkers(_mapView);
 		}
 
 		public void Snapshot(Action<string> actionSucces, Action<string> actionError)
 		{
-			ForeignHelpers.TakeSnapshot(_mapView, actionSucces, actionError);
+			if (IsReady && _mapView != null)
+				ForeignHelpers.TakeSnapshot(_mapView, actionSucces, actionError);
+			else if (actionError != null)
+				actionError("MapView is not ready");
 		}
 
 		void ConfigUI(){
@@ -275,23 +464,170 @@ namespace Fuse.Maps.Android
 			if (IsReady) ForeignHelpers.ConfigureGestures(_mapView, _allowZoom, _allowRotate, _allowTilt, _allowScroll);
 		}
 
+		public void AnimateTo(double latitude, double longitude, double zoomlevel, double tilt, double orientation, double duration)
+		{
+			if (!IsReady || _mapView == null) return;
+			ForeignHelpers.MoveCamera(_mapView, latitude, longitude, (float)zoomlevel, (float)tilt, (float)orientation, duration);
+		}
+
+		public void CancelAnimation()
+		{
+			if (!IsReady || _mapView == null) return;
+			ForeignHelpers.CancelAnimation(_mapView);
+
+			if (_host != null)
+				_host.OnCameraChanged();
+		}
+
+		public void ShowBounds(double minLatitude, double minLongitude, double maxLatitude, double maxLongitude)
+		{
+			if (!IsReady || _mapView == null) return;
+			ForeignHelpers.ShowBounds(_mapView, minLatitude, minLongitude, maxLatitude, maxLongitude);
+		}
+
+		public MapBounds GetVisibleBounds()
+		{
+			if (!IsReady || _mapView == null) return null;
+
+			return new MapBounds(
+				ForeignHelpers.GetVisibleMinLatitude(_mapView),
+				ForeignHelpers.GetVisibleMinLongitude(_mapView),
+				ForeignHelpers.GetVisibleMaxLatitude(_mapView),
+				ForeignHelpers.GetVisibleMaxLongitude(_mapView)
+			);
+		}
+
+		public void ZoomBy(double delta, double duration)
+		{
+			if (!IsReady || _mapView == null) return;
+			ForeignHelpers.ZoomBy(_mapView, (float)delta, duration);
+
+			if (duration <= 0.0 && _host != null)
+				_host.OnCameraChanged();
+		}
+
+		public void ScrollBy(float dx, float dy, double duration)
+		{
+			if (!IsReady || _mapView == null) return;
+			ForeignHelpers.ScrollBy(_mapView, dx, dy, duration);
+
+			if (duration <= 0.0 && _host != null)
+				_host.OnCameraChanged();
+		}
+
+		public Future<MapPlace[]> Geocode(string query)
+		{
+			var promise = new Promise<MapPlace[]>();
+
+			if (_mapView == null)
+			{
+				promise.Reject(new Exception("MapView is not ready"));
+				return promise;
+			}
+
+			var callback = new PlaceCallback(promise);
+			ForeignHelpers.Geocode(_mapView, query, callback.OnSuccess, callback.OnError);
+			return promise;
+		}
+
+		public Future<MapPlace[]> ReverseGeocode(double latitude, double longitude)
+		{
+			var promise = new Promise<MapPlace[]>();
+
+			if (_mapView == null)
+			{
+				promise.Reject(new Exception("MapView is not ready"));
+				return promise;
+			}
+
+			var callback = new PlaceCallback(promise);
+			ForeignHelpers.ReverseGeocode(_mapView, latitude, longitude, callback.OnSuccess, callback.OnError);
+			return promise;
+		}
+
+		public Future<MapRouteResult> CalculateRoute(double fromLatitude, double fromLongitude, double toLatitude, double toLongitude, RouteMode mode)
+		{
+			var promise = new Promise<MapRouteResult>();
+
+			if (_mapView == null)
+			{
+				promise.Reject(new Exception("MapView is not ready"));
+				return promise;
+			}
+
+			var callback = new RouteCallback(promise);
+			ForeignHelpers.CalculateRoute(_mapView, fromLatitude, fromLongitude, toLatitude, toLongitude, (int)mode, callback.OnSuccess, callback.OnError);
+			return promise;
+		}
+
+		class PlaceCallback
+		{
+			readonly Promise<MapPlace[]> _promise;
+
+			public PlaceCallback(Promise<MapPlace[]> promise)
+			{
+				_promise = promise;
+			}
+
+			public void OnSuccess(string encoded)
+			{
+				_promise.Resolve(MapPlace.ParseList(encoded));
+			}
+
+			public void OnError(string message)
+			{
+				_promise.Reject(new Exception(message));
+			}
+		}
+
+		class RouteCallback
+		{
+			readonly Promise<MapRouteResult> _promise;
+
+			public RouteCallback(Promise<MapRouteResult> promise)
+			{
+				_promise = promise;
+			}
+
+			public void OnSuccess(string encoded)
+			{
+				var result = MapRouteResult.Parse(encoded);
+				if (result == null)
+					_promise.Reject(new Exception("Could not calculate the route"));
+				else
+					_promise.Resolve(result);
+			}
+
+			public void OnError(string message)
+			{
+				_promise.Reject(new Exception(message));
+			}
+		}
+
 		class ShowLocationCommand
 		{
 			readonly bool _value;
-			readonly Java.Object _handle;
-			public ShowLocationCommand(Java.Object handle, bool newValue)
+			readonly MapView _mapView;
+			public ShowLocationCommand(MapView mapView, bool newValue)
 			{
-				_handle = handle;
+				_mapView = mapView;
 				_value = newValue;
 			}
 			public void Execute(PlatformPermission[] grantedPermissions)
 			{
-				ForeignHelpers.SetMyLocationEnabled(_handle, _value);
+				if (_mapView == null) return;
+				_mapView.SetMyLocationEnabled(_value);
 			}
 			public void Reject(Exception e)
 			{
 				debug_log("Could not acquire location permissions");
 			}
+		}
+
+		internal void SetMyLocationEnabled(bool value)
+		{
+			if (!IsReady || _mapView == null) return;
+			ForeignHelpers.SetMyLocationEnabled(_mapView, value);
 		}
 
 		bool _showLocation;
@@ -310,12 +646,12 @@ namespace Fuse.Maps.Android
 							Permissions.Android.ACCESS_FINE_LOCATION,
 							Permissions.Android.ACCESS_COARSE_LOCATION
 						};
-						var cmd = new ShowLocationCommand(_mapView, _showLocation);
+						var cmd = new ShowLocationCommand(this, _showLocation);
 						Permissions.Request(permissions).Then(cmd.Execute, cmd.Reject);
 					}
 					else
 					{
-						ForeignHelpers.SetMyLocationEnabled(_mapView, _showLocation);
+						SetMyLocationEnabled(_showLocation);
 					}
 				}
 			}
@@ -386,6 +722,59 @@ namespace Fuse.Maps.Android
 			}
 		}
 
+		float4 _padding = float4(0);
+		public float4 Padding
+		{
+			get { return _padding; }
+			set
+			{
+				_padding = value;
+				ApplyPadding();
+			}
+		}
+
+		void ApplyPadding()
+		{
+			if (!IsReady || _mapView == null) return;
+			ForeignHelpers.SetPadding(_mapView, _padding.X, _padding.Y, _padding.Z, _padding.W);
+		}
+
+		double _minZoom = 0;
+		public double MinZoom
+		{
+			get { return _minZoom; }
+			set
+			{
+				_minZoom = value;
+				ApplyZoomLimits();
+			}
+		}
+
+		double _maxZoom = 21;
+		public double MaxZoom
+		{
+			get { return _maxZoom; }
+			set
+			{
+				_maxZoom = value;
+				ApplyZoomLimits();
+			}
+		}
+
+		void ApplyZoomLimits()
+		{
+			if (!IsReady || _mapView == null) return;
+			ForeignHelpers.SetZoomLimits(_mapView, (float)_minZoom, (float)_maxZoom);
+		}
 	}
 
+	extern (Android) public class NativeMapProvider : IMapProvider
+	{
+		public string Name { get { return "Native"; } }
+
+		public IMapView Create(IMapViewHost host)
+		{
+			return MapView.Create(host);
+		}
+	}
 }

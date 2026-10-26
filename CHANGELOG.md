@@ -59,6 +59,7 @@
 ### Fuse.Maps
 - iOS: Fix memory leaks with MapView (#1503)
 - Android: MapView sanitary check (#1511)
+- Add `MapStyle.Terrain`. Supported on Android and by `Fuse.Maps.Google` on iOS; falls back to `Normal` on native iOS maps.
 
 ### Fuse.Nodes
 - Remove obsolete methods (#1492)

@@ -1,12 +1,8 @@
 using Uno;
 using Uno.Collections;
 using Uno.UX;
-using Fuse.Input;
-using Fuse.Gestures;
-using Fuse.Animations;
+using Uno.Threading;
 using Fuse.Elements;
-using Fuse.Triggers;
-using Fuse.Controls;
 using Fuse.Maps;
 
 namespace Fuse.Controls
@@ -16,7 +12,8 @@ namespace Fuse.Controls
 	{
 		Normal,
 		Satellite,
-		Hybrid
+		Hybrid,
+		Terrain
 	}
 
 	internal class MapCameraState
@@ -27,18 +24,10 @@ namespace Fuse.Controls
 		public double Tilt { get; set; }
 		public double Zoom { get; set; }
 
-		public void CopyFrom(IMapView mv)
-		{
-			Latitude = mv.Latitude;
-			Longitude = mv.Longitude;
-			Bearing = mv.Bearing;
-			Tilt = mv.Tilt;
-			Zoom = mv.Zoom;
-		}
-
 		public override string ToString()
 		{
-			return "[MapCameraState Latitude:"+Latitude+" Longitude:"+Longitude+" Bearing:"+Bearing+" Zoom:"+Zoom+" Tilt:"+Tilt+" ]";
+			return "[MapCameraState Latitude:" + Latitude + " Longitude:" + Longitude
+				+ " Bearing:" + Bearing + " Zoom:" + Zoom + " Tilt:" + Tilt + "]";
 		}
 	}
 
@@ -52,6 +41,9 @@ namespace Fuse.Controls
 		public bool AllowRotate { get; set; }
 		public bool AllowScroll { get; set; }
 		public MapStyle Style { get; set; }
+		public float4 Padding { get; set; }
+		public double MinZoom { get; set; }
+		public double MaxZoom { get; set; }
 
 		public MapConfig()
 		{
@@ -59,18 +51,9 @@ namespace Fuse.Controls
 			ShowMyLocationButton = false;
 			ShowCompass = false;
 			AllowZoom = AllowTilt = AllowRotate = AllowScroll = true;
-		}
-
-		public void CopyFrom(IMapView mv)
-		{
-			ShowMyLocation = mv.ShowMyLocation;
-			ShowMyLocationButton = mv.ShowMyLocationButton;
-			ShowCompass = mv.ShowCompass;
-			AllowZoom = mv.AllowZoom;
-			AllowTilt = mv.AllowTilt;
-			AllowRotate = mv.AllowRotate;
-			AllowScroll = mv.AllowScroll;
-			Style = mv.Style;
+			Padding = float4(0);
+			MinZoom = 0;
+			MaxZoom = 21;
 		}
 
 		public void Apply(IMapView mv)
@@ -83,38 +66,10 @@ namespace Fuse.Controls
 			mv.AllowRotate = AllowRotate;
 			mv.AllowScroll = AllowScroll;
 			mv.Style = Style;
+			mv.Padding = Padding;
+			mv.MinZoom = MinZoom;
+			mv.MaxZoom = MaxZoom;
 		}
-	}
-
-	internal interface IMapView
-	{
-		ObservableList<MapMarker> Markers { get; }
-		MapStyle Style { get; set; }
-		double Latitude { get; }
-		double Longitude { get; }
-		double Bearing { get; }
-		double Tilt { get; }
-		double Zoom { get; }
-		bool IsReady { get; }
-		void SetLocation(double latitude, double longitude);
-		void MoveTo(double latitude, double longitude, double zoomlevel, double tilt, double orientation);
-		bool ShowMyLocation { get; set; }
-		bool ShowMyLocationButton { get; set; }
-		bool ShowCompass { get; set; }
-		bool AllowZoom { get; set; }
-		bool AllowTilt { get; set; }
-		bool AllowRotate { get; set; }
-		bool AllowScroll { get; set; }
-
-		void UpdateMarkers();
-		void UpdateOverlays();
-		void ShowAllMarkers();
-		void Snapshot(Action<string> actionSucces, Action<string> actionError);
-		void HandleMarkerTapped(int id, string label);
-		void HandleOverlayTapped(int id);
-		void HandleLocationTapped(double latitude, double longitude);
-		void HandleLocationLongPress(double latitude, double longitude);
-		Action OnReady { get; set; }
 	}
 
 	/** Displays a native map view.
@@ -125,17 +80,60 @@ namespace Fuse.Controls
 
 	@seealso Fuse.Controls.MapMarker
 	*/
-	public partial class MapView : Panel
+	public partial class MapView : Panel, IMapViewHost
 	{
+		string _provider;
+
+		/**
+			The name of the map provider to use.
+
+			Defaults to the platform's native provider. This must be set before the
+			map view is created.
+		*/
+		public string Provider
+		{
+			get { return _provider; }
+			set
+			{
+				if (_provider == value) return;
+
+				if (MapViewClient != null)
+				{
+					Fuse.Diagnostics.UserError("MapView.Provider must be set before the map view is created", this);
+					return;
+				}
+
+				_provider = value;
+			}
+		}
 
 		protected override Fuse.Controls.Native.IView CreateNativeView()
 		{
-			if defined(Android)
-				return Fuse.Maps.Android.MapView.Create(this);
-			else if defined(iOS)
-				return Fuse.Maps.iOS.MapView.Create(this);
-			else
+			var provider = MapProviders.Resolve(_provider);
+
+			if (provider == null && _provider != null)
+				Fuse.Diagnostics.UserError("Unknown map provider '" + _provider + "'", this);
+
+			if (provider == null)
+				provider = MapProviders.Resolve(null);
+
+			if (provider == null)
 				return base.CreateNativeView();
+
+			var view = provider.Create(this);
+
+			if (view == null)
+			{
+				var fallback = MapProviders.Resolve(null);
+				if (fallback != null && fallback != provider)
+					view = fallback.Create(this);
+			}
+
+			if (view == null)
+				return base.CreateNativeView();
+
+			MapViewClient = view;
+			return view;
 		}
 
 		/**
@@ -149,6 +147,42 @@ namespace Fuse.Controls
 			```
 		*/
 		public event MarkerEventHandler MarkerTapped;
+
+		/**
+			Dispatched when a map marker is selected (its callout is shown).
+
+			*Handler example*
+			```JS
+			exports.onMarkerSelected = function(args) {
+				console.log("Marker selected: "+args.id);
+			}
+			```
+		*/
+		public event MarkerEventHandler MarkerSelected;
+
+		/** Dispatched when a map marker is deselected. */
+		public event MarkerEventHandler MarkerDeselected;
+
+		/** Dispatched when the user starts dragging a draggable marker. */
+		public event MarkerEventHandler MarkerDragStarted;
+
+		/** Dispatched continuously while the user drags a draggable marker. */
+		public event MarkerEventHandler MarkerDragged;
+
+		/** Dispatched when the user stops dragging a draggable marker. `Latitude` and `Longitude` are updated on the marker. */
+		public event MarkerEventHandler MarkerDragEnded;
+
+		/**
+			Dispatched when the visible geographical area of the map changes.
+
+			*Handler example*
+			```JS
+			exports.onBoundsChanged = function(args) {
+				console.log(args.minLatitude + ", " + args.minLongitude);
+			}
+			```
+		*/
+		public event MapBoundsEventHandler BoundsChanged;
 
 		/**
 			Dispatched when a map location is tapped.
@@ -173,6 +207,18 @@ namespace Fuse.Controls
 			```
 		*/
 		public event MapEventHandler LocationLongPressed;
+
+		/**
+			Dispatched once the native map has finished loading and is ready to be used.
+
+			*Handler example*
+			```JS
+			exports.onReady = function() {
+				console.log("Map is ready");
+			}
+			```
+		*/
+		public event EventHandler Ready;
 
 		MapConfig _mapConfig;
 		MapCameraState _cameraState;
@@ -214,6 +260,7 @@ namespace Fuse.Controls
 		}
 
 		public void ClearOverlays(){
+			if (_overlays == null) return;
 			_overlays.Clear();
 			UpdateOverlays();
 		}
@@ -248,16 +295,195 @@ namespace Fuse.Controls
 				MapViewClient.UpdateOverlays();
 		}
 
-		void ShowAllMarkers()
+		internal ObservableList<MapRoute> _routes;
+		/** The routes calculated and drawn by this map. */
+		public ObservableList<MapRoute> Routes
+		{
+			get
+			{
+				if (_routes == null) _routes = new ObservableList<MapRoute>(OnRouteAdded, OnRouteRemoved);
+				return _routes;
+			}
+		}
+
+		internal void AddRoute(MapRoute route)
+		{
+			if (Routes.Contains(route)) return;
+			Routes.Add(route);
+		}
+
+		internal void RemoveRoute(MapRoute route)
+		{
+			Routes.Remove(route);
+		}
+
+		/** Removes all routes from the map. */
+		public void ClearRoutes()
+		{
+			if (_routes == null) return;
+			_routes.Clear();
+			UpdateRoutes();
+		}
+
+		void OnRouteAdded(MapRoute route)
+		{
+			UpdateRoutesNextFrame();
+		}
+
+		void OnRouteRemoved(MapRoute route)
+		{
+			UpdateRoutesNextFrame();
+		}
+
+		bool _willUpdateRoutesNextFrame;
+		internal void UpdateRoutesNextFrame()
+		{
+			if (!MapIsReady || _willUpdateRoutesNextFrame) return;
+			UpdateManager.PerformNextFrame(DeferredRouteUpdate, UpdateStage.Primary);
+			_willUpdateRoutesNextFrame = true;
+		}
+
+		void DeferredRouteUpdate()
+		{
+			_willUpdateRoutesNextFrame = false;
+			UpdateRoutes();
+		}
+
+		void UpdateRoutes()
 		{
 			if (MapIsReady)
+				MapViewClient.UpdateRoutes();
+		}
+
+		MapRoute FindRoute(int uid)
+		{
+			if (_routes == null) return null;
+
+			foreach (MapRoute route in _routes)
+			{
+				if (route.Uid == uid)
+					return route;
+			}
+
+			return null;
+		}
+
+		void IMapViewHost.OnRouteResult(int uid, int generation, string encoded)
+		{
+			var route = FindRoute(uid);
+			if (route == null) return;
+
+			var result = MapRouteResult.Parse(encoded);
+			if (result == null)
+				route.SetError(generation, "Could not calculate the route");
+			else
+				route.SetResult(generation, result.Polyline, result.Distance, result.Duration);
+
+			UpdateRoutesNextFrame();
+		}
+
+		void IMapViewHost.OnRouteError(int uid, int generation, string message)
+		{
+			var route = FindRoute(uid);
+			if (route != null)
+				route.SetError(generation, message);
+
+			UpdateRoutesNextFrame();
+		}
+
+		void ShowAllMarkers()
+		{
+			RunWhenReady(ShowAllMarkersWhenReady);
+		}
+
+		void ShowAllMarkersWhenReady()
+		{
+			if (MapViewClient != null)
 				MapViewClient.ShowAllMarkers();
 		}
 
 		void Snapshot(Action<string> actionSucces, Action<string> actionError)
 		{
+			var command = new SnapshotCommand(this, actionSucces, actionError);
+			RunWhenReady(command.Execute, actionError);
+		}
+
+		class SnapshotCommand
+		{
+			readonly MapView _mapView;
+			readonly Action<string> _success;
+			readonly Action<string> _error;
+
+			public SnapshotCommand(MapView mapView, Action<string> success, Action<string> error)
+			{
+				_mapView = mapView;
+				_success = success;
+				_error = error;
+			}
+
+			public void Execute()
+			{
+				if (_mapView.MapViewClient != null)
+					_mapView.MapViewClient.Snapshot(_success, _error);
+			}
+		}
+
+		List<PendingReadyAction> _pendingReadyActions;
+
+		class PendingReadyAction
+		{
+			public readonly Action Execute;
+			public readonly Action<string> Cancel;
+
+			public PendingReadyAction(Action execute, Action<string> cancel)
+			{
+				Execute = execute;
+				Cancel = cancel;
+			}
+		}
+
+		/** Runs the action immediately when the map is ready, otherwise defers it until it becomes ready. */
+		void RunWhenReady(Action action)
+		{
+			RunWhenReady(action, null);
+		}
+
+		void RunWhenReady(Action action, Action<string> cancel)
+		{
+			if (action == null) return;
+
 			if (MapIsReady)
-				MapViewClient.Snapshot(actionSucces, actionError);
+			{
+				action();
+				return;
+			}
+
+			if (_pendingReadyActions == null)
+				_pendingReadyActions = new List<PendingReadyAction>();
+			_pendingReadyActions.Add(new PendingReadyAction(action, cancel));
+		}
+
+		void FlushPendingReadyActions()
+		{
+			if (_pendingReadyActions == null) return;
+
+			var actions = _pendingReadyActions;
+			_pendingReadyActions = null;
+			foreach (var action in actions)
+				action.Execute();
+		}
+
+		void ClearPendingReadyActions()
+		{
+			if (_pendingReadyActions == null) return;
+
+			var actions = _pendingReadyActions;
+			_pendingReadyActions = null;
+			foreach (var action in actions)
+			{
+				if (action.Cancel != null)
+					action.Cancel("MapView was disposed before it became ready");
+			}
 		}
 
 		internal ObservableList<MapMarker> _markers;
@@ -293,6 +519,7 @@ namespace Fuse.Controls
 		}
 
 		public void ClearMarkers(){
+			if (_markers == null) return;
 			_markers.Clear();
 			UpdateMarkers();
 		}
@@ -326,7 +553,7 @@ namespace Fuse.Controls
 				MapViewClient.MoveTo(Latitude, Longitude, Zoom, Tilt, Bearing);
 		}
 
-		public void UpdateMarkers()
+		internal void UpdateMarkers()
 		{
 			if (MapIsReady)
 				MapViewClient.UpdateMarkers();
@@ -342,6 +569,8 @@ namespace Fuse.Controls
 				if (_mapViewClient == null)
 				{
 					_mapReady = false;
+					ClearPendingReadyActions();
+					OnPropertyChanged(_isReadyName, this);
 					return;
 				}
 
@@ -362,58 +591,142 @@ namespace Fuse.Controls
 			UpdateRestState();
 			UpdateMarkers();
 			UpdateOverlays();
+			UpdateRoutes();
+			SyncVisibleBounds();
+			OnPropertyChanged(_isReadyName, this);
+			FlushPendingReadyActions();
+			if (Ready != null)
+				Ready(this, new EventArgs());
 		}
 
-		/* Begin methods that should be internal :( */
-		public void HandleMarkerTapped(int id, string label)
+		/* Provider callbacks */
+
+		MapMarker FindMarker(int id)
 		{
+			if (_markers == null) return null;
+
+			foreach (MapMarker marker in _markers)
+			{
+				if (marker.uid == id)
+					return marker;
+			}
+
+			return null;
+		}
+
+		void IMapViewHost.OnViewDisposed(IMapView view)
+		{
+			if (MapViewClient == view)
+				MapViewClient = null;
+		}
+
+		void IMapViewHost.OnCameraChanged()
+		{
+			SyncCameraFromMap();
+		}
+
+		void IMapViewHost.OnMarkerTapped(int id, string label)
+		{
+			var marker = FindMarker(id);
+
 			if (MarkerTapped != null)
-				MarkerTapped(this, new MarkerEventArgs(label));
+				MarkerTapped(this, new MarkerEventArgs(marker, id, label));
 
-			foreach(MapMarker m in Markers)
-			{
-				if (m.uid == id)
-				{
-					m.HandleTapped();
-					return;
-				}
-			}
+			if (marker != null)
+				marker.HandleTapped();
 		}
-		public void HandleOverlayTapped(int id)
+
+		void IMapViewHost.OnMarkerSelected(int id)
 		{
-			foreach(MapOverlay m in Overlays)
+			var marker = FindMarker(id);
+
+			if (marker != null)
+				marker.HandleSelected();
+
+			if (MarkerSelected != null)
+				MarkerSelected(this, new MarkerEventArgs(marker, id, marker != null ? marker.Label : null));
+		}
+
+		void IMapViewHost.OnMarkerDeselected(int id)
+		{
+			var marker = FindMarker(id);
+
+			if (marker != null)
+				marker.HandleDeselected();
+
+			if (MarkerDeselected != null)
+				MarkerDeselected(this, new MarkerEventArgs(marker, id, marker != null ? marker.Label : null));
+		}
+
+		void IMapViewHost.OnMarkerDragStarted(int id)
+		{
+			var marker = FindMarker(id);
+
+			if (marker != null)
+				marker.HandleDragStarted();
+
+			if (MarkerDragStarted != null)
+				MarkerDragStarted(this, new MarkerEventArgs(marker, id, marker != null ? marker.Label : null));
+		}
+
+		void IMapViewHost.OnMarkerDragging(int id, double latitude, double longitude)
+		{
+			var marker = FindMarker(id);
+
+			if (marker != null)
+				marker.HandleDragging(latitude, longitude);
+
+			if (MarkerDragged != null)
+				MarkerDragged(this, new MarkerEventArgs(marker, id, marker != null ? marker.Label : null));
+		}
+
+		void IMapViewHost.OnMarkerDragEnded(int id, double latitude, double longitude)
+		{
+			var marker = FindMarker(id);
+
+			if (marker != null)
+				marker.HandleDragEnded(latitude, longitude);
+
+			if (MarkerDragEnded != null)
+				MarkerDragEnded(this, new MarkerEventArgs(marker, id, marker != null ? marker.Label : null));
+		}
+
+		/** Selects the given marker, showing its callout. */
+		public void SelectMarker(MapMarker marker)
+		{
+			if (!MapIsReady || marker == null) return;
+			MapViewClient.SelectMarker(marker.uid);
+		}
+
+		/** Deselects the given marker, hiding its callout. */
+		public void DeselectMarker(MapMarker marker)
+		{
+			if (!MapIsReady || marker == null) return;
+			MapViewClient.DeselectMarker(marker.uid);
+		}
+
+		void IMapViewHost.OnOverlayTapped(int id)
+		{
+			foreach (MapOverlay overlay in Overlays)
 			{
-				if (m.Uid == id)
+				if (overlay.Uid == id)
 				{
-					m.HandleTapped();
+					overlay.HandleTapped();
 					return;
 				}
 			}
 		}
-		public void HandleLocationTapped(double latitude, double longitude)
+
+		void IMapViewHost.OnLocationTapped(double latitude, double longitude)
 		{
 			if (LocationTapped != null)
 				LocationTapped(this, new MapEventArgs(latitude, longitude));
 		}
-		public void HandleLocationLongPress(double latitude, double longitude)
+
+		void IMapViewHost.OnLocationLongPress(double latitude, double longitude)
 		{
 			if (LocationLongPressed != null)
 				LocationLongPressed(this, new MapEventArgs(latitude, longitude));
-		}
-		/* End */
-
-		internal bool UserInteractingWithMap { get; private set; }
-		internal void OnMapInteractionStart()
-		{
-			UserInteractingWithMap = true;
-		}
-
-		internal void OnMapInteractionEnd()
-		{
-			UserInteractingWithMap = false;
-			if (MapIsReady)
-				_cameraState.CopyFrom(MapViewClient);
-			UpdateRestState();
 		}
 
 		internal void UpdateRestState()
@@ -431,11 +744,162 @@ namespace Fuse.Controls
 			Longitude = longitude;
 		}
 
+		MapBounds _visibleBounds = new MapBounds();
+		/** The geographical area currently visible on the map. */
+		public MapBounds VisibleBounds
+		{
+			get { return _visibleBounds; }
+		}
+
+		/** Moves the camera to the given position over the given number of seconds. */
+		public void AnimateTo(double latitude, double longitude, double zoom, double tilt, double bearing, double duration)
+		{
+			if (!MapIsReady) return;
+			MapViewClient.AnimateTo(latitude, longitude, zoom, tilt, bearing, duration);
+		}
+
+		/** Cancels an ongoing camera animation. */
+		public void CancelAnimation()
+		{
+			if (!MapIsReady) return;
+			MapViewClient.CancelAnimation();
+		}
+
+		/** Moves the camera so the given area fits in the view, taking `MapPadding` into account. */
+		public void ShowBounds(double minLatitude, double minLongitude, double maxLatitude, double maxLongitude)
+		{
+			if (!MapIsReady) return;
+			MapViewClient.ShowBounds(minLatitude, minLongitude, maxLatitude, maxLongitude);
+		}
+
+		/** Moves the camera so the given area fits in the view, taking `MapPadding` into account. */
+		public void ShowBounds(MapBounds bounds)
+		{
+			if (bounds == null) return;
+			ShowBounds(bounds.MinLatitude, bounds.MinLongitude, bounds.MaxLatitude, bounds.MaxLongitude);
+		}
+
+		/** Changes the zoom level by the given amount. */
+		public void ZoomBy(double delta)
+		{
+			if (!MapIsReady) return;
+			MapViewClient.ZoomBy(delta, 0.0);
+		}
+
+		/** Pans the map by the given number of points. */
+		public void ScrollBy(float dx, float dy)
+		{
+			if (!MapIsReady) return;
+			MapViewClient.ScrollBy(dx, dy, 0.0);
+		}
+
+		/**
+			Looks up the given address and returns the matching places.
+		*/
+		public Future<MapPlace[]> Geocode(string query)
+		{
+			if (MapViewClient == null)
+				return RejectedFuture<MapPlace[]>("MapView is not ready");
+
+			return MapViewClient.Geocode(query);
+		}
+
+		/**
+			Returns the places at or near the given coordinates.
+		*/
+		public Future<MapPlace[]> ReverseGeocode(double latitude, double longitude)
+		{
+			if (MapViewClient == null)
+				return RejectedFuture<MapPlace[]>("MapView is not ready");
+
+			return MapViewClient.ReverseGeocode(latitude, longitude);
+		}
+
+		/**
+			Calculates a route between two points. The result contains the route geometry, distance in
+			meters and estimated duration in seconds. The geometry can be drawn with @MapOverlay.
+		*/
+		public Future<MapRouteResult> CalculateRoute(double fromLatitude, double fromLongitude, double toLatitude, double toLongitude, RouteMode mode)
+		{
+			if (MapViewClient == null)
+				return RejectedFuture<MapRouteResult>("MapView is not ready");
+
+			return MapViewClient.CalculateRoute(fromLatitude, fromLongitude, toLatitude, toLongitude, mode);
+		}
+
+		static Future<T> RejectedFuture<T>(string message)
+		{
+			var promise = new Promise<T>();
+			promise.Reject(new Exception(message));
+			return promise;
+		}
+
 		bool MapIsReady
 		{
 			get {
 				return _mapReady;
 			}
+		}
+
+		Selector _isReadyName = "IsReady";
+
+		/** `true` once the native map has finished loading and is ready to be used. */
+		public bool IsReady
+		{
+			get { return MapIsReady; }
+		}
+
+		/** Copies the camera state back from the native map and notifies bindings when it actually changed. */
+		internal void SyncCameraFromMap()
+		{
+			if (!MapIsReady || MapViewClient == null) return;
+
+			SyncVisibleBounds();
+
+			var client = MapViewClient;
+			var latitude = client.Latitude;
+			var longitude = client.Longitude;
+			var zoom = client.Zoom;
+			var tilt = client.Tilt;
+			var bearing = client.Bearing;
+
+			bool changed =
+				Math.Abs(latitude - _cameraState.Latitude) > 0.000001 ||
+				Math.Abs(longitude - _cameraState.Longitude) > 0.000001 ||
+				Math.Abs(zoom - _cameraState.Zoom) > 0.001 ||
+				Math.Abs(tilt - _cameraState.Tilt) > 0.001 ||
+				Math.Abs(bearing - _cameraState.Bearing) > 0.001;
+
+			if (!changed) return;
+
+			_cameraState.Latitude = latitude;
+			_cameraState.Longitude = longitude;
+			_cameraState.Zoom = zoom;
+			_cameraState.Tilt = tilt;
+			_cameraState.Bearing = bearing;
+			UpdateRestState();
+		}
+
+		void SyncVisibleBounds()
+		{
+			if (!MapIsReady || MapViewClient == null) return;
+
+			var bounds = MapViewClient.GetVisibleBounds();
+			if (bounds == null) return;
+
+			if (bounds.MinLatitude == _visibleBounds.MinLatitude &&
+				bounds.MinLongitude == _visibleBounds.MinLongitude &&
+				bounds.MaxLatitude == _visibleBounds.MaxLatitude &&
+				bounds.MaxLongitude == _visibleBounds.MaxLongitude)
+				return;
+
+			_visibleBounds.MinLatitude = bounds.MinLatitude;
+			_visibleBounds.MinLongitude = bounds.MinLongitude;
+			_visibleBounds.MaxLatitude = bounds.MaxLatitude;
+			_visibleBounds.MaxLongitude = bounds.MaxLongitude;
+
+			if (BoundsChanged != null)
+				BoundsChanged(this, new MapBoundsEventArgs(_visibleBounds));
 		}
 
 		/** `True` if the user's geographical location should be visible on the map. */
@@ -514,7 +978,9 @@ namespace Fuse.Controls
 			}
 		}
 
-		/** The rendering style of the map (`Normal`, `Satellite` or `Hybrid`). */
+		/** The rendering style of the map (`Normal`, `Satellite`, `Hybrid` or `Terrain`).
+			`Terrain` falls back to `Normal` on native iOS maps, which do not expose a terrain style.
+		*/
 		public MapStyle Style
 		{
 			get { return _mapConfig.Style; }
@@ -522,6 +988,44 @@ namespace Fuse.Controls
 				_mapConfig.Style = value;
 				if (MapIsReady)
 					MapViewClient.Style = _mapConfig.Style;
+			}
+		}
+
+		/**
+			Padding between the edges of the map and its camera target, in points, stored as
+			`(left, top, right, bottom)`. Useful when toolbars or sheets cover part of the map.
+
+			This is separate from the layout `Padding` inherited from `Element`.
+		*/
+		public float4 MapPadding
+		{
+			get { return _mapConfig.Padding; }
+			set {
+				_mapConfig.Padding = value;
+				if (MapIsReady)
+					MapViewClient.Padding = _mapConfig.Padding;
+			}
+		}
+
+		/** The lowest zoom level the camera can reach. Defaults to `0`. */
+		public double MinZoom
+		{
+			get { return _mapConfig.MinZoom; }
+			set {
+				_mapConfig.MinZoom = value;
+				if (MapIsReady)
+					MapViewClient.MinZoom = _mapConfig.MinZoom;
+			}
+		}
+
+		/** The highest zoom level the camera can reach. Defaults to `21`. */
+		public double MaxZoom
+		{
+			get { return _mapConfig.MaxZoom; }
+			set {
+				_mapConfig.MaxZoom = value;
+				if (MapIsReady)
+					MapViewClient.MaxZoom = _mapConfig.MaxZoom;
 			}
 		}
 

@@ -4,6 +4,9 @@
   "publisher": "Fuse Open",
   "outputType": "library",
   "isTransitive": true,
+  "internalsVisibleTo": [
+    "Fuse.Maps.Google"
+  ],
   "references": [
     "Uno.Collections"
   ],
@@ -19,6 +22,11 @@
     "MapView.uno:source",
     "MapView.Events.uno:source",
     "MapView.ScriptClass.uno:source",
+    "MarkerState.uno:source",
+    "MapBounds.uno:source",
+    "MapPlace.uno:source",
+    "MapRoute.uno:source",
+    "Provider.uno:source",
     "iOS/*",
     "iOS/MapViewDelegate.h:cheader:iOS",
     "iOS/MapViewDelegate.m:csource:iOS",

@@ -10,7 +10,9 @@ namespace Fuse.Controls
 	{
 		Polyline,
 		Polygon,
-		Circle
+		Circle,
+		Image,
+		Tile
 	}
 
 	public enum LineCap
@@ -78,30 +80,81 @@ namespace Fuse.Controls
 		}
 	}
 
-	/** Adds a map overlay to a @MapView
+	/** A hole cut out of a @MapOverlay of type `Polygon`.
 
-	To overlay the map, you must decorate it with `MapOverlay` nodes. There are three type of overlay that supported Polyline, Polygon and Circle.
-	In order to draw Overlay, it needs to define position where overlay should be drawn on the map using `Coordinate` property. See the example below on how you can create map overlay
+		Holes are added programmatically or from JavaScript via `MapView.setOverlays`.
+	*/
+	public class MapOverlayHole : Node, IPropertyListener
+	{
+		internal MapOverlay Owner;
+		RootableList<Coordinate> _coordinates = new RootableList<Coordinate>();
 
-	```HTML
-	<NativeViewHost>
-		<MapView Zoom="14" Latitude="-6.914742" Longitude="107.609820">
-			<MapOverlay Type="Polyline" StrokeColor="Blue" LineWidth="5">
-				<Coordinate Latitude="-6.914742" Longitude="107.609820" />
-				<Coordinate Latitude="-6.915850" Longitude="107.609929" />
-				<Coordinate Latitude="-6.916959" Longitude="107.611009" />
-			</MapOverlay>
-		</MapView>
-	</NativeViewHost>
-	```
+		public MapOverlayHole()
+		{
+			_coordinates.Subscribe(OnCoordinateAdded, OnCoordinateRemoved);
+		}
 
-	@seealso Fuse.Controls.MapView
+		[UXContent]
+		public IList<Coordinate> Coordinates
+		{
+			get
+			{
+				return _coordinates;
+			}
+		}
+
+		void OnCoordinateAdded(Coordinate coord)
+		{
+			coord.AddPropertyListener(this);
+			Changed();
+		}
+
+		void OnCoordinateRemoved(Coordinate coord)
+		{
+			coord.RemovePropertyListener(this);
+			Changed();
+		}
+
+		void IPropertyListener.OnPropertyChanged(PropertyObject sender, Selector property)
+		{
+			Changed();
+		}
+
+		void Changed()
+		{
+			if (Owner != null)
+				Owner.NotifyHoleChanged();
+		}
+	}
+
+	/** Draws a shape on a @MapView.
+
+		`Type` selects what is drawn: `Polyline` and `Polygon` use the `Coordinates` list,
+		`Circle` uses `CenterLatitude`, `CenterLongitude` and `Radius` (in meters), `Image`
+		stretches `ImageFile` between the `MinLatitude`/`MinLongitude` and
+		`MaxLatitude`/`MaxLongitude` corners, and `Tile` fetches raster tiles from
+		`TileUrlTemplate`.
+
+		```HTML
+		<NativeViewHost>
+			<MapView Zoom="14" Latitude="-6.914742" Longitude="107.609820">
+				<MapOverlay Type="Polyline" StrokeColor="Blue" LineWidth="5">
+					<Coordinate Latitude="-6.914742" Longitude="107.609820" />
+					<Coordinate Latitude="-6.915850" Longitude="107.609929" />
+					<Coordinate Latitude="-6.916959" Longitude="107.611009" />
+				</MapOverlay>
+			</MapView>
+		</NativeViewHost>
+		```
+
+		Polygons can have holes through the `Holes` list, and overlays can be ordered
+		and faded with `ZIndex` and `Alpha`.
+
+		@seealso Fuse.Controls.MapView
 	*/
 	public class MapOverlay : Node, IPropertyListener
 	{
 
-		static Selector _latitudeName = "Latitude";
-		static Selector _longitudeName = "Longitude";
 		static Selector _coordinatesName = "Coordinates";
 		static Selector _overlayTypeName = "OverlayType";
 		static Selector _startCapName = "StartCap";
@@ -115,6 +168,17 @@ namespace Fuse.Controls
 		static Selector _centerLatitudeName = "CenterLatitude";
 		static Selector _centerLongitudeName = "CenterLongitude";
 		static Selector _radiusName = "Radius";
+		static Selector _zIndexName = "ZIndex";
+		static Selector _alphaName = "Alpha";
+		static Selector _visibleName = "Visible";
+		static Selector _imageFilePathName = "ImageFilePath";
+		static Selector _minLatitudeName = "MinLatitude";
+		static Selector _minLongitudeName = "MinLongitude";
+		static Selector _maxLatitudeName = "MaxLatitude";
+		static Selector _maxLongitudeName = "MaxLongitude";
+		static Selector _tileUrlTemplateName = "TileUrlTemplate";
+		static Selector _tileMinZoomName = "TileMinZoom";
+		static Selector _tileMaxZoomName = "TileMaxZoom";
 		static int _uidPool = 0;
 		internal int Uid = _uidPool++;
 		public delegate void OverlayTappedHandler(object sender, EventArgs args);
@@ -128,6 +192,12 @@ namespace Fuse.Controls
 
 		void IPropertyListener.OnPropertyChanged(PropertyObject sender, Selector property)
 		{
+			MarkDirty();
+		}
+
+		void SetDirty(Selector property)
+		{
+			OnPropertyChanged(property);
 			MarkDirty();
 		}
 
@@ -147,7 +217,7 @@ namespace Fuse.Controls
 				if (_overlayType != value)
 				{
 					_overlayType = value;
-					OnPropertyChanged(_overlayTypeName);
+					SetDirty(_overlayTypeName);
 				}
 			}
 		}
@@ -168,7 +238,7 @@ namespace Fuse.Controls
 				if (_startCap != value)
 				{
 					_startCap = value;
-					OnPropertyChanged(_startCapName);
+					SetDirty(_startCapName);
 				}
 			}
 		}
@@ -189,7 +259,7 @@ namespace Fuse.Controls
 				if (_endCap != value)
 				{
 					_endCap = value;
-					OnPropertyChanged(_endCapName);
+					SetDirty(_endCapName);
 				}
 			}
 		}
@@ -210,7 +280,7 @@ namespace Fuse.Controls
 				if (_joinType != value)
 				{
 					_joinType = value;
-					OnPropertyChanged(_joinTypeName);
+					SetDirty(_joinTypeName);
 				}
 			}
 		}
@@ -230,7 +300,7 @@ namespace Fuse.Controls
 				if (_strokeColor != value)
 				{
 					_strokeColor = value;
-					OnPropertyChanged(_strokeColorName);
+					SetDirty(_strokeColorName);
 				}
 			}
 		}
@@ -250,7 +320,7 @@ namespace Fuse.Controls
 				if (_fillColor != value)
 				{
 					_fillColor = value;
-					OnPropertyChanged(_fillColorName);
+					SetDirty(_fillColorName);
 				}
 			}
 		}
@@ -270,7 +340,7 @@ namespace Fuse.Controls
 				if (_lineWidth != value)
 				{
 					_lineWidth = value;
-					OnPropertyChanged(_lineWidthName);
+					SetDirty(_lineWidthName);
 				}
 			}
 		}
@@ -290,7 +360,7 @@ namespace Fuse.Controls
 				if (_geodesic != value)
 				{
 					_geodesic = value;
-					OnPropertyChanged(_geodesicName);
+					SetDirty(_geodesicName);
 				}
 			}
 		}
@@ -310,7 +380,7 @@ namespace Fuse.Controls
 				if (_dashPattern != value)
 				{
 					_dashPattern = value;
-					OnPropertyChanged(_dashPatternName);
+					SetDirty(_dashPatternName);
 				}
 			}
 		}
@@ -329,7 +399,7 @@ namespace Fuse.Controls
 				if (_centerLatitude != value)
 				{
 					_centerLatitude = value;
-					OnPropertyChanged(_centerLatitudeName);
+					SetDirty(_centerLatitudeName);
 				}
 			}
 		}
@@ -348,7 +418,7 @@ namespace Fuse.Controls
 				if (_centerLongitude != value)
 				{
 					_centerLongitude = value;
-					OnPropertyChanged(_centerLongitudeName);
+					SetDirty(_centerLongitudeName);
 				}
 			}
 		}
@@ -368,7 +438,7 @@ namespace Fuse.Controls
 				if (_radius != value)
 				{
 					_radius = value;
-					OnPropertyChanged(_radiusName);
+					SetDirty(_radiusName);
 				}
 			}
 		}
@@ -381,6 +451,209 @@ namespace Fuse.Controls
 		{
 			foreach (var s in coordinates)
 				_coordinates.Add(s);
+		}
+
+		int _zIndex = 0;
+		/**
+			The draw order of the overlay. Overlays with a higher value are drawn on top of overlays with a lower value.
+		*/
+		public int ZIndex
+		{
+			get { return _zIndex; }
+			set
+			{
+				if (_zIndex != value)
+				{
+					_zIndex = value;
+					SetDirty(_zIndexName);
+				}
+			}
+		}
+
+		float _alpha = 1;
+		/**
+			The opacity of the overlay, from `0` (transparent) to `1` (opaque).
+		*/
+		public float Alpha
+		{
+			get { return _alpha; }
+			set
+			{
+				if (_alpha != value)
+				{
+					_alpha = value;
+					SetDirty(_alphaName);
+				}
+			}
+		}
+
+		bool _visible = true;
+		/**
+			Specifies whether the overlay is drawn and can receive taps.
+		*/
+		public bool Visible
+		{
+			get { return _visible; }
+			set
+			{
+				if (_visible != value)
+				{
+					_visible = value;
+					SetDirty(_visibleName);
+				}
+			}
+		}
+
+		FileSource _image;
+		/**
+			The image to draw for an overlay of type `Image`. The image is stretched to fit the
+			`MinLatitude`, `MinLongitude`, `MaxLatitude` and `MaxLongitude` bounds.
+		*/
+		public FileSource ImageFile
+		{
+			get { return _image; }
+			set
+			{
+				if (_image != value)
+				{
+					_image = value;
+					SetDirty(_imageFilePathName);
+				}
+			}
+		}
+
+		double _minLatitude = 0;
+		/** The latitude of the south-west corner of an `Image` overlay. */
+		public double MinLatitude
+		{
+			get { return _minLatitude; }
+			set
+			{
+				if (_minLatitude != value)
+				{
+					_minLatitude = value;
+					SetDirty(_minLatitudeName);
+				}
+			}
+		}
+
+		double _minLongitude = 0;
+		/** The longitude of the south-west corner of an `Image` overlay. */
+		public double MinLongitude
+		{
+			get { return _minLongitude; }
+			set
+			{
+				if (_minLongitude != value)
+				{
+					_minLongitude = value;
+					SetDirty(_minLongitudeName);
+				}
+			}
+		}
+
+		double _maxLatitude = 0;
+		/** The latitude of the north-east corner of an `Image` overlay. */
+		public double MaxLatitude
+		{
+			get { return _maxLatitude; }
+			set
+			{
+				if (_maxLatitude != value)
+				{
+					_maxLatitude = value;
+					SetDirty(_maxLatitudeName);
+				}
+			}
+		}
+
+		double _maxLongitude = 0;
+		/** The longitude of the north-east corner of an `Image` overlay. */
+		public double MaxLongitude
+		{
+			get { return _maxLongitude; }
+			set
+			{
+				if (_maxLongitude != value)
+				{
+					_maxLongitude = value;
+					SetDirty(_maxLongitudeName);
+				}
+			}
+		}
+
+		string _tileUrlTemplate;
+		/**
+			URL template for an overlay of type `Tile`. Supports the placeholders `{x}`, `{y}` and `{z}`.
+		*/
+		public string TileUrlTemplate
+		{
+			get { return _tileUrlTemplate; }
+			set
+			{
+				if (_tileUrlTemplate != value)
+				{
+					_tileUrlTemplate = value;
+					SetDirty(_tileUrlTemplateName);
+				}
+			}
+		}
+
+		int _tileMinZoom = 0;
+		/** The lowest zoom level for which tiles are requested. */
+		public int TileMinZoom
+		{
+			get { return _tileMinZoom; }
+			set
+			{
+				if (_tileMinZoom != value)
+				{
+					_tileMinZoom = value;
+					SetDirty(_tileMinZoomName);
+				}
+			}
+		}
+
+		int _tileMaxZoom = 21;
+		/** The highest zoom level for which tiles are requested. */
+		public int TileMaxZoom
+		{
+			get { return _tileMaxZoom; }
+			set
+			{
+				if (_tileMaxZoom != value)
+				{
+					_tileMaxZoom = value;
+					SetDirty(_tileMaxZoomName);
+				}
+			}
+		}
+
+		RootableList<MapOverlayHole> _holes = new RootableList<MapOverlayHole>();
+		/** Holes cut out of an overlay of type `Polygon`. */
+		public IList<MapOverlayHole> Holes
+		{
+			get
+			{
+				return _holes;
+			}
+		}
+
+		void OnHoleAdded(MapOverlayHole hole)
+		{
+			hole.Owner = this;
+			OnCoordinateChange();
+		}
+
+		void OnHoleRemoved(MapOverlayHole hole)
+		{
+			hole.Owner = null;
+			OnCoordinateChange();
+		}
+
+		internal void NotifyHoleChanged()
+		{
+			SetDirty(_coordinatesName);
 		}
 
 		RootableList<Coordinate> _coordinates = new RootableList<Coordinate>();
@@ -407,10 +680,9 @@ namespace Fuse.Controls
 
 		void OnCoordinateChange()
 		{
-			if (_coordinates.Count > 0)
+			if (_coordinates.Count > 0 || _holes.Count > 0)
 			{
-				MarkDirty();
-				OnPropertyChanged(_coordinatesName);
+				SetDirty(_coordinatesName);
 			}
 		}
 
@@ -419,6 +691,7 @@ namespace Fuse.Controls
 			base.OnRooted();
 			if (_coordinates != null)
 				_coordinates.RootSubscribe(OnCoordinateAdded, OnCoordinateRemoved);
+			_holes.RootSubscribe(OnHoleAdded, OnHoleRemoved);
 			MapView m = Parent as MapView;
 			if (m != null)
 				m.AddOverlay(this);
@@ -431,6 +704,7 @@ namespace Fuse.Controls
 				m.RemoveOverlay(this);
 			if (_coordinates != null)
 				_coordinates.Unsubscribe();
+			_holes.RootUnsubscribe();
 			base.OnUnrooted();
 		}
 
@@ -441,7 +715,7 @@ namespace Fuse.Controls
 				m.UpdateOverlaysNextFrame();
 		}
 
-		public double[] GetCordinatesArray()
+		public double[] GetCoordinatesArray()
 		{
 			var items = new double[Coordinates.Count * 2];
 			var idx = 0;
@@ -452,6 +726,35 @@ namespace Fuse.Controls
 				idx+=2;
 			}
 			return items;
+		}
+
+		/** All hole coordinates concatenated as `latitude, longitude` pairs. */
+		public double[] GetHolesCoordinatesArray()
+		{
+			var count = 0;
+			foreach (MapOverlayHole hole in _holes)
+				count += hole.Coordinates.Count;
+
+			var items = new double[count * 2];
+			var idx = 0;
+			foreach (MapOverlayHole hole in _holes)
+			{
+				foreach (Coordinate c in hole.Coordinates)
+				{
+					items[idx++] = c.Latitude;
+					items[idx++] = c.Longitude;
+				}
+			}
+			return items;
+		}
+
+		/** The number of coordinates in each hole, in the same order as `GetHolesCoordinatesArray`. */
+		public int[] GetHoleLengthsArray()
+		{
+			var lengths = new int[_holes.Count];
+			for (int i = 0; i < _holes.Count; i++)
+				lengths[i] = _holes[i].Coordinates.Count;
+			return lengths;
 		}
 	}
 }

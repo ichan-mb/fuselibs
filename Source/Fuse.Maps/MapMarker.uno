@@ -46,10 +46,66 @@ namespace Fuse.Controls
 		public delegate void MarkerTappedHandler(object sender, EventArgs args);
 		public event MarkerTappedHandler Tapped;
 
+		/** Dispatched when the user starts dragging this marker. */
+		public event MarkerEventHandler DragStarted;
+		/** Dispatched continuously while the user drags this marker. */
+		public event MarkerEventHandler Dragging;
+		/** Dispatched when the user stops dragging this marker, after `Latitude` and `Longitude` have been updated. */
+		public event MarkerEventHandler DragEnded;
+		/** Dispatched when this marker is selected. */
+		public event MarkerEventHandler Selected;
+		/** Dispatched when this marker is deselected. */
+		public event MarkerEventHandler Deselected;
+
+		internal MarkerEventArgs CreateEventArgs()
+		{
+			return new MarkerEventArgs(this);
+		}
+
 		internal void HandleTapped()
 		{
 			if (Tapped != null)
-				Tapped(this, new EventArgs());
+				Tapped(this, CreateEventArgs());
+		}
+
+		internal void HandleDragStarted()
+		{
+			if (DragStarted != null)
+				DragStarted(this, CreateEventArgs());
+		}
+
+		internal void HandleDragging(double latitude, double longitude)
+		{
+			// Update silently; bindings are notified once the drag ends.
+			_latitude = latitude;
+			_longitude = longitude;
+
+			if (Dragging != null)
+				Dragging(this, CreateEventArgs());
+		}
+
+		internal void HandleDragEnded(double latitude, double longitude)
+		{
+			_latitude = latitude;
+			_longitude = longitude;
+
+			OnPropertyChanged(_latitudeName);
+			OnPropertyChanged(_longitudeName);
+
+			if (DragEnded != null)
+				DragEnded(this, CreateEventArgs());
+		}
+
+		internal void HandleSelected()
+		{
+			if (Selected != null)
+				Selected(this, CreateEventArgs());
+		}
+
+		internal void HandleDeselected()
+		{
+			if (Deselected != null)
+				Deselected(this, CreateEventArgs());
 		}
 
 		string _label;
@@ -66,6 +122,7 @@ namespace Fuse.Controls
 		}
 
 		double _latitude;
+		static Selector _latitudeName = "Latitude";
 		/**
 			The latitude coordinate of this marker
 		*/
@@ -76,12 +133,14 @@ namespace Fuse.Controls
 			}
 			set
 			{
+				if (_latitude == value) return;
 				_latitude = value;
 				MarkDirty();
 			}
 		}
 
 		double _longitude;
+		static Selector _longitudeName = "Longitude";
 		/**
 			The longitude coordinate of this marker
 		*/
@@ -92,6 +151,7 @@ namespace Fuse.Controls
 			}
 			set
 			{
+				if (_longitude == value) return;
 				_longitude = value;
 				MarkDirty();
 			}
@@ -112,7 +172,6 @@ namespace Fuse.Controls
 			}
 		}
 
-		//TODO: Combine these into single float2 field once Latitude and Longitude can be combined into single double2 field
 		float2 _iconAnchor = float2(0.5f, 0.5f);
 		/**
 			The normalized X-position of the Icon image to use as the icon/map contact point
@@ -137,6 +196,50 @@ namespace Fuse.Controls
 			base.OnRooted();
 			MapView m = Parent as MapView;
 			if (m != null) m.AddMarker(this);
+		}
+
+		string _snippet;
+		/**
+			Extra text displayed in the marker's callout, below the `Label`.
+		*/
+		public string Snippet
+		{
+			get { return _snippet; }
+			set
+			{
+				_snippet = value;
+				MarkDirty();
+			}
+		}
+
+		float4 _color = float4(0, 0, 0, 0);
+		/**
+			Tint color of the default marker icon. Ignored when `IconFile` is set.
+			A fully transparent color (the default) means the platform's default marker color.
+		*/
+		public float4 Color
+		{
+			get { return _color; }
+			set
+			{
+				_color = value;
+				MarkDirty();
+			}
+		}
+
+		bool _draggable;
+		/**
+			Specifies whether the user is allowed to drag this marker. When the user drags it,
+			`Latitude` and `Longitude` are updated and `DragStarted`, `Dragging` and `DragEnded` are dispatched.
+		*/
+		public bool Draggable
+		{
+			get { return _draggable; }
+			set
+			{
+				_draggable = value;
+				MarkDirty();
+			}
 		}
 
 		protected override void OnUnrooted()

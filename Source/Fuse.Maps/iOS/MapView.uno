@@ -1,12 +1,9 @@
 using Uno;
-using Uno.UX;
-using Uno.Platform;
 using Uno.Collections;
-using Fuse;
-using Fuse.Elements;
-using Uno.Compiler.ExportTargetInterop;
+using Uno.Threading;
 using Fuse.Controls;
 using Fuse.Controls.Native.iOS;
+using Uno.Compiler.ExportTargetInterop;
 
 namespace Fuse.Maps.iOS
 {
@@ -56,12 +53,6 @@ namespace Fuse.Maps.iOS
 		@{
 			id result = [@{FuseMapView:of(_this).Handle:get()} valueForKey:key];
 			return [result boolValue];
-		@}
-
-		[Foreign(Language.ObjC)]
-		public string GetStringValue(string key)
-		@{
-			return [@{FuseMapView:of(_this).Handle:get()} valueForKey:key];
 		@}
 
 		[Foreign(Language.ObjC)]
@@ -153,7 +144,7 @@ namespace Fuse.Maps.iOS
 
 
 	[Require("source.include", "iOS/MapViewDelegate.h")]
-	extern (iOS) public class MapView : LeafView, Fuse.Controls.IMapView
+	extern (iOS) public class MapView : LeafView, IMapView
 	{
 
 		public override void Dispose()
@@ -163,8 +154,13 @@ namespace Fuse.Maps.iOS
 			_mapView.Dispose();
 			_mapView = null;
 			_container = null;
-			_mapViewHost.MapViewClient = null;
-			_mapViewHost = null;
+			_markerStates.Clear();
+
+			var host = _host;
+			_host = null;
+			if (host != null)
+				host.OnViewDisposed(this);
+
 			base.Dispose();
 		}
 
@@ -172,37 +168,26 @@ namespace Fuse.Maps.iOS
 		FuseMapView _mapView;
 		ObjC.Object _mapViewDelegate;
 
-		Fuse.Controls.MapView _mapViewHost;
+		IMapViewHost _host;
 		MarkerIconCache _markerGraphicsCache;
 
-		public static MapView Create(Fuse.Controls.MapView mapViewHost)
+		public static MapView Create(IMapViewHost host)
 		{
 			var v = new FuseMapView();
 			var mvc = new MapViewContainer(v);
-			return new MapView(mapViewHost, mvc);
+			return new MapView(host, mvc);
 		}
-		MapView(Fuse.Controls.MapView mapViewHost, MapViewContainer mvc) : base(mvc.GetView())
+
+		MapView(IMapViewHost host, MapViewContainer mvc) : base(mvc.GetView())
 		{
-			_mapViewHost = mapViewHost;
+			_host = host;
 			_container = mvc;
-			//_container.OnReady = OnReadyInternal;
+			_container.OnReady = OnReadyInternal;
 			_container.OnResize = OnReadyInternal;
 			_mapView = _container.Map;
-			_mapViewDelegate = Configure(_mapView.Handle, OnCameraMoved, OnMapTouch, HandleMarkerTapped, HandleOverlayTapped);
-			_mapViewHost.MapViewClient = this;
+			_mapViewDelegate = Configure(_mapView.Handle, OnCameraMoved, OnMapTouch, OnMarkerTapped, OnOverlayTapped, OnMarkerSelected, OnMarkerDeselected, OnMarkerDragStarted, OnMarkerDragging, OnMarkerDragEnded);
 			_markerGraphicsCache = new MarkerIconCache(UpdateMarkers);
 		}
-
-		void Invalidate()
-		{
-			Invalidate(_mapView.Handle);
-		}
-
-		[Foreign(Language.ObjC)]
-		void Invalidate(ObjC.Object handle)
-		@{
-			[handle setNeedsDisplay];
-		@}
 
 		bool _isReady;
 		public bool IsReady {
@@ -216,12 +201,17 @@ namespace Fuse.Maps.iOS
 		void OnReadyInternal()
 		{
 			_isReady = true;
-			if (OnReady!=null) OnReady();
+			ApplyZoomLimits();
+			if (_readyFired) return;
+			_readyFired = true;
+			if (OnReady != null) OnReady();
 		}
+
+		bool _readyFired;
 
 		[Require("source.include", "iOS/MapViewDelegate.h")]
 		[Foreign(Language.ObjC)]
-		ObjC.Object Configure(ObjC.Object mapView, Action<bool> onMapMove, Action<int, double, double> onMapTouch, Action<int, string> onMarkerTouch, Action<int> onOverlayTouch)
+		ObjC.Object Configure(ObjC.Object mapView, Action<bool> onMapMove, Action<int, double, double> onMapTouch, Action<int, string> onMarkerTouch, Action<int> onOverlayTouch, Action<int> onMarkerSelect, Action<int> onMarkerDeselect, Action<int> onMarkerDragStart, Action<int, double, double> onMarkerDrag, Action<int, double, double> onMarkerDragEnd)
 		@{
 			MKMapView* mv = mapView;
 			MapViewDelegate* dg = [[MapViewDelegate alloc] init];
@@ -229,7 +219,12 @@ namespace Fuse.Maps.iOS
 			[dg setMapMoveAction:onMapMove];
 			[dg setMapTouchAction:onMapTouch];
 			[dg setMarkerSelectAction:onMarkerTouch];
+			[dg setMarkerSelectedAction:onMarkerSelect];
 			[dg setOverlaySelectBlock:onOverlayTouch];
+			[dg setMarkerDeselectAction:onMarkerDeselect];
+			[dg setMarkerDragStartAction:onMarkerDragStart];
+			[dg setMarkerDragAction:onMarkerDrag];
+			[dg setMarkerDragEndAction:onMarkerDragEnd];
 			return dg;
 		@}
 
@@ -239,7 +234,8 @@ namespace Fuse.Maps.iOS
 			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
 			[dg clearMarkers];
 			[dg clearOverlays];
-			[dg setAsDelegate:nil];
+			[dg clearRoutes];
+			[dg cleanup];
 			[dg setMapMoveAction:nil];
 			[dg setMapTouchAction:nil];
 		@}
@@ -255,44 +251,47 @@ namespace Fuse.Maps.iOS
 		{
 			switch(type)
 			{
-				case 0: //touch begin
-					_mapViewHost.OnMapInteractionStart();
+				case 2: // Tap
+					OnLocationTapped(lat, lng);
 					break;
-				case 1: //touch end
-					break;
-				case 2: //Tap
-					HandleLocationTapped(lat,lng);
-					break;
-				case 3: //Long press
-					HandleLocationLongPress(lat,lng);
-					break;
-				case 4: //Last touch ended
-					_mapViewHost.OnMapInteractionEnd();
+				case 3: // Long press
+					OnLocationLongPress(lat, lng);
 					break;
 			}
 		}
 
-		public void HandleLocationTapped(double lat, double lng)
+		void OnLocationTapped(double lat, double lng)
 		{
-			_mapViewHost.HandleLocationTapped(lat,lng);
+			if (_host != null)
+				_host.OnLocationTapped(lat, lng);
 		}
 
-		public void HandleLocationLongPress(double lat, double lng)
+		void OnLocationLongPress(double lat, double lng)
 		{
-			_mapViewHost.HandleLocationLongPress(lat,lng);
+			if (_host != null)
+				_host.OnLocationLongPress(lat, lng);
 		}
 
 		void OnCameraMoved(bool animated)
 		{
-			if (animated) //not user interaction but we record it as such
-				_mapViewHost.OnMapInteractionEnd();
+			if (_host != null)
+				_host.OnCameraChanged();
 		}
 
 		[Foreign(Language.ObjC)]
-		int AddMarker(int uid, string label, double lat, double lng, String iconPath, float iconAnchorX, float iconAnchorY)
+		int AddMarker(int uid, string label, double lat, double lng, string snippet, String iconPath, float iconAnchorX, float iconAnchorY, float4 color, bool draggable)
 		@{
 			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
-			return [dg addMarker:label latitude:lat longitude:lng icon:iconPath iconX:iconAnchorX iconY:iconAnchorY markerID:uid];
+			UIColor* tint = color.W > 0.0f ? [UIColor colorWithRed:color.X green:color.Y blue:color.Z alpha:color.W] : nil;
+			return [dg addMarker:label latitude:lat longitude:lng snippet:snippet icon:iconPath iconX:iconAnchorX iconY:iconAnchorY color:tint draggable:draggable markerID:uid];
+		@}
+
+		[Foreign(Language.ObjC)]
+		void UpdateMarker(int uid, string label, double lat, double lng, string snippet, String iconPath, float iconAnchorX, float iconAnchorY, float4 color, bool draggable)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			UIColor* tint = color.W > 0.0f ? [UIColor colorWithRed:color.X green:color.Y blue:color.Z alpha:color.W] : nil;
+			[dg updateMarker:label latitude:lat longitude:lng snippet:snippet icon:iconPath iconX:iconAnchorX iconY:iconAnchorY color:tint draggable:draggable markerID:uid];
 		@}
 
 		[Foreign(Language.ObjC)]
@@ -302,38 +301,159 @@ namespace Fuse.Maps.iOS
 			[dg removeMarker:identifier];
 		@}
 
-		[Foreign(Language.ObjC)]
-		void ClearMarkers()
-		@{
-			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
-			[dg clearMarkers];
-		@}
-
-		public void HandleMarkerTapped(int id, string label)
+		void OnMarkerTapped(int id, string label)
 		{
-			_mapViewHost.HandleMarkerTapped(id, label);
+			if (_host != null)
+				_host.OnMarkerTapped(id, label);
 		}
 
-		public void HandleOverlayTapped(int id)
+		void OnOverlayTapped(int id)
 		{
-			_mapViewHost.HandleOverlayTapped(id);
+			if (_host != null)
+				_host.OnOverlayTapped(id);
 		}
+
+		Dictionary<int, MarkerState> _markerStates = new Dictionary<int, MarkerState>();
+		List<int> _removedMarkerUids = new List<int>();
 
 		public void UpdateMarkers()
 		{
-			ClearMarkers();
-			foreach(MapMarker m in Markers)
+			if (_host == null) return;
+
+			var markers = _host.Markers;
+
+			var currentUids = new HashSet<int>();
+			foreach (MapMarker marker in markers)
+				currentUids.Add(marker.uid);
+
+			_removedMarkerUids.Clear();
+			foreach (var pair in _markerStates)
 			{
-				AddMarker(
-					m.uid,
-					m.Label,
-					m.Latitude,
-					m.Longitude,
-					_markerGraphicsCache.Get(m.IconFile),
-					m.IconAnchorX,
-					m.IconAnchorY
-					);
+				if (!currentUids.Contains(pair.Key))
+					_removedMarkerUids.Add(pair.Key);
 			}
+
+			foreach (var uid in _removedMarkerUids)
+			{
+				RemoveMarker(uid);
+				_markerStates.Remove(uid);
+			}
+
+			foreach (MapMarker m in markers)
+			{
+				var state = MarkerState.From(m, _markerGraphicsCache.Get(m.IconFile));
+
+				MarkerState previous;
+				if (_markerStates.TryGetValue(m.uid, out previous))
+				{
+					if (!state.Differs(previous))
+						continue;
+
+					// Some changes require a new annotation view, so recreate the annotation.
+					if (state.NeedsNewView(previous))
+					{
+						RemoveMarker(m.uid);
+						AddMarker(
+							m.uid,
+							state.Label,
+							state.Latitude,
+							state.Longitude,
+							state.Snippet,
+							state.IconPath,
+							state.IconAnchorX,
+							state.IconAnchorY,
+							state.Color,
+							state.Draggable
+						);
+					}
+					else
+					{
+						UpdateMarker(
+							m.uid,
+							state.Label,
+							state.Latitude,
+							state.Longitude,
+							state.Snippet,
+							state.IconPath,
+							state.IconAnchorX,
+							state.IconAnchorY,
+							state.Color,
+							state.Draggable
+						);
+					}
+				}
+				else
+				{
+					AddMarker(
+						m.uid,
+						state.Label,
+						state.Latitude,
+						state.Longitude,
+						state.Snippet,
+						state.IconPath,
+						state.IconAnchorX,
+						state.IconAnchorY,
+						state.Color,
+						state.Draggable
+					);
+				}
+
+				_markerStates[m.uid] = state;
+			}
+		}
+
+		public void SelectMarker(int uid)
+		{
+			SelectMarkerNative(uid);
+		}
+
+		public void DeselectMarker(int uid)
+		{
+			DeselectMarkerNative(uid);
+		}
+
+		[Foreign(Language.ObjC)]
+		void SelectMarkerNative(int uid)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg selectMarker:uid];
+		@}
+
+		[Foreign(Language.ObjC)]
+		void DeselectMarkerNative(int uid)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg deselectMarker:uid];
+		@}
+
+		public void OnMarkerSelected(int uid)
+		{
+			if (_host != null)
+				_host.OnMarkerSelected(uid);
+		}
+
+		public void OnMarkerDeselected(int uid)
+		{
+			if (_host != null)
+				_host.OnMarkerDeselected(uid);
+		}
+
+		public void OnMarkerDragStarted(int uid)
+		{
+			if (_host != null)
+				_host.OnMarkerDragStarted(uid);
+		}
+
+		public void OnMarkerDragging(int uid, double latitude, double longitude)
+		{
+			if (_host != null)
+				_host.OnMarkerDragging(uid, latitude, longitude);
+		}
+
+		public void OnMarkerDragEnded(int uid, double latitude, double longitude)
+		{
+			if (_host != null)
+				_host.OnMarkerDragEnded(uid, latitude, longitude);
 		}
 
 		[Foreign(Language.ObjC)]
@@ -344,12 +464,14 @@ namespace Fuse.Maps.iOS
 		@}
 
 		[Foreign(Language.ObjC)]
-		void AddOverlay(int uid, OverlayType type, double[] coordinates, float4 strokeColor, float4 fillColor, int lineWidth, bool geodesic, LineCap startCap, LineCap endCap, LineJoin joinType, int2 dashPattern, double centerLatitude, double centerLongitude, double radius)
+		void AddOverlay(int uid, OverlayType type, double[] coordinates, double[] holeCoordinates, int[] holeLengths, float4 strokeColor, float4 fillColor, int lineWidth, bool geodesic, LineCap startCap, LineCap endCap, LineJoin joinType, int2 dashPattern, double centerLatitude, double centerLongitude, double radius, float alpha)
 		@{
 			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
 			NSArray<NSNumber *> *pattern = @[[NSNumber numberWithInt:dashPattern.X], [NSNumber numberWithInt:dashPattern.Y]];
 			[dg addOverlay:coordinates
 				type:type
+				holes:holeCoordinates
+				holeLengths:holeLengths
 				strokeColor:[UIColor colorWithRed:strokeColor.X green:strokeColor.Y blue:strokeColor.Z alpha:strokeColor.W]
 				fillColor:[UIColor colorWithRed:fillColor.X green:fillColor.Y blue:fillColor.Z alpha:fillColor.W]
 				lineWidth:lineWidth
@@ -361,18 +483,84 @@ namespace Fuse.Maps.iOS
 				centerLatitude:centerLatitude
 				centerLongitude:centerLongitude
 				radius:radius
+				alpha:alpha
 				overlayID:uid];
+		@}
+
+		[Foreign(Language.ObjC)]
+		void AddImageOverlay(int uid, String imagePath, double minLatitude, double minLongitude, double maxLatitude, double maxLongitude, float opacity)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg addImageOverlay:imagePath minLatitude:minLatitude minLongitude:minLongitude maxLatitude:maxLatitude maxLongitude:maxLongitude opacity:opacity overlayID:uid];
+		@}
+
+		[Foreign(Language.ObjC)]
+		void AddTileOverlay(int uid, String urlTemplate, int minZoom, int maxZoom, float opacity)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg addTileOverlay:urlTemplate minZoom:minZoom maxZoom:maxZoom opacity:opacity overlayID:uid];
 		@}
 
 		public void UpdateOverlays()
 		{
+			if (_host == null) return;
+
 			ClearOverlays();
-			foreach(MapOverlay p in Overlays)
+
+			var visible = new List<MapOverlay>();
+			foreach(MapOverlay p in _host.Overlays)
 			{
+				if (p.Visible)
+					visible.Add(p);
+			}
+
+			// MapKit draws overlays in the order they are added, so sort by ZIndex.
+			for (int i = 1; i < visible.Count; i++)
+			{
+				var item = visible[i];
+				int j = i - 1;
+				while (j >= 0 && visible[j].ZIndex > item.ZIndex)
+				{
+					visible[j + 1] = visible[j];
+					j--;
+				}
+				visible[j + 1] = item;
+			}
+
+			foreach(MapOverlay p in visible)
+			{
+				if (p.Type == OverlayType.Image)
+				{
+					AddImageOverlay(
+						p.Uid,
+						_markerGraphicsCache.Get(p.ImageFile),
+						p.MinLatitude,
+						p.MinLongitude,
+						p.MaxLatitude,
+						p.MaxLongitude,
+						p.Alpha
+					);
+					continue;
+				}
+
+				if (p.Type == OverlayType.Tile)
+				{
+					AddTileOverlay(
+						p.Uid,
+						p.TileUrlTemplate,
+						p.TileMinZoom,
+						p.TileMaxZoom,
+						p.Alpha
+					);
+					continue;
+				}
+
 				AddOverlay(
 					p.Uid,
 					p.Type,
-					p.GetCordinatesArray(),
+					p.GetCoordinatesArray(),
+					p.GetHolesCoordinatesArray(),
+					p.GetHoleLengthsArray(),
 					p.StrokeColor,
 					p.FillColor,
 					p.LineWidth,
@@ -383,22 +571,90 @@ namespace Fuse.Maps.iOS
 					p.DashPattern,
 					p.CenterLatitude,
 					p.CenterLongitude,
-					p.Radius
+					p.Radius,
+					p.Alpha
 					);
 			}
 		}
 
-		public ObservableList<MapMarker> Markers {
-			get
+		public void UpdateRoutes()
+		{
+			if (_mapViewDelegate == null) return;
+
+			ClearRoutesNative();
+
+			foreach (MapRoute route in _host.Routes)
 			{
-				return _mapViewHost.Markers;
+				if (route.NeedsCalculation)
+				{
+					route.MarkCalculationStarted();
+
+					var callback = new RouteProgressCallback(_host, route.Uid, route.Generation);
+					CalculateRouteNative(
+						route.FromLatitude,
+						route.FromLongitude,
+						route.ToLatitude,
+						route.ToLongitude,
+						(int)route.Mode,
+						callback.OnSuccess,
+						callback.OnError
+					);
+				}
+
+				if (route.Visible && route.HasPolyline)
+				{
+					AddRoutePolylineNative(
+						route.Uid,
+						route.GetPolylineArray(),
+						route.StrokeColor,
+						route.LineWidth,
+						route.Alpha
+					);
+				}
 			}
 		}
 
-		public ObservableList<MapOverlay> Overlays {
-			get
+		[Foreign(Language.ObjC)]
+		void ClearRoutesNative()
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg clearRoutes];
+		@}
+
+		[Foreign(Language.ObjC)]
+		void AddRoutePolylineNative(int uid, double[] coordinates, float4 strokeColor, int lineWidth, float alpha)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg addRoutePolyline:uid
+				coordinates:coordinates
+				strokeColor:[UIColor colorWithRed:strokeColor.X green:strokeColor.Y blue:strokeColor.Z alpha:strokeColor.W]
+				lineWidth:lineWidth
+				alpha:alpha];
+		@}
+
+		class RouteProgressCallback
+		{
+			readonly IMapViewHost _host;
+			readonly int _uid;
+			readonly int _generation;
+
+			public RouteProgressCallback(IMapViewHost host, int uid, int generation)
 			{
-				return _mapViewHost.Overlays;
+				_host = host;
+				_uid = uid;
+				_generation = generation;
+			}
+
+			public void OnSuccess(string encoded)
+			{
+				if (_host != null)
+					_host.OnRouteResult(_uid, _generation, encoded);
+			}
+
+			public void OnError(string message)
+			{
+				if (_host != null)
+					_host.OnRouteError(_uid, _generation, message);
 			}
 		}
 
@@ -418,6 +674,8 @@ namespace Fuse.Maps.iOS
 					case MapStyle.Hybrid:
 						_mapView.SetIntValue("mapType", 2);
 						break;
+					// MapKit has no terrain map type; fall back to the standard map.
+					case MapStyle.Terrain:
 					default:
 						_mapView.SetIntValue("mapType", 0);
 						break;
@@ -493,7 +751,24 @@ namespace Fuse.Maps.iOS
 					_mapView.SetBoolValue("showsUserLocation", value);
 			}
 		}
-		public bool ShowMyLocationButton { get; set; }
+		bool _showMyLocationButton;
+		public bool ShowMyLocationButton
+		{
+			get { return _showMyLocationButton; }
+			set
+			{
+				_showMyLocationButton = value;
+				if (_mapViewDelegate != null)
+					SetShowsMyLocationButton(value);
+			}
+		}
+
+		[Foreign(Language.ObjC)]
+		void SetShowsMyLocationButton(bool show)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg setShowsMyLocationButton:show];
+		@}
 
 		[Foreign(Language.ObjC)]
 		public void RequestLocationAuth(Action<bool> onAuthorizationResult)
@@ -502,11 +777,16 @@ namespace Fuse.Maps.iOS
 			[dg requestLocationAuthentication:onAuthorizationResult];
 		@}
 
-		//iOS 9 only :(
+		bool _showCompass;
 		public bool ShowCompass
 		{
-			get;
-			set;
+			get { return _showCompass; }
+			set
+			{
+				_showCompass = value;
+				if (_mapView != null)
+					_mapView.SetBoolValue("showsCompass", value);
+			}
 		}
 
 		public bool AllowZoom
@@ -533,6 +813,60 @@ namespace Fuse.Maps.iOS
 			set { _mapView.SetBoolValue("scrollEnabled", value); }
 		}
 
+		float4 _padding = float4(0);
+		public float4 Padding
+		{
+			get { return _padding; }
+			set
+			{
+				_padding = value;
+				if (_mapViewDelegate != null)
+					SetPaddingNative(value.X, value.Y, value.Z, value.W);
+			}
+		}
+
+		[Foreign(Language.ObjC)]
+		void SetPaddingNative(float left, float top, float right, float bottom)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg setPaddingLeft:left top:top right:right bottom:bottom];
+		@}
+
+		double _minZoom = 0;
+		public double MinZoom
+		{
+			get { return _minZoom; }
+			set
+			{
+				_minZoom = value;
+				ApplyZoomLimits();
+			}
+		}
+
+		double _maxZoom = 21;
+		public double MaxZoom
+		{
+			get { return _maxZoom; }
+			set
+			{
+				_maxZoom = value;
+				ApplyZoomLimits();
+			}
+		}
+
+		void ApplyZoomLimits()
+		{
+			if (_mapViewDelegate == null) return;
+			SetZoomLimitsNative(_minZoom, _maxZoom);
+		}
+
+		[Foreign(Language.ObjC)]
+		void SetZoomLimitsNative(double minZoom, double maxZoom)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg setZoomLimitsMin:minZoom max:maxZoom];
+		@}
+
 		public void SetLocation(double latitude, double longitude)
 		{
 			MoveTo(latitude,longitude, Zoom, Tilt, Bearing);
@@ -550,6 +884,221 @@ namespace Fuse.Maps.iOS
 			[dg showAllAnotations];
 		@}
 
+		public void AnimateTo(double latitude, double longitude, double zoomlevel, double tilt, double orientation, double duration)
+		{
+			if (_mapViewDelegate == null) return;
+			AnimateToNative(latitude, longitude, zoomlevel, tilt, orientation, duration);
+		}
+
+		[Foreign(Language.ObjC)]
+		void AnimateToNative(double latitude, double longitude, double zoomlevel, double tilt, double orientation, double duration)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg animateTo:latitude longitude:longitude zoom:zoomlevel tilt:tilt orientation:orientation duration:duration];
+		@}
+
+		public void CancelAnimation()
+		{
+			if (_mapViewDelegate == null) return;
+			CancelAnimationNative();
+		}
+
+		[Foreign(Language.ObjC)]
+		void CancelAnimationNative()
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg cancelAnimation];
+		@}
+
+		public void ShowBounds(double minLatitude, double minLongitude, double maxLatitude, double maxLongitude)
+		{
+			if (_mapViewDelegate == null) return;
+			ShowBoundsNative(minLatitude, minLongitude, maxLatitude, maxLongitude);
+		}
+
+		[Foreign(Language.ObjC)]
+		void ShowBoundsNative(double minLatitude, double minLongitude, double maxLatitude, double maxLongitude)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg showBoundsMinLatitude:minLatitude minLongitude:minLongitude maxLatitude:maxLatitude maxLongitude:maxLongitude];
+		@}
+
+		public MapBounds GetVisibleBounds()
+		{
+			if (_mapViewDelegate == null) return null;
+
+			return new MapBounds(
+				GetVisibleMinLatitude(),
+				GetVisibleMinLongitude(),
+				GetVisibleMaxLatitude(),
+				GetVisibleMaxLongitude()
+			);
+		}
+
+		[Foreign(Language.ObjC)]
+		double GetVisibleMinLatitude()
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			return [dg getVisibleMinLatitude];
+		@}
+
+		[Foreign(Language.ObjC)]
+		double GetVisibleMinLongitude()
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			return [dg getVisibleMinLongitude];
+		@}
+
+		[Foreign(Language.ObjC)]
+		double GetVisibleMaxLatitude()
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			return [dg getVisibleMaxLatitude];
+		@}
+
+		[Foreign(Language.ObjC)]
+		double GetVisibleMaxLongitude()
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			return [dg getVisibleMaxLongitude];
+		@}
+
+		public void ZoomBy(double delta, double duration)
+		{
+			if (_mapViewDelegate == null) return;
+			ZoomByNative(delta);
+		}
+
+		[Foreign(Language.ObjC)]
+		void ZoomByNative(double delta)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg zoomBy:delta];
+		@}
+
+		public void ScrollBy(float dx, float dy, double duration)
+		{
+			if (_mapViewDelegate == null) return;
+			ScrollByNative(dx, dy);
+		}
+
+		[Foreign(Language.ObjC)]
+		void ScrollByNative(float dx, float dy)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg scrollBy:dx dy:dy];
+		@}
+
+		public Future<MapPlace[]> Geocode(string query)
+		{
+			var promise = new Promise<MapPlace[]>();
+
+			if (_mapViewDelegate == null)
+			{
+				promise.Reject(new Exception("MapView is not ready"));
+				return promise;
+			}
+
+			var callback = new PlaceCallback(promise);
+			GeocodeNative(query, callback.OnSuccess, callback.OnError);
+			return promise;
+		}
+
+		[Foreign(Language.ObjC)]
+		void GeocodeNative(string query, Action<string> onSuccess, Action<string> onError)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg geocode:query onSuccess:onSuccess onError:onError];
+		@}
+
+		public Future<MapPlace[]> ReverseGeocode(double latitude, double longitude)
+		{
+			var promise = new Promise<MapPlace[]>();
+
+			if (_mapViewDelegate == null)
+			{
+				promise.Reject(new Exception("MapView is not ready"));
+				return promise;
+			}
+
+			var callback = new PlaceCallback(promise);
+			ReverseGeocodeNative(latitude, longitude, callback.OnSuccess, callback.OnError);
+			return promise;
+		}
+
+		[Foreign(Language.ObjC)]
+		void ReverseGeocodeNative(double latitude, double longitude, Action<string> onSuccess, Action<string> onError)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg reverseGeocode:latitude longitude:longitude onSuccess:onSuccess onError:onError];
+		@}
+
+		public Future<MapRouteResult> CalculateRoute(double fromLatitude, double fromLongitude, double toLatitude, double toLongitude, RouteMode mode)
+		{
+			var promise = new Promise<MapRouteResult>();
+
+			if (_mapViewDelegate == null)
+			{
+				promise.Reject(new Exception("MapView is not ready"));
+				return promise;
+			}
+
+			var callback = new RouteCallback(promise);
+			CalculateRouteNative(fromLatitude, fromLongitude, toLatitude, toLongitude, (int)mode, callback.OnSuccess, callback.OnError);
+			return promise;
+		}
+
+		[Foreign(Language.ObjC)]
+		void CalculateRouteNative(double fromLatitude, double fromLongitude, double toLatitude, double toLongitude, int mode, Action<string> onSuccess, Action<string> onError)
+		@{
+			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
+			[dg calculateRoute:fromLatitude fromLongitude:fromLongitude toLatitude:toLatitude toLongitude:toLongitude mode:mode onSuccess:onSuccess onError:onError];
+		@}
+
+		class PlaceCallback
+		{
+			readonly Promise<MapPlace[]> _promise;
+
+			public PlaceCallback(Promise<MapPlace[]> promise)
+			{
+				_promise = promise;
+			}
+
+			public void OnSuccess(string encoded)
+			{
+				_promise.Resolve(MapPlace.ParseList(encoded));
+			}
+
+			public void OnError(string message)
+			{
+				_promise.Reject(new Exception(message));
+			}
+		}
+
+		class RouteCallback
+		{
+			readonly Promise<MapRouteResult> _promise;
+
+			public RouteCallback(Promise<MapRouteResult> promise)
+			{
+				_promise = promise;
+			}
+
+			public void OnSuccess(string encoded)
+			{
+				var result = MapRouteResult.Parse(encoded);
+				if (result == null)
+					_promise.Reject(new Exception("Could not calculate the route"));
+				else
+					_promise.Resolve(result);
+			}
+
+			public void OnError(string message)
+			{
+				_promise.Reject(new Exception(message));
+			}
+		}
+
 		public void Snapshot(Action<string> actionSucces, Action<string> actionError)
 		{
 			TakeSnapshot(actionSucces, actionError);
@@ -561,5 +1110,15 @@ namespace Fuse.Maps.iOS
 			MapViewDelegate* dg = (MapViewDelegate*)@{MapView:of(_this)._mapViewDelegate:get()};
 			[dg takeSnapshot:actionSucces error:actionError];
 		@}
+	}
+
+	extern (iOS) public class NativeMapProvider : IMapProvider
+	{
+		public string Name { get { return "Native"; } }
+
+		public IMapView Create(IMapViewHost host)
+		{
+			return MapView.Create(host);
+		}
 	}
 }
