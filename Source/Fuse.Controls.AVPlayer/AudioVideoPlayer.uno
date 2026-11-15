@@ -52,6 +52,61 @@ namespace Fuse.Controls
 		bool IsBuffering { get; }
 		/** Buffer progress as a percentage (0.0 to 1.0) */
 		float BufferProgress { get; }
+
+		// Presentation
+		/** How the video is fitted inside the element */
+		Fuse.Elements.StretchMode StretchMode { set; }
+		/** Whether the platform playback controls are shown */
+		bool ShowControls { set; }
+		/** Whether the screen is kept awake while playing */
+		bool KeepScreenOn { set; }
+		/** Whether the audio output is muted */
+		bool Muted { set; }
+		/** Limits the quality of streaming sources */
+		MediaStreamQuality StreamQuality { set; }
+	}
+
+	/**
+		The playback state of a @MediaPlayer.
+
+		Use the @State property, or the equivalent triggers (@WhilePlaying, @WhilePaused,
+		@WhileLoading, @WhileCompleted and @WhileFailed), instead of comparing states
+		manually.
+	*/
+	public enum MediaPlayerState
+	{
+		/** No source has been loaded */
+		Idle,
+		/** A source is being loaded, or playback is waiting for more data */
+		Loading,
+		/** The media is loaded and ready to play, but not playing */
+		Ready,
+		/** The media is playing */
+		Playing,
+		/** Playback is paused, or stopped at the beginning */
+		Paused,
+		/** Playback reached the end of the media */
+		Ended,
+		/** Playback failed, see @ErrorMessage */
+		Failed
+	}
+
+	/**
+		Limits the video quality used for streaming sources.
+
+		This is a cap rather than a fixed quality: the player still adapts to the available
+		bandwidth, but will not select a stream above the limit.
+	*/
+	public enum MediaStreamQuality
+	{
+		/** Adaptive, no bitrate limit */
+		Auto,
+		/** Up to roughly 480p (1.5 Mbit/s) */
+		SD,
+		/** Up to roughly 720p (4 Mbit/s) */
+		HD,
+		/** Up to roughly 1080p (8 Mbit/s) */
+		FullHD
 	}
 
 	/**
@@ -110,27 +165,62 @@ namespace Fuse.Controls
 			DurationChanged="{OnDurationChanged}" />
 		```
 
+		## Triggers
+
+		`MediaPlayer` drives the standard Fuse playback triggers on its own, so no extra
+		wiring is needed:
+
+		```ux
+		<MediaPlayer Url="video.mp4">
+			<WhilePlaying />    <!-- Active while playing -->
+			<WhilePaused />     <!-- Active while paused -->
+			<WhileLoading />    <!-- Active while loading or buffering -->
+			<WhileCompleted />  <!-- Active when playback reached the end -->
+			<WhileFailed />     <!-- Active when playback failed, see ErrorMessage -->
+		</MediaPlayer>
+		```
+
+		## State
+
+		The current state is available through @State and is kept in sync with the triggers
+		above. When playback fails, @ErrorMessage contains the reason and the @Error event
+		is raised.
+
 		## JavaScript
 
-		```javascript
-		// Property access works
-		console.log("Duration: " + videoPlayer.duration + "s");
-		console.log("Position: " + videoPlayer.position + "s");
+		The player can be controlled from JavaScript through a `ux:Name`:
 
-		// Property setting works
-		videoPlayer.volume = 0.8;
-		videoPlayer.position = 30.0; // Seek to 30 seconds
-		videoPlayer.autoPlay = false;
+		```ux
+		<MediaPlayer ux:Name="player" Url="video.mp4" />
+		<JavaScript>
+			player.play();
+			player.seek(30);           // seconds
+			player.setVolume(0.5);
+			player.setMuted(true);
+			player.setPlaybackRate(1.5); // 0.25 - 4.0
 
-		// Event handlers
-		function OnPlaying() {
-			console.log("Video started playing");
-		}
-
-		function OnPositionChanged(args) {
-			console.log("Position: " + args.Time + "s");
-		}
+			console.log(player.getPosition() + " / " + player.getDuration());
+			console.log(player.getState()); // "playing", "paused", ...
+		</JavaScript>
 		```
+
+		## Background playback
+
+		By default playback pauses when the app is sent to the background and resumes when it
+		returns to the foreground. For audio, set `PauseWhenBackgrounded="false"` to keep
+		playing (on iOS this also requires the `audio` background mode in the app project).
+
+		## Appearance
+
+		`StretchMode` controls how the video is fitted inside the element (`Uniform` by
+		default), `ShowControls` toggles the native playback controls, `KeepScreenOn`
+		keeps the display awake while playing, `Muted` mutes the audio without changing
+		@Volume, and `StreamQuality` caps the quality of adaptive (HLS/DASH) streams.
+
+		Picture-in-Picture is enabled on iOS; the app must declare the "Audio, AirPlay and
+		Picture in Picture" background mode. On Android, background audio and lock-screen
+		controls require a `MediaSessionService` in the app, which this component does not
+		provide yet.
 	*/
 	public abstract partial class AVPlayerBase : Panel, IMediaPlayback, IProgress, IPropertyListener
 	{
@@ -143,10 +233,33 @@ namespace Fuse.Controls
 		static Selector _progressName = "Progress";
 		static Selector _positionName = "PlaybackPosition";
 		static Selector _durationName = "Duration";
+		static Selector _isPlayingName = "IsPlaying";
+		static Selector _isBufferingName = "IsBuffering";
+		static Selector _bufferProgressName = "BufferProgress";
+		static Selector _stateName = "State";
+		static Selector _errorMessageName = "ErrorMessage";
+		static Selector _pauseWhenBackgroundedName = "PauseWhenBackgrounded";
+		static Selector _resumeOnForegroundName = "ResumeOnForeground";
+		static Selector _mutedName = "Muted";
+		static Selector _stretchModeName = "StretchMode";
+		static Selector _showControlsName = "ShowControls";
+		static Selector _keepScreenOnName = "KeepScreenOn";
+		static Selector _streamQualityName = "StreamQuality";
 		double _progress = 0.0;
 		double _duration = 0.0;
 		double _position = 0.0;
 		float _volume = 1.0f;
+
+		MediaPlayerState _state = MediaPlayerState.Idle;
+		string _errorMessage = "";
+		BusyTask _busyTask;
+
+		// True when playback was paused automatically because the app went to the background
+		bool _pausedInBackground;
+
+		// A position requested before the native view was ready to accept seeks
+		bool _hasPendingSeek;
+		double _pendingSeek;
 
 		// File source
 		FileSource _file;
@@ -174,6 +287,8 @@ namespace Fuse.Controls
 			if (file != _file)
 			{
 				_file = file;
+				ResetPlaybackPosition(origin);
+				OnSourceChanged();
 				OnPropertyChanged(_fileName, origin);
 			}
 		}
@@ -202,6 +317,8 @@ namespace Fuse.Controls
 			if (url != _url)
 			{
 				_url = url ?? "";
+				ResetPlaybackPosition(origin);
+				OnSourceChanged();
 				OnPropertyChanged(_urlName, origin);
 			}
 		}
@@ -291,6 +408,67 @@ namespace Fuse.Controls
 			}
 		}
 
+		// PauseWhenBackgrounded property
+		bool _pauseWhenBackgrounded = true;
+		[UXOriginSetter("SetPauseWhenBackgrounded")]
+		/**
+			Gets or sets whether playback pauses when the app is sent to the background.
+
+			Set this to `false` for audio playback that should keep playing while the app
+			is in the background. On iOS this also requires the `audio` background mode to
+			be enabled in the app project.
+
+			@default true
+		*/
+		public bool PauseWhenBackgrounded
+		{
+			get { return _pauseWhenBackgrounded; }
+			set { SetPauseWhenBackgrounded(value, this); }
+		}
+
+		public void SetPauseWhenBackgrounded(bool value, IPropertyListener origin)
+		{
+			UpdatePauseWhenBackgrounded(value, origin);
+		}
+
+		void UpdatePauseWhenBackgrounded(bool value, IPropertyListener origin)
+		{
+			if (value != _pauseWhenBackgrounded)
+			{
+				_pauseWhenBackgrounded = value;
+				OnPropertyChanged(_pauseWhenBackgroundedName, origin);
+			}
+		}
+
+		// ResumeOnForeground property
+		bool _resumeOnForeground = true;
+		[UXOriginSetter("SetResumeOnForeground")]
+		/**
+			Gets or sets whether playback resumes when the app returns to the foreground, if
+			it was paused by @PauseWhenBackgrounded.
+
+			@default true
+		*/
+		public bool ResumeOnForeground
+		{
+			get { return _resumeOnForeground; }
+			set { SetResumeOnForeground(value, this); }
+		}
+
+		public void SetResumeOnForeground(bool value, IPropertyListener origin)
+		{
+			UpdateResumeOnForeground(value, origin);
+		}
+
+		void UpdateResumeOnForeground(bool value, IPropertyListener origin)
+		{
+			if (value != _resumeOnForeground)
+			{
+				_resumeOnForeground = value;
+				OnPropertyChanged(_resumeOnForegroundName, origin);
+			}
+		}
+
 		// Volume property
 		[UXOriginSetter("SetVolume")]
 		/**
@@ -304,11 +482,9 @@ namespace Fuse.Controls
 
 		public void SetVolume(float volume, IPropertyListener origin)
 		{
+			UpdateVolume(volume, origin);
 			if (IsRootingCompleted)
-			{
-				UpdateVolume(volume, origin);
 				PushPropertiesToNativeView();
-			}
 		}
 
 		void UpdateVolume(float volume, IPropertyListener origin)
@@ -318,6 +494,165 @@ namespace Fuse.Controls
 			{
 				_volume = clampedVolume;
 				OnPropertyChanged(_volumeName, origin);
+			}
+		}
+
+		// Muted property
+		bool _muted = false;
+		[UXOriginSetter("SetMuted")]
+		/**
+			Gets or sets whether the audio is muted, without changing @Volume.
+
+			@default false
+		*/
+		public bool Muted
+		{
+			get { return _muted; }
+			set { SetMuted(value, this); }
+		}
+
+		public void SetMuted(bool muted, IPropertyListener origin)
+		{
+			UpdateMuted(muted, origin);
+			if (IsRootingCompleted)
+				PushPropertiesToNativeView();
+		}
+
+		void UpdateMuted(bool muted, IPropertyListener origin)
+		{
+			if (muted != _muted)
+			{
+				_muted = muted;
+				OnPropertyChanged(_mutedName, origin);
+			}
+		}
+
+		// StretchMode property
+		Fuse.Elements.StretchMode _stretchMode = Fuse.Elements.StretchMode.Uniform;
+		[UXOriginSetter("SetStretchMode")]
+		/**
+			Specifies how the video is fitted inside the element.
+
+			`Fill` stretches the video to the element without keeping the aspect ratio,
+			`UniformToFill` fills the element and clips what does not fit, and `Uniform` keeps
+			the entire video visible.
+
+			@default StretchMode.Uniform
+		*/
+		public Fuse.Elements.StretchMode StretchMode
+		{
+			get { return _stretchMode; }
+			set { SetStretchMode(value, this); }
+		}
+
+		public void SetStretchMode(Fuse.Elements.StretchMode mode, IPropertyListener origin)
+		{
+			UpdateStretchMode(mode, origin);
+			if (IsRootingCompleted)
+				PushPropertiesToNativeView();
+		}
+
+		void UpdateStretchMode(Fuse.Elements.StretchMode mode, IPropertyListener origin)
+		{
+			if (mode != _stretchMode)
+			{
+				_stretchMode = mode;
+				OnPropertyChanged(_stretchModeName, origin);
+			}
+		}
+
+		// StreamQuality property
+		MediaStreamQuality _streamQuality = MediaStreamQuality.Auto;
+		[UXOriginSetter("SetStreamQuality")]
+		/**
+			Gets or sets the maximum video quality used for streaming sources.
+
+			This only affects adaptive streams (HLS/DASH); it is a cap, so the player still
+			adapts to the available bandwidth below the limit.
+
+			@default MediaStreamQuality.Auto
+		*/
+		public MediaStreamQuality StreamQuality
+		{
+			get { return _streamQuality; }
+			set { SetStreamQuality(value, this); }
+		}
+
+		public void SetStreamQuality(MediaStreamQuality quality, IPropertyListener origin)
+		{
+			UpdateStreamQuality(quality, origin);
+			if (IsRootingCompleted)
+				PushPropertiesToNativeView();
+		}
+
+		void UpdateStreamQuality(MediaStreamQuality quality, IPropertyListener origin)
+		{
+			if (quality != _streamQuality)
+			{
+				_streamQuality = quality;
+				OnPropertyChanged(_streamQualityName, origin);
+			}
+		}
+
+		// ShowControls property
+		bool _showControls = true;
+		[UXOriginSetter("SetShowControls")]
+		/**
+			Gets or sets whether the native playback controls are shown.
+
+			Set this to `false` when providing a custom playback UI.
+
+			@default true
+		*/
+		public bool ShowControls
+		{
+			get { return _showControls; }
+			set { SetShowControls(value, this); }
+		}
+
+		public void SetShowControls(bool showControls, IPropertyListener origin)
+		{
+			UpdateShowControls(showControls, origin);
+			if (IsRootingCompleted)
+				PushPropertiesToNativeView();
+		}
+
+		void UpdateShowControls(bool showControls, IPropertyListener origin)
+		{
+			if (showControls != _showControls)
+			{
+				_showControls = showControls;
+				OnPropertyChanged(_showControlsName, origin);
+			}
+		}
+
+		// KeepScreenOn property
+		bool _keepScreenOn = false;
+		[UXOriginSetter("SetKeepScreenOn")]
+		/**
+			Gets or sets whether the screen is kept awake while playing.
+
+			@default false
+		*/
+		public bool KeepScreenOn
+		{
+			get { return _keepScreenOn; }
+			set { SetKeepScreenOn(value, this); }
+		}
+
+		public void SetKeepScreenOn(bool keepScreenOn, IPropertyListener origin)
+		{
+			UpdateKeepScreenOn(keepScreenOn, origin);
+			if (IsRootingCompleted)
+				PushPropertiesToNativeView();
+		}
+
+		void UpdateKeepScreenOn(bool keepScreenOn, IPropertyListener origin)
+		{
+			if (keepScreenOn != _keepScreenOn)
+			{
+				_keepScreenOn = keepScreenOn;
+				OnPropertyChanged(_keepScreenOnName, origin);
 			}
 		}
 
@@ -332,11 +667,11 @@ namespace Fuse.Controls
 
 		public void SetProgress(double progress, IPropertyListener origin)
 		{
-			if (IsRootingCompleted)
-			{
-				UpdateProgress(progress, origin);
-				PushPropertiesToNativeView();
-			}
+			UpdateProgress(progress, origin);
+
+			// Progress can only be translated to a time once the duration is known
+			if (_duration > 0)
+				RequestSeek();
 		}
 
 		void UpdateProgress(double progress, IPropertyListener origin)
@@ -347,15 +682,18 @@ namespace Fuse.Controls
 				_progress = clampedProgress;
 				OnPropertyChanged(_progressName, origin);
 				// Also update position to keep them in sync
-				var newPosition = _progress * _duration;
-				if (Math.Abs(newPosition - _position) > 0.001)
+				if (_duration > 0)
 				{
-					_position = newPosition;
-					OnPropertyChanged(_positionName, origin);
+					var newPosition = _progress * _duration;
+					if (Math.Abs(newPosition - _position) > 0.001)
+					{
+						_position = newPosition;
+						OnPropertyChanged(_positionName, origin);
+					}
 				}
 			}
 		}
-		
+
 		// Position property
 		[UXOriginSetter("SetPlaybackPosition")]
 		public double PlaybackPosition
@@ -373,16 +711,15 @@ namespace Fuse.Controls
 
 		public void SetPlaybackPosition(double position, IPropertyListener origin)
 		{
-			if (IsRootingCompleted)
-			{
-				UpdatePosition(position, origin);
-				PushPropertiesToNativeView();
-			}
+			UpdatePosition(position, origin);
+			RequestSeek();
 		}
 
 		void UpdatePosition(double position, IPropertyListener origin)
 		{
-			var clampedPosition = Math.Max(0.0, Math.Min(_duration, position));
+			// The duration is not known until the media has loaded. Don't clamp against it
+			// before that, or the position would be stuck at 0 (live streams never report one).
+			var clampedPosition = Math.Max(0.0, _duration > 0 ? Math.Min(_duration, position) : position);
 			if (Math.Abs(clampedPosition - _position) > 0.001)
 			{
 				_position = clampedPosition;
@@ -394,6 +731,25 @@ namespace Fuse.Controls
 					_progress = newProgress;
 					OnPropertyChanged(_progressName, origin);
 				}
+			}
+		}
+
+		void ResetPlaybackPosition(IPropertyListener origin)
+		{
+			// A pending seek was requested explicitly, so it is kept across source changes
+			if (_hasPendingSeek)
+				return;
+
+			if (Math.Abs(_position) > 0.001)
+			{
+				_position = 0.0;
+				OnPropertyChanged(_positionName, origin);
+			}
+
+			if (Math.Abs(_progress) > 0.001)
+			{
+				_progress = 0.0;
+				OnPropertyChanged(_progressName, origin);
 			}
 		}
 
@@ -411,6 +767,69 @@ namespace Fuse.Controls
 				_duration = duration;
 				OnPropertyChanged(_durationName);
 			}
+		}
+
+		/**
+			Gets the current playback state.
+
+			The state is kept in sync with the @WhilePlaying, @WhilePaused, @WhileLoading,
+			@WhileCompleted and @WhileFailed triggers.
+		*/
+		public MediaPlayerState State
+		{
+			get { return _state; }
+		}
+
+		/**
+			Gets the message of the last playback error, or an empty string if no error
+			has occurred.
+		*/
+		public string ErrorMessage
+		{
+			get { return _errorMessage; }
+		}
+
+		void UpdateState(MediaPlayerState state)
+		{
+			if (_state == state)
+				return;
+
+			_state = state;
+			OnPropertyChanged(_stateName);
+			UpdateTriggers();
+		}
+
+		// Keeps the playback triggers in sync with the current state
+		void UpdateTriggers()
+		{
+			Fuse.Triggers.WhilePlaying.SetState(this, _state == MediaPlayerState.Playing);
+			Fuse.Triggers.WhilePaused.SetState(this, _state == MediaPlayerState.Paused || _state == MediaPlayerState.Ready);
+			Fuse.Triggers.WhileCompleted.SetState(this, _state == MediaPlayerState.Ended);
+
+			// WhileLoading also covers buffering during playback, like other Fuse media elements
+			var activity = BusyTaskActivity.None;
+			if (_state == MediaPlayerState.Failed)
+				activity = BusyTaskActivity.Failed;
+			else if (_state == MediaPlayerState.Loading || IsBuffering)
+				activity = BusyTaskActivity.Loading;
+
+			BusyTask.SetBusy(this, ref _busyTask, activity, _errorMessage);
+		}
+
+		void ClearError()
+		{
+			if (string.IsNullOrEmpty(_errorMessage))
+				return;
+
+			_errorMessage = "";
+			OnPropertyChanged(_errorMessageName);
+		}
+
+		// A new source is loaded as soon as the native player has it, report that right away
+		void OnSourceChanged()
+		{
+			ClearError();
+			UpdateState(MediaPlayerState.Loading);
 		}
 
 		/**
@@ -461,7 +880,7 @@ namespace Fuse.Controls
 			get { return Progress; }
 			set { Progress = value; }
 		}
-		
+
 		// IPropertyListener implementation
 		void IPropertyListener.OnPropertyChanged(PropertyObject obj, Selector prop)
 		{
@@ -483,8 +902,14 @@ namespace Fuse.Controls
 		public void Play()
 		{
 			var avv = AVPlayerView;
-			if (avv != null)
-				avv.Play();
+			if (avv == null)
+				return;
+
+			// Playing after the end has to restart from the beginning
+			if (_state == MediaPlayerState.Ended)
+				avv.Seek(0);
+
+			avv.Play();
 		}
 
 		/**
@@ -579,61 +1004,148 @@ namespace Fuse.Controls
 		// Internal helpers
 		IAVPlayerView AVPlayerView
 		{
-			get { return (IAVPlayerView)NativeView; }
+			get { return NativeView as IAVPlayerView; }
+		}
+
+		// Seeks the native player, or defers the seek until the native view is available
+		void RequestSeek()
+		{
+			if (IsRootingCompleted)
+			{
+				var avv = AVPlayerView;
+				if (avv != null)
+				{
+					_hasPendingSeek = false;
+					avv.Seek(_position);
+					return;
+				}
+			}
+
+			_pendingSeek = _position;
+			_hasPendingSeek = true;
 		}
 
 		protected override void OnRooted()
 		{
 			base.OnRooted();
 			PushPropertiesToNativeView();
+
+			Fuse.Platform.Lifecycle.EnteringBackground += OnEnteringBackground;
+			Fuse.Platform.Lifecycle.EnteringForeground += OnEnteringForeground;
 		}
 
 		protected override void OnUnrooted()
 		{
+			Fuse.Platform.Lifecycle.EnteringBackground -= OnEnteringBackground;
+			Fuse.Platform.Lifecycle.EnteringForeground -= OnEnteringForeground;
+			_pausedInBackground = false;
+
+			var avv = AVPlayerView;
+			if (avv != null)
+			{
+				avv.Pause();
+				// Remember where we were, so the position is restored if this element is rooted again
+				_pendingSeek = _position;
+				_hasPendingSeek = true;
+			}
 			base.OnUnrooted();
+		}
+
+		void OnEnteringBackground(Fuse.Platform.ApplicationState state)
+		{
+			if (!_pauseWhenBackgrounded || _state != MediaPlayerState.Playing)
+				return;
+
+			var avv = AVPlayerView;
+			if (avv == null)
+				return;
+
+			_pausedInBackground = true;
+			avv.Pause();
+		}
+
+		void OnEnteringForeground(Fuse.Platform.ApplicationState state)
+		{
+			if (!_pausedInBackground)
+				return;
+
+			_pausedInBackground = false;
+
+			// Resume, unless the media ended or failed while we were away
+			if (!_resumeOnForeground || _state == MediaPlayerState.Ended || _state == MediaPlayerState.Failed)
+				return;
+
+			Play();
 		}
 
 		// Push all current properties to native view
 		protected override void PushPropertiesToNativeView()
 		{
 			var avv = AVPlayerView;
-			if (avv != null)
-			{
-				if (_file != null)
-					avv.File = _file;
-				if (!string.IsNullOrEmpty(_url))
-					avv.Url = _url;
+			if (avv == null)
+				return;
 
-				avv.AutoPlay = _autoPlay;
-				avv.IsLooping = _isLooping;
-				avv.Volume = _volume;
-				avv.Position = _position;
-				avv.Progress = _progress;
-				avv.PlaybackRate = _playbackRate;
+			// The native implementations read AutoPlay while loading a source, so the
+			// playback options have to be pushed before File/Url.
+			avv.AutoPlay = _autoPlay;
+			avv.IsLooping = _isLooping;
+			avv.Volume = _volume;
+			avv.PlaybackRate = _playbackRate;
+			avv.Muted = _muted;
+			avv.StretchMode = _stretchMode;
+			avv.ShowControls = _showControls;
+			avv.KeepScreenOn = _keepScreenOn;
+			avv.StreamQuality = _streamQuality;
+
+			// Only one source can be active. Pushing both would load the media twice.
+			if (_file != null)
+				avv.File = _file;
+			else if (!string.IsNullOrEmpty(_url))
+				avv.Url = _url;
+
+			// The position is not pushed here: the native player owns it, and pushing it
+			// would re-seek on every unrelated property change.
+			if (_hasPendingSeek)
+			{
+				_hasPendingSeek = false;
+				avv.Seek(_pendingSeek);
 			}
 		}
 
 		// Event handlers - forward native events to public events
 		internal void OnPlaying()
 		{
+			UpdateState(MediaPlayerState.Playing);
+			OnPropertyChanged(_isPlayingName);
 			if (Playing != null)
 				Playing(this, EventArgs.Empty);
 		}
 
 		internal void OnPaused()
 		{
+			// Reaching the end or failing also stops playback, but must not hide that state
+			if (_state != MediaPlayerState.Ended && _state != MediaPlayerState.Failed)
+				UpdateState(MediaPlayerState.Paused);
+
+			OnPropertyChanged(_isPlayingName);
 			if (Paused != null)
 				Paused(this, EventArgs.Empty);
 		}
 
 		internal void OnStopped()
 		{
+			if (_state != MediaPlayerState.Idle && _state != MediaPlayerState.Failed)
+				UpdateState(MediaPlayerState.Paused);
+
+			OnPropertyChanged(_isPlayingName);
 			if (Stopped != null)
 				Stopped(this, EventArgs.Empty);
 		}
 
 		internal void OnEnded()
 		{
+			UpdateState(MediaPlayerState.Ended);
+			OnPropertyChanged(_isPlayingName);
 			if (Ended != null)
 				Ended(this, EventArgs.Empty);
 		}
@@ -658,17 +1170,25 @@ namespace Fuse.Controls
 
 		internal void OnError(string message, Exception exception = null)
 		{
-			// Log error for debugging
-			Fuse.Diagnostics.InternalError("MediaPlayer Error: " + message, this);
-
-			if (Error != null)
-				Error(this, new ErrorEventArgs(message, exception));
+			OnError(message, exception, ErrorSeverity.Error);
 		}
 
 		internal void OnError(string message, Exception exception, ErrorSeverity severity)
 		{
-			// Log error for debugging with severity
-			Fuse.Diagnostics.InternalError("MediaPlayer Error (" + severity + "): " + message, this);
+			var errorMessage = message ?? "Unknown media player error";
+
+			// Some native players keep reporting the same error on every status check
+			if (_state == MediaPlayerState.Failed && _errorMessage == errorMessage)
+				return;
+
+			_errorMessage = errorMessage;
+			OnPropertyChanged(_errorMessageName);
+
+			Fuse.Diagnostics.UserError("MediaPlayer: " + _errorMessage, this);
+
+			UpdateState(MediaPlayerState.Failed);
+			OnPropertyChanged(_isPlayingName);
+			OnPropertyChanged(_isBufferingName);
 
 			if (Error != null)
 				Error(this, new ErrorEventArgs(message, exception, severity));
@@ -676,18 +1196,33 @@ namespace Fuse.Controls
 
 		internal void OnLoadingStarted()
 		{
+			// Buffering while playing is reported through IsBuffering, the state stays Playing
+			if (_state == MediaPlayerState.Idle || _state == MediaPlayerState.Loading ||
+				_state == MediaPlayerState.Ready || _state == MediaPlayerState.Ended)
+				UpdateState(MediaPlayerState.Loading);
+
+			OnPropertyChanged(_isBufferingName);
+			UpdateTriggers();
+
 			if (LoadingStarted != null)
 				LoadingStarted(this, EventArgs.Empty);
 		}
 
 		internal void OnLoadingEnded()
 		{
+			if (_state == MediaPlayerState.Loading)
+				UpdateState(MediaPlayerState.Ready);
+
+			OnPropertyChanged(_isBufferingName);
+			UpdateTriggers();
+
 			if (LoadingEnded != null)
 				LoadingEnded(this, EventArgs.Empty);
 		}
 
 		internal void OnBufferedChanged()
 		{
+			OnPropertyChanged(_bufferProgressName);
 			if (BufferedChanged != null)
 				BufferedChanged(this, EventArgs.Empty);
 		}

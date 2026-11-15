@@ -27,6 +27,11 @@ namespace Fuse.Controls.Native.iOS
 		ObjC.Object _player;
 		ObjC.Object _playerItem;
 		ObjC.Object _timeObserver;
+		ObjC.Object _endObserver;
+		ObjC.Object _interruptionObserver;
+		ObjC.Object _routeChangeObserver;
+		bool _readyNotified;
+		bool _interrupted;
 
 		// Playback state
 		bool _isPlaying = false;
@@ -40,19 +45,48 @@ namespace Fuse.Controls.Native.iOS
 		double _position = 0.0;
 		double _progress = 0.0;
 
+		// Presentation state
+		bool _muted = false;
+		bool _showControls = true;
+		bool _keepScreenOn = false;
+		bool _idleTimerSet;
+		Fuse.Elements.StretchMode _stretchMode = Fuse.Elements.StretchMode.Uniform;
+		MediaStreamQuality _streamQuality = MediaStreamQuality.Auto;
+
 		[UXConstructor]
 		public AVPlayerView([UXParameter("Host")]AVPlayerBase host) : base(CreateContainer())
 		{
 			_host = host;
+			// AutoPlay is read when the source is loaded, so it has to be known up front
+			_autoPlay = host.AutoPlay;
 			_container = CreatePlayer();
-			Url = _host.Url;
-			File = _host.File;
+			ConfigureAudioSession();
+			AddAudioSessionObservers();
+			if (!string.IsNullOrEmpty(host.Url))
+				Url = host.Url;
+			if (host.File != null)
+				File = host.File;
 		}
 
 		public override void Dispose()
 		{
 			RemoveObservers();
+			RemoveAudioSessionObservers();
+
+			if (_idleTimerSet)
+			{
+				_idleTimerSet = false;
+				SetIdleTimerDisabled(false);
+			}
+
+			if (_player != null)
+				ReleasePlayer(_player);
+
+			if (_container != null)
+				DetachPlayerView(_container);
+
 			base.Dispose();
+
 			_container = null;
 			_player = null;
 			_playerItem = null;
@@ -67,11 +101,12 @@ namespace Fuse.Controls.Native.iOS
 				if (value != _file)
 				{
 					_file = value;
+					ResetMediaInfo();
 					if (_container != null)
 					{
 						if (_file is BundleFileSource)
 							SetVideoUri(_container, GetBundleAbsolutePath("data/" + ((BundleFileSource)_file).BundleFile.BundlePath));
-						else
+						else if (_file != null)
 						{
 							var data = _file.ReadAllBytes();
 							var path = Uno.IO.Directory.GetUserDirectory(Uno.IO.UserDirectory.Videos) + "/" + _file.Name;
@@ -92,10 +127,29 @@ namespace Fuse.Controls.Native.iOS
 				if (value != _url)
 				{
 					_url = value;
-					if (_container != null)
-						SetVideoUri(_container, value);
+					ResetMediaInfo();
+					if (_container != null && !string.IsNullOrEmpty(_url))
+						SetVideoUri(_container, _url);
 				}
 			}
+		}
+
+		void ResetPlaybackPosition()
+		{
+			_position = 0.0;
+			_progress = 0.0;
+		}
+
+		// Called when a new source is loaded, before the native player is told about it
+		void ResetMediaInfo()
+		{
+			ResetPlaybackPosition();
+			_duration = 0.0;
+			_bufferProgress = 0.0f;
+			_readyNotified = false;
+
+			if (_host != null)
+				_host.OnDurationChanged(0.0);
 		}
 
 		// New properties
@@ -119,8 +173,8 @@ namespace Fuse.Controls.Native.iOS
 			get { return _progress; }
 			set
 			{
-				var position = value * _duration;
-				SetPlaybackPosition(_player, position);
+				if (_duration > 0)
+					SetPlaybackPosition(_player, Math.Max(0.0, Math.Min(1.0, value)) * _duration);
 			}
 		}
 		public bool IsLooping
@@ -131,7 +185,7 @@ namespace Fuse.Controls.Native.iOS
 				if (_isLooping != value)
 				{
 					_isLooping = value;
-					SetLooping(_player, value);
+					ApplyLooping();
 				}
 			}
 		}
@@ -156,8 +210,12 @@ namespace Fuse.Controls.Native.iOS
 			{
 				if (Math.Abs(_playbackRate - value) > 0.001f)
 				{
-					_playbackRate = value;
-					SetPlaybackRate(_player, _playbackRate);
+					_playbackRate = Math.Max(0.25f, Math.Min(4.0f, value));
+
+					// Assigning a rate to a paused AVPlayer starts playback, so the rate is
+					// only applied here when the player is already playing.
+					if (GetPlayerRate(_player) > 0.0)
+						SetPlaybackRate(_player, _playbackRate);
 				}
 			}
 		}
@@ -168,6 +226,116 @@ namespace Fuse.Controls.Native.iOS
 			set { _autoPlay = value; }
 		}
 
+		public Fuse.Elements.StretchMode StretchMode
+		{
+			set
+			{
+				if (_stretchMode != value)
+				{
+					_stretchMode = value;
+					ApplyStretchMode();
+				}
+			}
+		}
+
+		public bool ShowControls
+		{
+			set
+			{
+				if (_showControls != value)
+				{
+					_showControls = value;
+					if (_container != null)
+						SetShowsPlaybackControls(_container, _showControls);
+				}
+			}
+		}
+
+		public bool KeepScreenOn
+		{
+			set
+			{
+				if (_keepScreenOn != value)
+				{
+					_keepScreenOn = value;
+					UpdateIdleTimer();
+				}
+			}
+		}
+
+		public bool Muted
+		{
+			set
+			{
+				if (_muted != value)
+				{
+					_muted = value;
+					if (_player != null)
+						SetPlayerMuted(_player, _muted);
+				}
+			}
+		}
+
+		public MediaStreamQuality StreamQuality
+		{
+			set
+			{
+				if (_streamQuality != value)
+				{
+					_streamQuality = value;
+					ApplyStreamQuality();
+				}
+			}
+		}
+
+		void ApplyStreamQuality()
+		{
+			if (_playerItem != null)
+				SetItemPeakBitRate(_playerItem, GetMaxVideoBitrate(_streamQuality));
+		}
+
+		static double GetMaxVideoBitrate(MediaStreamQuality quality)
+		{
+			switch (quality)
+			{
+				case MediaStreamQuality.SD:
+					return 1500000.0;
+				case MediaStreamQuality.HD:
+					return 4000000.0;
+				case MediaStreamQuality.FullHD:
+					return 8000000.0;
+				default:
+					return 0.0; // no limit
+			}
+		}
+
+		void ApplyStretchMode()
+		{
+			if (_container == null)
+				return;
+
+			// 0 = aspect fit (letterbox), 1 = stretch, 2 = aspect fill (crop)
+			var gravity = 0;
+			if (_stretchMode == Fuse.Elements.StretchMode.Fill)
+				gravity = 1;
+			else if (_stretchMode == Fuse.Elements.StretchMode.UniformToFill)
+				gravity = 2;
+
+			SetVideoGravity(_container, gravity);
+		}
+
+		void UpdateIdleTimer()
+		{
+			// Waiting to play (status 1) counts as playing, the screen should stay on while buffering
+			var playing = _player != null && GetTimeControlStatus(_player) != 0;
+			var disable = _keepScreenOn && playing;
+			if (disable == _idleTimerSet)
+				return;
+
+			_idleTimerSet = disable;
+			SetIdleTimerDisabled(disable);
+		}
+
 		public bool IsBuffering { get { return _isBuffering; } }
 		public float BufferProgress { get { return _bufferProgress; } }
 
@@ -175,69 +343,99 @@ namespace Fuse.Controls.Native.iOS
 		// Events are handled by the host (base class)
 
 		// Playback state tracking
+		//
+		// `timeControlStatus` is used instead of `rate`, since the rate is 0 while the
+		// player is waiting for more data even though playback is still intended.
 		void UpdatePlaybackState()
 		{
-			if (_player != null)
-			{
-				var rate = GetPlayerRate(_player);
-				bool wasPlaying = _isPlaying;
-				_isPlaying = rate > 0;
+			if (_player == null)
+				return;
 
-				if (wasPlaying != _isPlaying)
+			var status = GetTimeControlStatus(_player); // 0 = paused, 1 = waiting, 2 = playing
+
+			var buffering = status == 1;
+			if (buffering != _isBuffering)
+			{
+				_isBuffering = buffering;
+				if (_host != null)
 				{
-					if (_isPlaying)
-					{
-						if (_host != null) _host.OnPlaying();
-					}
+					if (buffering)
+						_host.OnLoadingStarted();
 					else
-					{
-						if (_host != null) _host.OnPaused();
-					}
+						_host.OnLoadingEnded();
 				}
 			}
+
+			var wasPlaying = _isPlaying;
+			_isPlaying = status != 0;
+
+			if (wasPlaying != _isPlaying)
+			{
+				if (_isPlaying)
+				{
+					if (_host != null) _host.OnPlaying();
+				}
+				else
+				{
+					if (_host != null) _host.OnPaused();
+				}
+			}
+
+			UpdateIdleTimer();
 		}
 
 		[Foreign(Language.ObjC)]
 		void SetVideoUri(ObjC.Object handle, string url)
 		@{
 			AVPlayerViewController* playerViewController = (AVPlayerViewController*)handle;
-			NSURL *newURL = [NSURL URLWithString:url];
+			if (playerViewController.player == NULL) {
+				return;
+			}
 
-			// Remove previous observers
+			NSURL *newURL = [NSURL URLWithString:url];
+			if (newURL == NULL) {
+				return;
+			}
+
+			// Remove the observers that are bound to the previous item
 			@{AVPlayerView:Of(_this).RemoveObservers():Call()};
 
-			if (playerViewController.player != NULL)
-			{
-				AVPlayerItem *newItem = [AVPlayerItem playerItemWithURL:newURL];
-				[playerViewController.player replaceCurrentItemWithPlayerItem:newItem];
-				@{AVPlayerView:Of(_this)._playerItem:Set(newItem)};
-			}
-			else
-			{
-				AVPlayer *player = [AVPlayer playerWithURL:newURL];
-				playerViewController.player = player;
-				@{AVPlayerView:Of(_this)._player:Set(player)};
-				@{AVPlayerView:Of(_this)._playerItem:Set(player.currentItem)};
-			}
+			AVPlayerItem *newItem = [AVPlayerItem playerItemWithURL:newURL];
+			[playerViewController.player replaceCurrentItemWithPlayerItem:newItem];
+			@{AVPlayerView:Of(_this)._playerItem:Set(newItem)};
 
 			// Add new observers
 			@{AVPlayerView:Of(_this).AddPlayerObservers():Call()};
+			@{AVPlayerView:Of(_this).ApplyLooping():Call()};
+			@{AVPlayerView:Of(_this).ApplyStreamQuality():Call()};
 
 			// Auto-play if enabled
 			if (@{AVPlayerView:Of(_this)._autoPlay:Get()}) {
-				[playerViewController.player play];
+				@{AVPlayerView:Of(_this).Play():Call()};
 			}
 		@}
 
 		// Playback control methods
 		public void Play()
 		{
-			PlayPlayer(_player);
+			PlayPlayer(_player, _playbackRate);
+			UpdateIdleTimer();
 		}
 
 		public void Pause()
 		{
+			PauseInternal();
+		}
+
+		// Pauses the native player and reports the change immediately.
+		//
+		// Playback state is otherwise reported by the periodic time observer, which stops
+		// firing when playback stops. Without this, a pause would never reach the host and
+		// `WhilePlaying` would stay active.
+		void PauseInternal()
+		{
 			PausePlayer(_player);
+			UpdatePlaybackState();
 		}
 
 		public void Stop()
@@ -248,15 +446,17 @@ namespace Fuse.Controls.Native.iOS
 
 		public void Seek(double positionSeconds)
 		{
-			SeekToTime(_player, positionSeconds);
+			_position = Math.Max(0.0, positionSeconds);
+			SeekToTime(_player, _position);
 		}
 
 		[Foreign(Language.ObjC)]
-		static void PlayPlayer(ObjC.Object player)
+		static void PlayPlayer(ObjC.Object player, float rate)
 		@{
 			AVPlayer* avPlayer = (AVPlayer*)player;
 			if (avPlayer != NULL) {
-				[avPlayer play];
+				// Using `play` would reset the rate back to 1.0
+				avPlayer.rate = rate > 0.0f ? rate : 1.0f;
 			}
 		@}
 
@@ -308,17 +508,197 @@ namespace Fuse.Controls.Native.iOS
 		@}
 
 		[Foreign(Language.ObjC)]
-		static void SetLooping(ObjC.Object player, bool looping)
+		ObjC.Object AddEndObserver(ObjC.Object playerItem)
+		@{
+			AVPlayerItem* item = (AVPlayerItem*)playerItem;
+
+			return [[NSNotificationCenter defaultCenter] addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
+			                                                       object:item
+			                                                        queue:[NSOperationQueue mainQueue]
+			                                                   usingBlock:^(NSNotification *note) {
+				@{AVPlayerView:Of(_this).OnPlaybackItemEnded():Call()};
+			}];
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void RemoveNotificationObserver(ObjC.Object token)
+		@{
+			if (token != NULL) {
+				[[NSNotificationCenter defaultCenter] removeObserver:(id)token];
+			}
+		@}
+
+		// Looping is implemented with a single end-of-item observer that is replaced
+		// every time the flag or the source changes.
+		void ApplyLooping()
+		{
+			RemoveEndObserver();
+
+			if (_isLooping && _playerItem != null)
+				_endObserver = AddEndObserver(_playerItem);
+		}
+
+		void RemoveEndObserver()
+		{
+			if (_endObserver == null)
+				return;
+
+			RemoveNotificationObserver(_endObserver);
+			_endObserver = null;
+		}
+
+		[Foreign(Language.ObjC)]
+		void ConfigureAudioSession()
+		@{
+			// Playback category, so media is audible even when the ringer switch is off
+			NSError* error = nil;
+			[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:&error];
+		@}
+
+		// Interruptions (phone calls, other apps taking over the audio session) and audio
+		// route changes (unplugging headphones) are handled by the player itself.
+		void AddAudioSessionObservers()
+		{
+			if (_interruptionObserver != null)
+				return;
+
+			_interruptionObserver = AddInterruptionObserver();
+			_routeChangeObserver = AddRouteChangeObserver();
+		}
+
+		void RemoveAudioSessionObservers()
+		{
+			if (_interruptionObserver != null)
+			{
+				RemoveNotificationObserver(_interruptionObserver);
+				_interruptionObserver = null;
+			}
+
+			if (_routeChangeObserver != null)
+			{
+				RemoveNotificationObserver(_routeChangeObserver);
+				_routeChangeObserver = null;
+			}
+		}
+
+		[Foreign(Language.ObjC)]
+		ObjC.Object AddInterruptionObserver()
+		@{
+			return [[NSNotificationCenter defaultCenter] addObserverForName:AVAudioSessionInterruptionNotification
+			                                                         object:nil
+			                                                          queue:[NSOperationQueue mainQueue]
+			                                                     usingBlock:^(NSNotification* note) {
+				NSNumber* type = [note.userInfo objectForKey:AVAudioSessionInterruptionTypeKey];
+				if (type == nil) {
+					return;
+				}
+
+				if ([type integerValue] == AVAudioSessionInterruptionTypeBegan) {
+					@{AVPlayerView:Of(_this).OnAudioInterruptionBegan():Call()};
+				} else {
+					NSNumber* options = [note.userInfo objectForKey:AVAudioSessionInterruptionOptionKey];
+					if (options != nil && (([options integerValue] & AVAudioSessionInterruptionOptionShouldResume) != 0)) {
+						@{AVPlayerView:Of(_this).OnAudioInterruptionEnded():Call()};
+					}
+				}
+			}];
+		@}
+
+		[Foreign(Language.ObjC)]
+		ObjC.Object AddRouteChangeObserver()
+		@{
+			return [[NSNotificationCenter defaultCenter] addObserverForName:AVAudioSessionRouteChangeNotification
+			                                                         object:nil
+			                                                          queue:[NSOperationQueue mainQueue]
+			                                                     usingBlock:^(NSNotification* note) {
+				NSNumber* reason = [note.userInfo objectForKey:AVAudioSessionRouteChangeReasonKey];
+				if (reason == nil) {
+					return;
+				}
+
+				if ([reason integerValue] == AVAudioSessionRouteChangeReasonOldDeviceUnavailable) {
+					@{AVPlayerView:Of(_this).OnAudioRouteUnavailable():Call()};
+				}
+			}];
+		@}
+
+		// Playback was interrupted by the system, resume when it says we may
+		void OnAudioInterruptionBegan()
+		{
+			if (!_isPlaying)
+				return;
+
+			_interrupted = true;
+			PauseInternal();
+		}
+
+		void OnAudioInterruptionEnded()
+		{
+			if (!_interrupted)
+				return;
+
+			_interrupted = false;
+			Play();
+		}
+
+		// Headphones were unplugged; don't continue out loud through the speaker
+		void OnAudioRouteUnavailable()
+		{
+			_interrupted = false;
+			PauseInternal();
+		}
+
+		[Foreign(Language.ObjC)]
+		static void SetItemPeakBitRate(ObjC.Object playerItem, double peakBitRate)
+		@{
+			AVPlayerItem* item = (AVPlayerItem*)playerItem;
+			if (item != NULL) {
+				item.preferredPeakBitRate = peakBitRate;
+			}
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetIdleTimerDisabled(bool disabled)
+		@{
+			[UIApplication sharedApplication].idleTimerDisabled = disabled;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetVideoGravity(ObjC.Object container, int gravity)
+		@{
+			AVPlayerViewController* playerViewController = (AVPlayerViewController*)container;
+			if (playerViewController == NULL) {
+				return;
+			}
+
+			switch (gravity) {
+				case 1:
+					playerViewController.videoGravity = AVLayerVideoGravityResize;
+					break;
+				case 2:
+					playerViewController.videoGravity = AVLayerVideoGravityResizeAspectFill;
+					break;
+				default:
+					playerViewController.videoGravity = AVLayerVideoGravityResizeAspect;
+					break;
+			}
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetShowsPlaybackControls(ObjC.Object container, bool show)
+		@{
+			AVPlayerViewController* playerViewController = (AVPlayerViewController*)container;
+			if (playerViewController != NULL) {
+				playerViewController.showsPlaybackControls = show;
+			}
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetPlayerMuted(ObjC.Object player, bool muted)
 		@{
 			AVPlayer* avPlayer = (AVPlayer*)player;
-			if (avPlayer != NULL && looping) {
-				[[NSNotificationCenter defaultCenter] addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
-					object:avPlayer.currentItem
-					queue:[NSOperationQueue mainQueue]
-					usingBlock:^(NSNotification *note) {
-						[avPlayer seekToTime:kCMTimeZero];
-						[avPlayer play];
-					}];
+			if (avPlayer != NULL) {
+				avPlayer.muted = muted;
 			}
 		@}
 
@@ -339,11 +719,44 @@ namespace Fuse.Controls.Native.iOS
 		@{
 			AVPlayerViewController *playerViewController = [[AVPlayerViewController alloc] init];
 
+			// Picture-in-Picture (requires the "Audio, AirPlay and Picture in Picture"
+			// background mode in the app project)
+			playerViewController.allowsPictureInPicturePlayback = YES;
+
+			// Create the player up front, so playback options can be applied before a
+			// source is loaded.
+			AVPlayer *player = [[AVPlayer alloc] init];
+			playerViewController.player = player;
+			@{AVPlayerView:Of(_this)._player:Set(player)};
+
 			AVPlayerContainer* playerContainer = (AVPlayerContainer*)@{AVPlayerView:Of(_this).Handle:Get()};
 			playerContainer.avPlayerView = playerViewController.view;
 			[playerContainer addSubview:playerViewController.view];
 
 			return playerViewController;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void ReleasePlayer(ObjC.Object player)
+		@{
+			AVPlayer* avPlayer = (AVPlayer*)player;
+			if (avPlayer == NULL) {
+				return;
+			}
+
+			[avPlayer pause];
+			[avPlayer replaceCurrentItemWithPlayerItem:nil];
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void DetachPlayerView(ObjC.Object container)
+		@{
+			AVPlayerViewController* playerViewController = (AVPlayerViewController*)container;
+			if (playerViewController == NULL) {
+				return;
+			}
+
+			[playerViewController.view removeFromSuperview];
 		@}
 
 		[Foreign(Language.ObjC)]
@@ -365,6 +778,7 @@ namespace Fuse.Controls.Native.iOS
 				@{AVPlayerView:Of(_this)._timeObserver:Set([player addPeriodicTimeObserverForInterval:interval queue:dispatch_get_main_queue() usingBlock:^(CMTime time) {
 					@{AVPlayerView:Of(_this).OnTimeChanged(double):Call(CMTimeGetSeconds(time))};
 					@{AVPlayerView:Of(_this).UpdatePlaybackState():Call()};
+					@{AVPlayerView:Of(_this).UpdateBufferProgress():Call()};
 					@{AVPlayerView:Of(_this).CheckInitialStatus():Call()};
 				}])};
 
@@ -385,11 +799,11 @@ namespace Fuse.Controls.Native.iOS
 			}
 		@}
 
-		[Foreign(Language.ObjC)]
 		void RemoveObservers()
-		@{
-			@{AVPlayerView:Of(_this).RemoveTimeObserver():Call()};
-		@}
+		{
+			RemoveTimeObserver();
+			RemoveEndObserver();
+		}
 
 		[Foreign(Language.ObjC)]
 		void CheckInitialStatus()
@@ -421,13 +835,20 @@ namespace Fuse.Controls.Native.iOS
 		{
 			_position = Math.Max(0.0, seconds);
 			if (_host != null) _host.OnPositionChanged(_position);
+		}
 
-			// Check if playback ended (simple approach)
-			var duration = Duration;
-			if (duration > 0 && Math.Abs(_position - duration) < 0.1 && !_isPlaying)
+		// Raised by the AVPlayerItemDidPlayToEndTimeNotification observer
+		void OnPlaybackItemEnded()
+		{
+			if (_isLooping)
 			{
-				OnPlaybackEnded();
+				ResetPlaybackPosition();
+				Seek(0);
+				Play();
+				return;
 			}
+
+			OnPlaybackEnded();
 		}
 
 		void OnDurationChanged(double seconds)
@@ -438,23 +859,48 @@ namespace Fuse.Controls.Native.iOS
 
 		void OnReadyToPlay()
 		{
+			// CheckInitialStatus() runs on every time-observer tick until the duration is
+			// known, which is never the case for some live streams.
+			if (_readyNotified)
+				return;
+
+			_readyNotified = true;
 			if (_host != null) _host.OnLoadingEnded();
 		}
 
 		void OnPlaybackEnded()
 		{
 			_isPlaying = false;
+			_isBuffering = false;
+			UpdateIdleTimer();
+
+			// Report the final position, there will be no more updates
+			if (_duration > 0)
+			{
+				_position = _duration;
+				if (_host != null) _host.OnPositionChanged(_position);
+			}
+
 			if (_host != null) _host.OnEnded();
 		}
 
 		void OnPlaybackStopped()
 		{
 			_isPlaying = false;
-			if (_host != null) _host.OnStopped();
+			_isBuffering = false;
+			UpdateIdleTimer();
+			ResetPlaybackPosition();
+
+			if (_host != null)
+			{
+				_host.OnPositionChanged(0.0);
+				_host.OnStopped();
+			}
 		}
 
 		void OnPlaybackError(string error, int errorCode = -1)
 		{
+			_isPlaying = false;
 			if (_host != null)
 			{
 				ErrorSeverity severity = DetermineErrorSeverity(errorCode);
@@ -521,6 +967,59 @@ namespace Fuse.Controls.Native.iOS
 				return avPlayer.rate;
 			}
 			return 0.0;
+		@}
+
+		[Foreign(Language.ObjC)]
+		static int GetTimeControlStatus(ObjC.Object player)
+		@{
+			AVPlayer* avPlayer = (AVPlayer*)player;
+			if (avPlayer == NULL) {
+				return 0;
+			}
+
+			return (int)avPlayer.timeControlStatus;
+		@}
+
+		void UpdateBufferProgress()
+		{
+			if (_player == null)
+				return;
+
+			OnBufferProgressChanged((float)GetBufferProgress(_player));
+		}
+
+		[Foreign(Language.ObjC)]
+		static double GetBufferProgress(ObjC.Object player)
+		@{
+			AVPlayer* avPlayer = (AVPlayer*)player;
+			if (avPlayer == NULL) {
+				return 0.0;
+			}
+
+			AVPlayerItem* item = avPlayer.currentItem;
+			if (item == NULL) {
+				return 0.0;
+			}
+
+			double duration = CMTimeGetSeconds(item.duration);
+			if (!(duration > 0.0)) {
+				return 0.0;
+			}
+
+			NSArray* ranges = item.loadedTimeRanges;
+			if (ranges == NULL || ranges.count == 0) {
+				return 0.0;
+			}
+
+			CMTimeRange range = [[ranges lastObject] CMTimeRangeValue];
+			double buffered = CMTimeGetSeconds(CMTimeRangeGetEnd(range));
+			double progress = buffered / duration;
+
+			if (!(progress > 0.0)) {
+				return 0.0;
+			}
+
+			return progress > 1.0 ? 1.0 : progress;
 		@}
 	}
 }

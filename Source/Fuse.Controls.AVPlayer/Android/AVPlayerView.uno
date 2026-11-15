@@ -16,10 +16,10 @@ namespace Fuse.Controls.Native.Android
 		public AVPlayerView([UXParameter("Host")]AVPlayerBase host) { }
 	}
 
-	[Require("gradle.dependency.implementation", "com.google.android.exoplayer:exoplayer-core:2.18.0")]
-	[Require("gradle.dependency.implementation", "com.google.android.exoplayer:exoplayer-ui:2.18.0")]
-	[Require("gradle.dependency.implementation", "com.google.android.exoplayer:exoplayer-dash:2.18.0")]
-	[Require("gradle.dependency.implementation", "com.google.android.exoplayer:exoplayer-hls:2.18.0")]
+	[Require("gradle.dependency.implementation", "androidx.media3:media3-exoplayer:1.4.1")]
+	[Require("gradle.dependency.implementation", "androidx.media3:media3-ui:1.4.1")]
+	[Require("gradle.dependency.implementation", "androidx.media3:media3-exoplayer-dash:1.4.1")]
+	[Require("gradle.dependency.implementation", "androidx.media3:media3-exoplayer-hls:1.4.1")]
 	extern(Android) class AVPlayerView : LeafView, IAVPlayerView
 	{
 
@@ -27,6 +27,7 @@ namespace Fuse.Controls.Native.Android
 		Java.Object _container;
 		Java.Object _player;
 		Java.Object _playerView;
+		Java.Object _trackSelector;
 
 		// Playback state
 		bool _isPlaying = false;
@@ -40,23 +41,42 @@ namespace Fuse.Controls.Native.Android
 		double _position = 0.0;
 		double _progress = 0.0;
 
+		// Presentation state
+		bool _muted = false;
+		bool _showControls = true;
+		bool _keepScreenOn = false;
+		Fuse.Elements.StretchMode _stretchMode = Fuse.Elements.StretchMode.Uniform;
+		MediaStreamQuality _streamQuality = MediaStreamQuality.Auto;
+
 		[UXConstructor]
 		public AVPlayerView([UXParameter("Host")]AVPlayerBase host) : base(CreateContainer())
 		{
 			_host = host;
+			// AutoPlay is read when the source is loaded, so it has to be known up front
+			_autoPlay = host.AutoPlay;
 			_player = CreatePlayer();
-			Url = _host.Url;
-			File = _host.File;
+			if (!string.IsNullOrEmpty(host.Url))
+				Url = host.Url;
+			if (host.File != null)
+				File = host.File;
 		}
 
 		public override void Dispose()
 		{
-			base.Dispose();
+			StopPositionUpdates();
+
+			if (_playerView != null)
+				DetachPlayerView(_playerView);
+
 			if (_player != null)
 				Release(_player);
+
+			base.Dispose();
+
 			_container = null;
 			_player = null;
 			_playerView = null;
+			_trackSelector = null;
 			_host = null;
 		}
 
@@ -68,11 +88,12 @@ namespace Fuse.Controls.Native.Android
 				if (value != _file)
 				{
 					_file = value;
+					ResetMediaInfo();
 					if (_player != null)
 					{
 						if (_file is BundleFileSource)
 							SetVideoUri(_player, "file:///android_asset/" + ((BundleFileSource)_file).BundleFile.BundlePath);
-						else
+						else if (_file != null)
 						{
 							var data = _file.ReadAllBytes();
 							var path = Uno.IO.Directory.GetUserDirectory(Uno.IO.UserDirectory.Videos) + "/" + _file.Name;
@@ -93,8 +114,9 @@ namespace Fuse.Controls.Native.Android
 				if (value != _url)
 				{
 					_url = value;
-					if (_player != null)
-						SetVideoUri(_player, value);
+					ResetMediaInfo();
+					if (_player != null && !string.IsNullOrEmpty(_url))
+						SetVideoUri(_player, _url);
 				}
 			}
 		}
@@ -120,8 +142,9 @@ namespace Fuse.Controls.Native.Android
 			get { return _progress; }
 			set
 			{
-				var position = progress * _duration;
-				SetPlaybackPosition(_player, position);
+				var progress = Math.Max(0.0, Math.Min(1.0, value));
+				if (_duration > 0)
+					SetPlaybackPosition(_player, progress * _duration);
 			}
 		}
 		public bool IsLooping
@@ -145,9 +168,27 @@ namespace Fuse.Controls.Native.Android
 				if (Math.Abs(_volume - value) > 0.001f)
 				{
 					_volume = Math.Max(0.0f, Math.Min(1.0f, value));
-					SetVolume(_player, _volume);
+					ApplyVolume();
 				}
 			}
+		}
+
+		public bool Muted
+		{
+			set
+			{
+				if (_muted != value)
+				{
+					_muted = value;
+					ApplyVolume();
+				}
+			}
+		}
+
+		// ExoPlayer has no mute flag, muting is a volume of 0
+		void ApplyVolume()
+		{
+			SetVolume(_player, _muted ? 0.0f : _volume);
 		}
 
 		public float PlaybackRate
@@ -169,10 +210,122 @@ namespace Fuse.Controls.Native.Android
 			set { _autoPlay = value; }
 		}
 
+		public Fuse.Elements.StretchMode StretchMode
+		{
+			set
+			{
+				if (_stretchMode != value)
+				{
+					_stretchMode = value;
+					ApplyStretchMode();
+				}
+			}
+		}
+
+		public bool ShowControls
+		{
+			set
+			{
+				if (_showControls != value)
+				{
+					_showControls = value;
+					if (_playerView != null)
+						SetUseController(_playerView, _showControls);
+				}
+			}
+		}
+
+		public bool KeepScreenOn
+		{
+			set
+			{
+				if (_keepScreenOn != value)
+				{
+					_keepScreenOn = value;
+					UpdateKeepScreenOn();
+				}
+			}
+		}
+
+		public MediaStreamQuality StreamQuality
+		{
+			set
+			{
+				if (_streamQuality != value)
+				{
+					_streamQuality = value;
+					ApplyStreamQuality();
+				}
+			}
+		}
+
+		void ApplyStreamQuality()
+		{
+			if (_trackSelector == null)
+				return;
+
+			SetMaxVideoBitrate(_trackSelector, GetMaxVideoBitrate(_streamQuality));
+		}
+
+		static int GetMaxVideoBitrate(MediaStreamQuality quality)
+		{
+			switch (quality)
+			{
+				case MediaStreamQuality.SD:
+					return 1500000;
+				case MediaStreamQuality.HD:
+					return 4000000;
+				case MediaStreamQuality.FullHD:
+					return 8000000;
+				default:
+					return int.MaxValue;
+			}
+		}
+
+		void ApplyStretchMode()
+		{
+			if (_playerView == null)
+				return;
+
+			// 0 = fit (letterbox), 1 = fill (stretch), 2 = zoom (crop)
+			var resizeMode = 0;
+			if (_stretchMode == Fuse.Elements.StretchMode.Fill)
+				resizeMode = 1;
+			else if (_stretchMode == Fuse.Elements.StretchMode.UniformToFill)
+				resizeMode = 2;
+
+			SetResizeMode(_playerView, resizeMode);
+		}
+
+		void UpdateKeepScreenOn()
+		{
+			if (_playerView == null)
+				return;
+
+			SetKeepScreenOn(_playerView, _keepScreenOn && _isPlaying);
+		}
+
 		public bool IsBuffering { get { return _isBuffering; } }
 		public float BufferProgress { get { return _bufferProgress; } }
 
 		// Events are handled by the host (base class)
+
+		void ResetPlaybackPosition()
+		{
+			_position = 0.0;
+			_progress = 0.0;
+		}
+
+		// Called when a new source is loaded, before the native player is told about it
+		void ResetMediaInfo()
+		{
+			ResetPlaybackPosition();
+			_duration = 0.0;
+			_bufferProgress = 0.0f;
+
+			if (_host != null)
+				_host.OnDurationChanged(0.0);
+		}
 
 		// Playback control methods
 		public void Play()
@@ -193,15 +346,16 @@ namespace Fuse.Controls.Native.Android
 
 		public void Seek(double positionSeconds)
 		{
-			SeekToTime(_player, positionSeconds);
+			_position = Math.Max(0.0, positionSeconds);
+			SetPlaybackPosition(_player, _position);
 		}
 
 		[Foreign(Language.Java)]
 		void SetVideoUri(Java.Object handle, string url)
 		@{
-			com.google.android.exoplayer2.ExoPlayer player = (com.google.android.exoplayer2.ExoPlayer)handle;
+			androidx.media3.exoplayer.ExoPlayer player = (androidx.media3.exoplayer.ExoPlayer)handle;
 			android.net.Uri uri = android.net.Uri.parse(url);
-			com.google.android.exoplayer2.MediaItem mediaItem = com.google.android.exoplayer2.MediaItem.fromUri(uri);
+			androidx.media3.common.MediaItem mediaItem = androidx.media3.common.MediaItem.fromUri(uri);
 			player.setMediaItem(mediaItem);
 
 			player.prepare();
@@ -213,16 +367,80 @@ namespace Fuse.Controls.Native.Android
 		[Foreign(Language.Java)]
 		void Release(Java.Object handle)
 		@{
-			com.google.android.exoplayer2.ExoPlayer player = (com.google.android.exoplayer2.ExoPlayer)handle;
+			androidx.media3.exoplayer.ExoPlayer player = (androidx.media3.exoplayer.ExoPlayer)handle;
 			if (player != null) {
+				player.setPlayWhenReady(false);
 				player.release();
+			}
+		@}
+
+		[Foreign(Language.Java)]
+		static void DetachPlayerView(Java.Object playerView)
+		@{
+			androidx.media3.ui.PlayerView view = (androidx.media3.ui.PlayerView)playerView;
+			if (view != null) {
+				view.setPlayer(null);
+			}
+		@}
+
+		[Foreign(Language.Java)]
+		static void SetMaxVideoBitrate(Java.Object trackSelector, int maxBitrate)
+		@{
+			androidx.media3.exoplayer.trackselection.DefaultTrackSelector selector =
+				(androidx.media3.exoplayer.trackselection.DefaultTrackSelector)trackSelector;
+			if (selector == null) {
+				return;
+			}
+
+			androidx.media3.common.TrackSelectionParameters.Builder builder =
+				selector.getParameters().buildUpon();
+			builder.setMaxVideoBitrate(maxBitrate);
+			selector.setParameters(builder.build());
+		@}
+
+		[Foreign(Language.Java)]
+		static void SetResizeMode(Java.Object playerView, int resizeMode)
+		@{
+			androidx.media3.ui.PlayerView view = (androidx.media3.ui.PlayerView)playerView;
+			if (view == null) {
+				return;
+			}
+
+			switch (resizeMode) {
+				case 1:
+					view.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL);
+					break;
+				case 2:
+					view.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+					break;
+				default:
+					view.setResizeMode(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT);
+					break;
+			}
+		@}
+
+		[Foreign(Language.Java)]
+		static void SetUseController(Java.Object playerView, bool useController)
+		@{
+			androidx.media3.ui.PlayerView view = (androidx.media3.ui.PlayerView)playerView;
+			if (view != null) {
+				view.setUseController(useController);
+			}
+		@}
+
+		[Foreign(Language.Java)]
+		static void SetKeepScreenOn(Java.Object playerView, bool keepScreenOn)
+		@{
+			androidx.media3.ui.PlayerView view = (androidx.media3.ui.PlayerView)playerView;
+			if (view != null) {
+				view.setKeepScreenOn(keepScreenOn);
 			}
 		@}
 
 		[Foreign(Language.Java)]
 		static void PlayPlayer(Java.Object player)
 		@{
-			com.google.android.exoplayer2.ExoPlayer exoPlayer = (com.google.android.exoplayer2.ExoPlayer)player;
+			androidx.media3.exoplayer.ExoPlayer exoPlayer = (androidx.media3.exoplayer.ExoPlayer)player;
 			if (exoPlayer != null) {
 				exoPlayer.setPlayWhenReady(true);
 			}
@@ -231,7 +449,7 @@ namespace Fuse.Controls.Native.Android
 		[Foreign(Language.Java)]
 		static void PausePlayer(Java.Object player)
 		@{
-			com.google.android.exoplayer2.ExoPlayer exoPlayer = (com.google.android.exoplayer2.ExoPlayer)player;
+			androidx.media3.exoplayer.ExoPlayer exoPlayer = (androidx.media3.exoplayer.ExoPlayer)player;
 			if (exoPlayer != null) {
 				exoPlayer.setPlayWhenReady(false);
 			}
@@ -240,7 +458,7 @@ namespace Fuse.Controls.Native.Android
 		[Foreign(Language.Java)]
 		static void StopPlayer(Java.Object player)
 		@{
-			com.google.android.exoplayer2.ExoPlayer exoPlayer = (com.google.android.exoplayer2.ExoPlayer)player;
+			androidx.media3.exoplayer.ExoPlayer exoPlayer = (androidx.media3.exoplayer.ExoPlayer)player;
 			if (exoPlayer != null) {
 				exoPlayer.setPlayWhenReady(false);
 				exoPlayer.seekTo(0);
@@ -248,19 +466,9 @@ namespace Fuse.Controls.Native.Android
 		@}
 
 		[Foreign(Language.Java)]
-		static void SeekToTime(Java.Object player, double seconds)
-		@{
-			com.google.android.exoplayer2.ExoPlayer exoPlayer = (com.google.android.exoplayer2.ExoPlayer)player;
-			if (exoPlayer != null) {
-				long positionMs = (long)(seconds * 1000);
-				exoPlayer.seekTo(positionMs);
-			}
-		@}
-
-		[Foreign(Language.Java)]
 		static void SetVolume(Java.Object player, float volume)
 		@{
-			com.google.android.exoplayer2.ExoPlayer exoPlayer = (com.google.android.exoplayer2.ExoPlayer)player;
+			androidx.media3.exoplayer.ExoPlayer exoPlayer = (androidx.media3.exoplayer.ExoPlayer)player;
 			if (exoPlayer != null) {
 				exoPlayer.setVolume(volume);
 			}
@@ -269,19 +477,19 @@ namespace Fuse.Controls.Native.Android
 		[Foreign(Language.Java)]
 		static void SetPlaybackRate(Java.Object player, float rate)
 		@{
-			com.google.android.exoplayer2.ExoPlayer exoPlayer = (com.google.android.exoplayer2.ExoPlayer)player;
+			androidx.media3.exoplayer.ExoPlayer exoPlayer = (androidx.media3.exoplayer.ExoPlayer)player;
 			if (exoPlayer != null) {
-				com.google.android.exoplayer2.PlaybackParameters parameters = new com.google.android.exoplayer2.PlaybackParameters(rate);
+				androidx.media3.common.PlaybackParameters parameters = new androidx.media3.common.PlaybackParameters(rate);
 				exoPlayer.setPlaybackParameters(parameters);
 			}
 		@}
 
 		[Foreign(Language.Java)]
-		static void SetLooping(Java.Object player, boolean looping)
+		static void SetLooping(Java.Object player, bool looping)
 		@{
-			com.google.android.exoplayer2.ExoPlayer exoPlayer = (com.google.android.exoplayer2.ExoPlayer)player;
+			androidx.media3.exoplayer.ExoPlayer exoPlayer = (androidx.media3.exoplayer.ExoPlayer)player;
 			if (exoPlayer != null) {
-				exoPlayer.setRepeatMode(looping ? com.google.android.exoplayer2.Player.REPEAT_MODE_ONE : com.google.android.exoplayer2.Player.REPEAT_MODE_OFF);
+				exoPlayer.setRepeatMode(looping ? androidx.media3.common.Player.REPEAT_MODE_ONE : androidx.media3.common.Player.REPEAT_MODE_OFF);
 			}
 		@}
 
@@ -300,23 +508,42 @@ namespace Fuse.Controls.Native.Android
 		@{
 			android.widget.FrameLayout frameLayout = (android.widget.FrameLayout)@{AVPlayerView:Of(_this).Handle:Get()};
 
-			com.google.android.exoplayer2.ui.PlayerView playerView = new com.google.android.exoplayer2.ui.PlayerView(com.fuse.Activity.getRootActivity());
+			androidx.media3.ui.PlayerView playerView = new androidx.media3.ui.PlayerView(com.fuse.Activity.getRootActivity());
 			playerView.setLayoutParams(new android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
 			frameLayout.addView(playerView);
 
-			com.google.android.exoplayer2.ExoPlayer player = new com.google.android.exoplayer2.ExoPlayer.Builder(com.fuse.Activity.getRootActivity()).build();
+			androidx.media3.exoplayer.trackselection.DefaultTrackSelector trackSelector =
+				new androidx.media3.exoplayer.trackselection.DefaultTrackSelector(com.fuse.Activity.getRootActivity());
+			@{AVPlayerView:Of(_this)._trackSelector:Set(trackSelector)};
+
+			androidx.media3.exoplayer.ExoPlayer player = new androidx.media3.exoplayer.ExoPlayer.Builder(com.fuse.Activity.getRootActivity())
+				.setTrackSelector(trackSelector)
+				.build();
+
+			// Media audio: pauses for phone calls and other audio focus loss, and pauses
+			// when headphones are unplugged
+			androidx.media3.common.AudioAttributes audioAttributes =
+				new androidx.media3.common.AudioAttributes.Builder()
+					.setUsage(androidx.media3.common.C.USAGE_MEDIA)
+					.setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+					.build();
+			player.setAudioAttributes(audioAttributes, true);
+			player.setHandleAudioBecomingNoisy(true);
+
 			playerView.setPlayer(player);
 
 			@{AVPlayerView:Of(_this)._playerView:Set(playerView)};
 			@{AVPlayerView:Of(_this)._player:Set(player)};
 
 			// Add player listener for events
-			com.google.android.exoplayer2.Player.Listener playerListener = new com.google.android.exoplayer2.Player.Listener() {
+			androidx.media3.common.Player.Listener playerListener = new androidx.media3.common.Player.Listener() {
 				@Override
 				public void onIsPlayingChanged(boolean isPlaying) {
 					if (isPlaying) {
 						@{AVPlayerView:Of(_this).OnPlaying():Call()};
-					} else {
+					} else if (!player.getPlayWhenReady()) {
+						// `isPlaying` is also false while buffering or when playback ended;
+						// only report a pause when playback was actually requested to stop.
 						@{AVPlayerView:Of(_this).OnPaused():Call()};
 					}
 				}
@@ -324,26 +551,26 @@ namespace Fuse.Controls.Native.Android
 				@Override
 				public void onPlaybackStateChanged(int playbackState) {
 					switch (playbackState) {
-						case com.google.android.exoplayer2.Player.STATE_BUFFERING:
+						case androidx.media3.common.Player.STATE_BUFFERING:
 							@{AVPlayerView:Of(_this).OnBufferingStarted():Call()};
 							break;
-						case com.google.android.exoplayer2.Player.STATE_READY:
+						case androidx.media3.common.Player.STATE_READY:
 							@{AVPlayerView:Of(_this).OnReadyToPlay():Call()};
 							// Update duration and buffering info
 							@{AVPlayerView:Of(_this).UpdateDuration():Call()};
 							@{AVPlayerView:Of(_this).UpdateBufferProgress():Call()};
 							break;
-						case com.google.android.exoplayer2.Player.STATE_ENDED:
+						case androidx.media3.common.Player.STATE_ENDED:
 							@{AVPlayerView:Of(_this).OnEnded():Call()};
 							break;
-						case com.google.android.exoplayer2.Player.STATE_IDLE:
+						case androidx.media3.common.Player.STATE_IDLE:
 							// Player is idle, possibly due to an error or initialization
 							break;
 					}
 				}
 
 				@Override
-				public void onPlayerError(com.google.android.exoplayer2.PlaybackException error) {
+				public void onPlayerError(androidx.media3.common.PlaybackException error) {
 					int errorType = error.errorCode;
 					String errorMessage = error.getMessage();
 					Throwable cause = error.getCause();
@@ -355,18 +582,11 @@ namespace Fuse.Controls.Native.Android
 
 					@{AVPlayerView:Of(_this).OnPlaybackError(string, int):Call(detailedMessage, errorType)};
 				}
-
-				@Override
-				public void onLoadingChanged(boolean isLoading) {
-					if (isLoading) {
-						@{AVPlayerView:Of(_this).OnBufferingStarted():Call()};
-					} else {
-						@{AVPlayerView:Of(_this).OnBufferingEnded():Call()};
-					}
-				}
 			};
 
 			player.addListener(playerListener);
+
+			@{AVPlayerView:Of(_this).ApplyStreamQuality():Call()};
 
 			return player;
 		@}
@@ -375,12 +595,16 @@ namespace Fuse.Controls.Native.Android
 		void OnPlaying()
 		{
 			_isPlaying = true;
+			StartPositionUpdates();
+			UpdateKeepScreenOn();
 			if (_host != null) _host.OnPlaying();
 		}
 
 		void OnPaused()
 		{
 			_isPlaying = false;
+			StopPositionUpdates();
+			UpdateKeepScreenOn();
 			if (_host != null) _host.OnPaused();
 		}
 
@@ -396,26 +620,39 @@ namespace Fuse.Controls.Native.Android
 			if (_host != null) _host.OnLoadingEnded();
 		}
 
-		void OnBufferingEnded()
-		{
-			_isBuffering = false;
-			if (_host != null) _host.OnLoadingEnded();
-		}
-
 		void OnEnded()
 		{
 			_isPlaying = false;
+			StopPositionUpdates();
+			UpdateKeepScreenOn();
+
+			// Report the final position, there will be no more ticks
+			if (_player != null)
+				OnPositionUpdate(GetCurrentTime(_player));
+
 			if (_host != null) _host.OnEnded();
 		}
 
 		void OnStopped()
 		{
 			_isPlaying = false;
-			if (_host != null) _host.OnStopped();
+			StopPositionUpdates();
+			UpdateKeepScreenOn();
+			ResetPlaybackPosition();
+
+			if (_host != null)
+			{
+				_host.OnPositionChanged(0.0);
+				_host.OnStopped();
+			}
 		}
 
 		void OnPlaybackError(string error, int errorCode = -1)
 		{
+			_isPlaying = false;
+			StopPositionUpdates();
+			UpdateKeepScreenOn();
+
 			if (_host != null)
 			{
 				ErrorSeverity severity = DetermineErrorSeverity(errorCode);
@@ -456,10 +693,10 @@ namespace Fuse.Controls.Native.Android
 		[Foreign(Language.Java)]
 		void UpdateDuration()
 		@{
-			com.google.android.exoplayer2.ExoPlayer player = (com.google.android.exoplayer2.ExoPlayer)@{AVPlayerView:Of(_this)._player:Get()};
+			androidx.media3.exoplayer.ExoPlayer player = (androidx.media3.exoplayer.ExoPlayer)@{AVPlayerView:Of(_this)._player:Get()};
 			if (player != null) {
 				long durationMs = player.getDuration();
-				if (durationMs != com.google.android.exoplayer2.C.TIME_UNSET && durationMs > 0) {
+				if (durationMs != androidx.media3.common.C.TIME_UNSET && durationMs > 0) {
 					@{AVPlayerView:Of(_this).OnDurationChanged(long):Call(durationMs)};
 				}
 			}
@@ -468,12 +705,12 @@ namespace Fuse.Controls.Native.Android
 		[Foreign(Language.Java)]
 		void UpdateBufferProgress()
 		@{
-			com.google.android.exoplayer2.ExoPlayer player = (com.google.android.exoplayer2.ExoPlayer)@{AVPlayerView:Of(_this)._player:Get()};
+			androidx.media3.exoplayer.ExoPlayer player = (androidx.media3.exoplayer.ExoPlayer)@{AVPlayerView:Of(_this)._player:Get()};
 			if (player != null) {
 				long durationMs = player.getDuration();
 				long bufferedPositionMs = player.getBufferedPosition();
 
-				if (durationMs != com.google.android.exoplayer2.C.TIME_UNSET && durationMs > 0) {
+				if (durationMs != androidx.media3.common.C.TIME_UNSET && durationMs > 0) {
 					float bufferProgress = (float) bufferedPositionMs / (float) durationMs;
 					@{AVPlayerView:Of(_this).OnBufferProgressChanged(float):Call(bufferProgress)};
 				}
@@ -498,16 +735,49 @@ namespace Fuse.Controls.Native.Android
 			}
 		}
 
-		// Update position periodically for smoother tracking
-		void UpdatePosition()
+		// Position updates are driven by the Fuse update loop while the media is playing
+		bool _positionUpdatesActive;
+		int _updateFrame;
+
+		void StartPositionUpdates()
 		{
-			OnPositionUpdate(GetCurrentTime(_player));
+			if (_positionUpdatesActive)
+				return;
+
+			_positionUpdatesActive = true;
+			_updateFrame = 0;
+			Fuse.UpdateManager.AddAction(OnUpdate);
+		}
+
+		void StopPositionUpdates()
+		{
+			if (!_positionUpdatesActive)
+				return;
+
+			_positionUpdatesActive = false;
+			Fuse.UpdateManager.RemoveAction(OnUpdate);
+		}
+
+		void OnUpdate()
+		{
+			if (_player == null || !_isPlaying)
+				return;
+
+			_updateFrame++;
+
+			// Roughly 10 position updates per second at 60 fps
+			if (_updateFrame % 6 == 0)
+				OnPositionUpdate(GetCurrentTime(_player));
+
+			// Buffer progress is only needed a couple of times per second
+			if (_updateFrame % 30 == 0)
+				UpdateBufferProgress();
 		}
 
 		[Foreign(Language.Java)]
-		void GetCurrentTime(Java.Object player)
+		long GetCurrentTime(Java.Object player)
 		@{
-			com.google.android.exoplayer2.ExoPlayer exoPlayer = (com.google.android.exoplayer2.ExoPlayer)player;
+			androidx.media3.exoplayer.ExoPlayer exoPlayer = (androidx.media3.exoplayer.ExoPlayer)player;
 			if (exoPlayer != null) {
 				return exoPlayer.getCurrentPosition();
 			}
@@ -523,7 +793,7 @@ namespace Fuse.Controls.Native.Android
 		[Foreign(Language.Java)]
 		void SetPlaybackPosition(Java.Object player, double position)
 		@{
-			com.google.android.exoplayer2.ExoPlayer exoPlayer = (com.google.android.exoplayer2.ExoPlayer)player;
+			androidx.media3.exoplayer.ExoPlayer exoPlayer = (androidx.media3.exoplayer.ExoPlayer)player;
 			if (exoPlayer != null) {
 				long positionMs = (long)(position * 1000);
 				exoPlayer.seekTo(positionMs);
