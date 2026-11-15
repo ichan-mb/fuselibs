@@ -3,7 +3,6 @@ using OpenGL;
 using Uno.Graphics;
 using Uno.UX;
 using Uno.Compiler.ExportTargetInterop;
-using Fuse.Android.Permissions;
 using Uno.Threading;
 using Uno.Collections;
 
@@ -17,34 +16,163 @@ namespace Fuse.Controls.iOS
 {
 	extern(iOS) class NativePhoto : Photo, IDisposable
 	{
-		IntPtr _sampleBuffer;
+		ObjC.Object _imageData;
 		int _orientation;
 
-		public NativePhoto(IntPtr sampleBuffer, int orientation)
+		public NativePhoto(ObjC.Object imageData, int orientation)
 		{
-			_sampleBuffer = sampleBuffer;
-			_sampleBuffer.Retain();
+			_imageData = imageData;
 			_orientation = orientation;
 		}
 
 		public override Future<string> Save()
 		{
-			return new SavePromise(_sampleBuffer);
+			return new SavePromise(_imageData);
 		}
 
 		public override Future<string> SaveThumbnail(ThumbnailSizeHint thumbnailSizeHint = null)
 		{
-			return new SaveThumbnailPromise(_sampleBuffer, thumbnailSizeHint);
+			return new SaveThumbnailPromise(_imageData, thumbnailSizeHint);
 		}
+
+		public override Future<bool> SaveToCameraRoll()
+		{
+			return new SaveToCameraRollPromise(this);
+		}
+
+		class SaveToCameraRollPromise : CameraPromise<bool>
+		{
+			NativePhoto _photo;
+
+			public SaveToCameraRollPromise(NativePhoto photo)
+			{
+				_photo = photo;
+				_photo.Save().Then(OnSaved, OnReject);
+			}
+
+			public void OnSaved(string filePath) { NativePhoto.SaveToCameraRoll(filePath, OnResolve, OnForeignReject); }
+			public void OnResolve(bool success) { Resolve(success); }
+			public void OnReject(Exception e) { Reject(e); }
+			void OnForeignReject(string msg) { Reject(new Exception(msg)); }
+		}
+
+		[Require("xcode.framework", "Photos")]
+		[Require("source.include", "Photos/PHPhotoLibrary.h")]
+		[Require("source.include", "Photos/PHAssetChangeRequest.h")]
+		[Foreign(Language.ObjC)]
+		static void SaveToCameraRoll(string filePath, Action<bool> onResolve, Action<string> onReject)
+		@{
+			[PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
+				BOOL authorized = status == PHAuthorizationStatusAuthorized;
+				if (@available(iOS 14.0, *))
+					authorized = authorized || status == PHAuthorizationStatusLimited;
+
+				if (!authorized) {
+					onReject(@"Photo library permission denied");
+					return;
+				}
+
+				NSURL* url = [NSURL fileURLWithPath:filePath];
+				[[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
+					[PHAssetChangeRequest creationRequestForAssetFromImageAtFileURL:url];
+				} completionHandler:^(BOOL success, NSError* error) {
+					if (success) {
+						[[NSFileManager defaultManager] removeItemAtPath:filePath error:NULL];
+						onResolve(YES);
+					} else {
+						onReject(error.localizedDescription ?: @"Failed to save photo to camera roll");
+					}
+				}];
+			}];
+		@}
+
+		public override Future<PhotoMetadata> GetMetadata()
+		{
+			var p = new MetadataPromise();
+			GetMetadata(_imageData, p.OnResolve, p.OnReject);
+			return p;
+		}
+
+		class MetadataPromise : CameraPromise<PhotoMetadata>
+		{
+			public void OnResolve(int width, int height, int orientation, int iso, double timestamp, float exposureTime, float fNumber, float focalLength)
+			{
+				Resolve(PhotoMetadata.FromExif(width, height, orientation, iso, timestamp, exposureTime, fNumber, focalLength));
+			}
+
+			public void OnReject(string message) { Reject(new Exception(message)); }
+		}
+
+		[Require("source.include", "ImageIO/ImageIO.h")]
+		[Foreign(Language.ObjC)]
+		static void GetMetadata(ObjC.Object imageData, Action<int,int,int,int,double,float,float,float> onResolve, Action<string> onReject)
+		@{
+			NSData* data = (NSData*)imageData;
+			int width = 0;
+			int height = 0;
+			int orientation = 1;
+			int iso = 0;
+			double timestamp = 0.0;
+			float exposureTime = 0.0f;
+			float fNumber = 0.0f;
+			float focalLength = 0.0f;
+
+			CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
+			if (source) {
+				CFDictionaryRef properties = CGImageSourceCopyPropertiesAtIndex(source, 0, NULL);
+				if (properties) {
+					NSDictionary* props = (__bridge NSDictionary*)properties;
+
+					width = [props[(NSString*)kCGImagePropertyPixelWidth] intValue];
+					height = [props[(NSString*)kCGImagePropertyPixelHeight] intValue];
+
+					NSDictionary* tiff = props[(NSString*)kCGImagePropertyTIFFDictionary];
+					if ([tiff isKindOfClass:[NSDictionary class]] && tiff[(NSString*)kCGImagePropertyTIFFOrientation])
+						orientation = [tiff[(NSString*)kCGImagePropertyTIFFOrientation] intValue];
+
+					NSDictionary* exif = props[(NSString*)kCGImagePropertyExifDictionary];
+					if ([exif isKindOfClass:[NSDictionary class]]) {
+						NSArray* isoValues = exif[(NSString*)kCGImagePropertyExifISOSpeedRatings];
+						if ([isoValues isKindOfClass:[NSArray class]] && isoValues.count > 0)
+							iso = [isoValues[0] intValue];
+
+						if (exif[(NSString*)kCGImagePropertyExifExposureTime])
+							exposureTime = [exif[(NSString*)kCGImagePropertyExifExposureTime] floatValue];
+
+						if (exif[(NSString*)kCGImagePropertyExifFNumber])
+							fNumber = [exif[(NSString*)kCGImagePropertyExifFNumber] floatValue];
+
+						if (exif[(NSString*)kCGImagePropertyExifFocalLength])
+							focalLength = [exif[(NSString*)kCGImagePropertyExifFocalLength] floatValue];
+
+						NSString* dateString = exif[(NSString*)kCGImagePropertyExifDateTimeOriginal];
+						if ([dateString isKindOfClass:[NSString class]]) {
+							NSDateFormatter* formatter = [[NSDateFormatter alloc] init];
+							formatter.dateFormat = @"yyyy:MM:dd HH:mm:ss";
+							formatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+							formatter.timeZone = [NSTimeZone localTimeZone];
+							NSDate* date = [formatter dateFromString:dateString];
+							if (date)
+								timestamp = [date timeIntervalSince1970] * 1000.0;
+						}
+					}
+
+					CFRelease(properties);
+				}
+				CFRelease(source);
+			}
+
+			onResolve(width, height, orientation, iso, timestamp, exposureTime, fNumber, focalLength);
+		@}
 
 		internal override Future<PhotoTexture> GetTexture()
 		{
-			return new UploadTexturePromise(_sampleBuffer, _orientation);
+			return new UploadTexturePromise(_imageData);
 		}
 
 		internal override Future<PhotoHandle> GetPhotoHandle()
 		{
-			return new PhotoHandlePromise(_sampleBuffer, _orientation);
+			return new PhotoHandlePromise(_imageData);
 		}
 
 		public override void Release()
@@ -58,8 +186,7 @@ namespace Fuse.Controls.iOS
 			if (!_isDisposed)
 			{
 				_isDisposed = true;
-				_sampleBuffer.Release();
-				_sampleBuffer = IntPtr.Zero;
+				_imageData = null;
 			}
 		}
 	}
@@ -76,54 +203,31 @@ namespace Fuse.Controls.iOS
 
 	extern(iOS) class PhotoHandlePromise : CameraPromise<PhotoHandle>
 	{
-		IntPtr _sampleBuffer;
+		ObjC.Object _imageData;
 
-		public PhotoHandlePromise(IntPtr sampleBuffer, int orientation)
+		public PhotoHandlePromise(ObjC.Object imageData)
 		{
-			_sampleBuffer = sampleBuffer;
-			_sampleBuffer.Retain();
-			Load(_sampleBuffer, CGImageOrientationToUIImageOrientation(orientation), OnResolve);
+			_imageData = imageData;
+			Load(imageData, OnResolve, OnReject);
 		}
 
+		[Require("source.include", "UIKit/UIKit.h")]
 		[Foreign(Language.ObjC)]
-		[Require("source.include", "CoreMedia/CoreMedia.h")]
-		void Load(IntPtr sampleBuffer, int orientation, Action<ObjC.Object> onResolve)
+		static void Load(ObjC.Object imageData, Action<ObjC.Object> onResolve, Action<string> onReject)
 		@{
 			dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-				CMSampleBufferRef bufferRef = (CMSampleBufferRef)sampleBuffer;
-				CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(bufferRef);
-				CVPixelBufferRef pixelBuffer = (CVPixelBufferRef)imageBuffer;
-
-				CIImage* ciImage = [CIImage imageWithCVPixelBuffer:pixelBuffer];
-				CIContext* ctx = [CIContext contextWithOptions:NULL];
-				CGImageRef cgImage = [ctx createCGImage:ciImage fromRect:CGRectMake(0, 0, CVPixelBufferGetWidth(pixelBuffer), CVPixelBufferGetHeight(pixelBuffer))];
-				UIImage* uiImage = [UIImage imageWithCGImage:cgImage scale:1 orientation: (UIImageOrientation)orientation];
-				CGImageRelease(cgImage);
-				onResolve(uiImage);
+				NSData* data = (NSData*)imageData;
+				UIImage* image = [UIImage imageWithData:data];
+				if (!image) {
+					onReject(@"Failed to decode captured photo");
+					return;
+				}
+				onResolve(image);
 			});
 		@}
 
-		[Foreign(Language.ObjC)]
-		[Require("source.include", "ImageIO/CGImageProperties.h")]
-		static int CGImageOrientationToUIImageOrientation(int orientation)
-		@{
-			switch ((CGImagePropertyOrientation)orientation) {
-				case kCGImagePropertyOrientationUp: return UIImageOrientationUp;
-				case kCGImagePropertyOrientationDown: return UIImageOrientationDown;
-				case kCGImagePropertyOrientationLeft: return UIImageOrientationLeft;
-				case kCGImagePropertyOrientationRight: return UIImageOrientationRight;
-				case kCGImagePropertyOrientationUpMirrored: return UIImageOrientationUpMirrored;
-				case kCGImagePropertyOrientationDownMirrored: return UIImageOrientationDownMirrored;
-				case kCGImagePropertyOrientationLeftMirrored: return UIImageOrientationLeftMirrored;
-				case kCGImagePropertyOrientationRightMirrored: return UIImageOrientationRightMirrored;
-			}
-		@}
-
-		void OnResolve(ObjC.Object uiImage)
-		{
-			Resolve(new NativePhotoHandle(uiImage));
-			_sampleBuffer.Release();
-		}
+		void OnResolve(ObjC.Object uiImage) { Resolve(new NativePhotoHandle(uiImage)); }
+		void OnReject(string msg) { Reject(new Exception(msg)); }
 	}
 
 	extern(iOS) class UploadTexturePromise : CameraPromise<PhotoTexture>
@@ -131,222 +235,139 @@ namespace Fuse.Controls.iOS
 		class NativePhotoTexture : PhotoTexture
 		{
 			texture2D _texture;
-			IntPtr _textureRef;
-			IntPtr _textureCacheRef;
-			int _orientation;
 
-			public NativePhotoTexture(texture2D texture, IntPtr textureRef, IntPtr textureCacheRef, int orientation)
+			public NativePhotoTexture(texture2D texture)
 			{
 				_texture = texture;
-				_textureRef = textureRef;
-				_textureCacheRef = textureCacheRef;
-				_orientation = orientation;
 			}
 
-			public override ImageOrientation Orientation
-			{
-				get
-				{
-					switch (_orientation)
-					{
-						case 0:
-						case 1:
-							return ImageOrientation.Identity;
-						case 2:
-							return ImageOrientation.FlipVertical | ImageOrientation.Rotate180;
-						case 3:
-							return ImageOrientation.Rotate180;
-						case 4:
-							return ImageOrientation.FlipVertical;
-						case 5:
-							return ImageOrientation.FlipVertical | ImageOrientation.Rotate270;
-						case 6:
-							return ImageOrientation.Rotate90;
-						case 7:
-							return ImageOrientation.FlipVertical | ImageOrientation.Rotate90;
-						case 8:
-							return ImageOrientation.Rotate270;
-						default:
-							throw new Exception("Unexpected orientation: " + _orientation);
-					}
-				}
-			}
-
-			public override texture2D Texture
-			{
-				get { return _texture; }
-			}
+			public override ImageOrientation Orientation { get { return ImageOrientation.Identity; } }
+			public override texture2D Texture { get { return _texture; } }
 
 			public override void Dispose()
 			{
-				_texture = null;
-				_textureRef.Release();
-				_textureRef = IntPtr.Zero;
-				_textureCacheRef.Release();
-				_textureCacheRef = IntPtr.Zero;
+				if (_texture != null)
+				{
+					_texture.Dispose();
+					_texture = null;
+				}
 			}
 		}
 
-		IntPtr _sampleBuffer;
-		int _orientation;
-		public UploadTexturePromise(IntPtr sampleBuffer, int orientation)
+		ObjC.Object _imageData;
+
+		public UploadTexturePromise(ObjC.Object imageData)
 		{
-			_sampleBuffer = sampleBuffer;
-			_orientation = orientation;
-			_sampleBuffer.Retain();
+			_imageData = imageData;
 			GraphicsWorker.Dispatch(Upload);
 		}
 
 		void Upload()
 		{
-			try
-			{
-				UploadTexture(_sampleBuffer, OnResolve, OnReject);
-			}
-			finally
-			{
-				_sampleBuffer.Release();
-			}
+			UploadTexture(_imageData, OnResolve, OnReject);
 		}
 
-		void OnResolve(
-			int textureName,
-			int width,
-			int height,
-			IntPtr textureRef,
-			IntPtr textureCacheRef)
+		void OnResolve(int textureName, int width, int height)
 		{
 			var texture = new texture2D((GLTextureHandle)textureName, int2(width, height), 1, Format.RGBA8888);
-			Resolve(new NativePhotoTexture(texture, textureRef, textureCacheRef, _orientation));
+			Resolve(new NativePhotoTexture(texture));
 		}
 
-		void OnReject(string msg)
-		{
-			Reject(new Exception(msg));
-		}
+		void OnReject(string msg) { Reject(new Exception(msg)); }
 
+		[Require("source.include", "UIKit/UIKit.h")]
+		[Require("source.include", "OpenGLES/ES2/gl.h")]
 		[Foreign(Language.ObjC)]
-		[Require("source.include", "CoreVideo/CVOpenGLESTextureCache.h")]
-		[Require("source.include", "OpenGLES/ES2/glext.h")]
-		[Require("source.include", "CoreMedia/CoreMedia.h")]
-		static void UploadTexture(IntPtr sampleBuffer, Action<int,int,int,IntPtr,IntPtr> onResolve, Action<string> onReject)
+		static void UploadTexture(ObjC.Object imageData, Action<int,int,int> onResolve, Action<string> onReject)
 		@{
-			CMSampleBufferRef bufferRef = (CMSampleBufferRef)sampleBuffer;
-			CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(bufferRef);
-			CVPixelBufferRef pixelBuffer = (CVPixelBufferRef)imageBuffer;
-
-			CVOpenGLESTextureRef textureHandle;
-			CVOpenGLESTextureCacheRef textureCacheHandle;
-
-		#if @(METAL:defined)
-			U_ERROR("NativePhoto: Not supported on Metal");
-		#else
-			#if COREVIDEO_USE_EAGLCONTEXT_CLASS_IN_API
-			CVReturn err = CVOpenGLESTextureCacheCreate(kCFAllocatorDefault, NULL, [EAGLContext currentContext], NULL, &textureCacheHandle);
-			#else
-			CVReturn err = CVOpenGLESTextureCacheCreate(kCFAllocatorDefault, NULL, (__bridge void *)[EAGLContext currentContext], NULL, &textureCacheHandle);
-			#endif
-		#endif
-
-			if (err != kCVReturnSuccess) {
-				onReject([NSString stringWithFormat:@"Failed to create CVOpenGLESTextureCache, error code: %d", err]);
+			NSData* data = (NSData*)imageData;
+			UIImage* image = [UIImage imageWithData:data];
+			if (!image) {
+				onReject(@"Failed to decode captured photo");
 				return;
 			}
 
-			GLsizei width = (GLsizei)CVPixelBufferGetWidth(pixelBuffer);
-			GLsizei height = (GLsizei)CVPixelBufferGetHeight(pixelBuffer);
-
-			glActiveTexture(GL_TEXTURE0);
-			err = CVOpenGLESTextureCacheCreateTextureFromImage(
-				kCFAllocatorDefault,
-				textureCacheHandle,
-				pixelBuffer,
-				NULL,
-				GL_TEXTURE_2D,
-				GL_RGBA,
-				width,
-				height,
-				GL_BGRA,
-				GL_UNSIGNED_BYTE,
-				0,
-				&textureHandle);
-
-			if (err != kCVReturnSuccess) {
-				onReject([NSString stringWithFormat:@"Failed to create texture from image, error code: %d", err]);
+			CGImageRef cgImage = image.CGImage;
+			size_t width = CGImageGetWidth(cgImage);
+			size_t height = CGImageGetHeight(cgImage);
+			if (width == 0 || height == 0) {
+				onReject(@"Captured photo has invalid dimensions");
 				return;
 			}
 
-			glBindTexture(CVOpenGLESTextureGetTarget(textureHandle), CVOpenGLESTextureGetName(textureHandle));
-			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			UIImageOrientation imageOrientation = image.imageOrientation;
+			BOOL swapsDimensions =
+				imageOrientation == UIImageOrientationLeft ||
+				imageOrientation == UIImageOrientationRight ||
+				imageOrientation == UIImageOrientationLeftMirrored ||
+				imageOrientation == UIImageOrientationRightMirrored;
 
-			onResolve(CVOpenGLESTextureGetName(textureHandle), (uint32_t)width, (uint32_t)height, textureHandle, textureCacheHandle);
+			size_t orientedWidth = swapsDimensions ? height : width;
+			size_t orientedHeight = swapsDimensions ? width : height;
+			size_t bytesPerRow = orientedWidth * 4;
+			uint8_t* buffer = (uint8_t*)calloc(orientedHeight, bytesPerRow);
+			if (!buffer) {
+				onReject(@"Failed to allocate photo buffer");
+				return;
+			}
+
+			CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+			CGContextRef context = CGBitmapContextCreate(
+				buffer, orientedWidth, orientedHeight, 8, bytesPerRow, colorSpace,
+				kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+			CGColorSpaceRelease(colorSpace);
+
+			if (!context) {
+				free(buffer);
+				onReject(@"Failed to create photo bitmap context");
+				return;
+			}
+
+			UIGraphicsPushContext(context);
+			[image drawInRect:CGRectMake(0, 0, orientedWidth, orientedHeight)];
+			UIGraphicsPopContext();
+			CGContextRelease(context);
+
+			GLuint textureName = 0;
+			glGenTextures(1, &textureName);
+			glBindTexture(GL_TEXTURE_2D, textureName);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)orientedWidth, (GLsizei)orientedHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+			glBindTexture(GL_TEXTURE_2D, 0);
+
+			free(buffer);
+			onResolve((int)textureName, (int)orientedWidth, (int)orientedHeight);
 		@}
 	}
 
 	extern(iOS) class SavePromise : CameraPromise<string>
 	{
-		public SavePromise(IntPtr sampleBuffer)
+		public SavePromise(ObjC.Object imageData)
 		{
-			Save(sampleBuffer, OnResolve, OnReject);
+			Save(imageData, OnResolve, OnReject);
 		}
 
 		[Foreign(Language.ObjC)]
-		[Require("xcode.framework", "MobileCoreServices")]
-		[Require("source.include", "MobileCoreServices/MobileCoreServices.h")]
-		[Require("source.include", "ImageIO/CGImageDestination.h")]
-		[Require("source.include", "CoreMedia/CoreMedia.h")]
-		static void Save(IntPtr sampleBuffer, Action<string> resolve, Action<string> reject)
+		static void Save(ObjC.Object imageData, Action<string> resolve, Action<string> reject)
 		@{
-			CFRetain(sampleBuffer);
 			dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-				CMSampleBufferRef bufferRef = (CMSampleBufferRef)sampleBuffer;
-				CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(bufferRef);
-				CVPixelBufferRef pixelBuffer = (CVPixelBufferRef)imageBuffer;
-
-				CIImage* ciImage = [CIImage imageWithCVPixelBuffer:pixelBuffer];
-				CIContext* ctx = [CIContext contextWithOptions:NULL];
-				CGImageRef cgImage = [ctx createCGImage:ciImage fromRect:CGRectMake(0, 0, CVPixelBufferGetWidth(pixelBuffer), CVPixelBufferGetHeight(pixelBuffer))];
-
-				NSData* data = NULL;
-
-				// The CMAttachments associated with the samplebuffer does not follow along
-				// when creating a CGImage from the buffer. These attachments contains the EXIF
-				// data. If they exists we copy them manually to the output image
-				CFDictionaryRef attachments = (CFDictionaryRef)CMCopyDictionaryOfAttachments(kCFAllocatorDefault, bufferRef, kCMAttachmentMode_ShouldPropagate);
-				if (attachments) {
-					NSMutableData* destinationData = [NSMutableData data];
-					CGImageDestinationRef destination = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)destinationData, kUTTypeJPEG, 1, NULL);
-					if (destination) {
-						CGImageDestinationAddImage(destination, cgImage, attachments);
-						BOOL success = CGImageDestinationFinalize(destination);
-						if (success) {
-							data = destinationData;
-						}
-						CFRelease(destination);
-					}
-					CFRelease(attachments);
-				}
-
+				NSData* data = (NSData*)imageData;
 				if (!data) {
-					UIImage* uiImage = [UIImage imageWithCGImage:cgImage];
-					data = UIImageJPEGRepresentation(uiImage, 1.0f);
+					reject(@"Photo has been disposed");
+					return;
 				}
 
-				CGImageRelease(cgImage);
-				CFRelease(sampleBuffer);
-
-				NSString* ext = @"jpg";
-				NSString* uuid = [[NSUUID UUID] UUIDString];
 				NSString* dir = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
-				NSString* path = [NSString stringWithFormat:@"%@/IMG_%@.%@", dir, uuid, ext];
+				NSString* path = [NSString stringWithFormat:@"%@/IMG_%@.jpg", dir, [[NSUUID UUID] UUIDString]];
 
 				NSError* error = nil;
-				if (![data writeToFile:path options:NSDataWritingWithoutOverwriting error:&error]) {
+				if (![data writeToFile:path options:NSDataWritingWithoutOverwriting error:&error])
 					reject([NSString stringWithFormat:@"Failed to save image: %@", error]);
-				} else {
+				else
 					resolve(path);
-				}
 			});
 		@}
 
@@ -356,7 +377,7 @@ namespace Fuse.Controls.iOS
 
 	extern(iOS) class SaveThumbnailPromise : CameraPromise<string>
 	{
-		public SaveThumbnailPromise(IntPtr sampleBuffer, ThumbnailSizeHint thumbnailSizeHint)
+		public SaveThumbnailPromise(ObjC.Object imageData, ThumbnailSizeHint thumbnailSizeHint)
 		{
 			var widthHint = 0.0f;
 			var heightHint = 0.0f;
@@ -368,169 +389,86 @@ namespace Fuse.Controls.iOS
 				heightHint = Math.Max(thumbnailSizeHint.Height, 8) * pixelsPerPoint;
 				useSizeHint = true;
 			}
-			SaveThumbnail(
-				sampleBuffer,
-				Resolve,
-				OnReject,
-				useSizeHint,
-				widthHint,
-				heightHint);
+			SaveThumbnail(imageData, Resolve, OnReject, useSizeHint, widthHint, heightHint);
 		}
 
 		void OnReject(string msg) { Reject(new Exception(msg)); }
 
+		[Require("source.include", "UIKit/UIKit.h")]
 		[Foreign(Language.ObjC)]
-		[Require("xcode.framework", "Accelerate")]
-		[Require("xcode.framework", "MobileCoreServices")]
-		[Require("source.include", "CoreMedia/CoreMedia.h")]
-		[Require("source.include", "Accelerate/Accelerate.h")]
-		[Require("source.include", "MobileCoreServices/MobileCoreServices.h")]
-		[Require("source.include", "ImageIO/CGImageDestination.h")]
 		static void SaveThumbnail(
-			IntPtr sampleBuffer,
+			ObjC.Object imageData,
 			Action<string> resolve,
 			Action<string> reject,
 			bool useSizeHint,
 			float widthHint,
 			float heightHint)
 		@{
-			CFRetain(sampleBuffer);
 			dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-				CMSampleBufferRef bufferRef = (CMSampleBufferRef)sampleBuffer;
-				CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(bufferRef);
-				CVPixelBufferRef pixelBuffer = (CVPixelBufferRef)imageBuffer;
+				NSData* data = (NSData*)imageData;
+				UIImage* image = [UIImage imageWithData:data];
+				if (!image) {
+					reject(@"Failed to decode captured photo");
+					return;
+				}
 
-				auto width = CVPixelBufferGetWidth(pixelBuffer);
-				auto height = CVPixelBufferGetHeight(pixelBuffer);
+				CGSize sourceSize = image.size;
+				if (sourceSize.width <= 0 || sourceSize.height <= 0) {
+					reject(@"Captured photo has invalid dimensions");
+					return;
+				}
 
-				CVPixelBufferLockBaseAddress(pixelBuffer, 0);
+				UIImageOrientation imageOrientation = image.imageOrientation;
+				BOOL swapsDimensions =
+					imageOrientation == UIImageOrientationLeft ||
+					imageOrientation == UIImageOrientationRight ||
+					imageOrientation == UIImageOrientationLeftMirrored ||
+					imageOrientation == UIImageOrientationRightMirrored;
 
-				vImage_Buffer input = { 0 };
-				input.data = CVPixelBufferGetBaseAddress(pixelBuffer);
-				input.rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer);
-				input.width = width;
-				input.height = height;
-
-				CGFloat screenScale = [[UIScreen mainScreen] scale];
+				if (swapsDimensions)
+					sourceSize = CGSizeMake(sourceSize.height, sourceSize.width);
 
 				CGFloat targetWidth;
 				CGFloat targetHeight;
-
-				if (useSizeHint)
-				{
-					targetWidth = MIN(widthHint, width);
-					targetHeight = MIN(heightHint, height);
-				}
-				else
-				{
+				if (useSizeHint) {
+					targetWidth = MIN(widthHint, sourceSize.width);
+					targetHeight = MIN(heightHint, sourceSize.height);
+				} else {
 					CGRect screenBounds = [[UIScreen mainScreen] bounds];
+					CGFloat screenScale = [[UIScreen mainScreen] scale];
 					targetWidth = (screenBounds.size.width * screenScale) / 2;
 					targetHeight = (screenBounds.size.height * screenScale) / 2;
 				}
 
-				auto scale = MIN(targetWidth / width, targetHeight / height);
-
-				auto scaledWidth = (vImagePixelCount)ceil(width * scale);
-				auto scaledHeight = (vImagePixelCount)ceil(height * scale);
-
-				CVPixelBufferRef scaledPixelBuffer = NULL;
-				CVReturn cverr = CVPixelBufferCreate(
-					NULL,
-					scaledWidth,
-					scaledHeight,
-					CVPixelBufferGetPixelFormatType(pixelBuffer),
-					NULL,
-					&scaledPixelBuffer);
-
-				if (cverr != kCVReturnSuccess) {
-					CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
-					CFRelease(sampleBuffer);
-
-					reject([NSString stringWithFormat:@"Failed to create thumbnail pixelbuffer: %d", cverr]);
+				CGFloat scale = MIN(targetWidth / sourceSize.width, targetHeight / sourceSize.height);
+				CGSize targetSize = CGSizeMake(ceil(sourceSize.width * scale), ceil(sourceSize.height * scale));
+				if (targetSize.width < 1 || targetSize.height < 1) {
+					reject(@"Captured photo thumbnail has invalid dimensions");
 					return;
 				}
 
-				CVPixelBufferLockBaseAddress(scaledPixelBuffer, 0);
+				UIGraphicsImageRendererFormat* format = [UIGraphicsImageRendererFormat defaultFormat];
+				format.scale = 1.0;
+				UIGraphicsImageRenderer* renderer = [[UIGraphicsImageRenderer alloc] initWithSize:targetSize format:format];
+				UIImage* thumbnail = [renderer imageWithActions:^(UIGraphicsImageRendererContext* context) {
+					[image drawInRect:CGRectMake(0, 0, targetSize.width, targetSize.height)];
+				}];
 
-				vImage_Buffer output = { 0 };
-				output.data = CVPixelBufferGetBaseAddress(scaledPixelBuffer);
-				output.rowBytes = CVPixelBufferGetBytesPerRow(scaledPixelBuffer);
-				output.width = scaledWidth;
-				output.height = scaledHeight;
-
-				vImage_Error err = vImageScale_ARGB8888(&input, &output, NULL, 0);
-				if (err != kvImageNoError) {
-					CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
-					CVPixelBufferUnlockBaseAddress(scaledPixelBuffer, 0);
-					CVPixelBufferRelease(scaledPixelBuffer);
-					CFRelease(sampleBuffer);
-
-					reject([NSString stringWithFormat:@"Failed to scale thumbnail: %zd", err]);
+				NSData* thumbnailData = UIImageJPEGRepresentation(thumbnail, 1.0f);
+				if (!thumbnailData) {
+					reject(@"Failed to encode photo thumbnail");
 					return;
 				}
 
-				CIImage* ciImage = [CIImage imageWithCVPixelBuffer:scaledPixelBuffer];
-				CIContext* ctx = [CIContext contextWithOptions:NULL];
-				CGImageRef cgImage = [ctx createCGImage:ciImage fromRect:CGRectMake(0, 0, CVPixelBufferGetWidth(scaledPixelBuffer), CVPixelBufferGetHeight(scaledPixelBuffer))];
-
-				NSData* data = NULL;
-
-				CFDictionaryRef attachments = (CFDictionaryRef)CMCopyDictionaryOfAttachments(kCFAllocatorDefault, bufferRef, kCMAttachmentMode_ShouldPropagate);
-				if (attachments) {
-					NSMutableData* destinationData = [NSMutableData data];
-					CGImageDestinationRef destination = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)destinationData, kUTTypeJPEG, 1, NULL);
-					if (destination) {
-						CGImageDestinationAddImage(destination, cgImage, attachments);
-						BOOL success = CGImageDestinationFinalize(destination);
-						if (success) {
-							data = destinationData;
-						}
-						CFRelease(destination);
-					}
-					CFRelease(attachments);
-				}
-
-				if (!data) {
-					UIImage* uiImage = [UIImage imageWithCGImage:cgImage];
-					data = UIImageJPEGRepresentation(uiImage, 1.0f);
-				}
-
-				CGImageRelease(cgImage);
-
-				CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
-				CVPixelBufferUnlockBaseAddress(scaledPixelBuffer, 0);
-				CVPixelBufferRelease(scaledPixelBuffer);
-
-				CFRelease(sampleBuffer);
-
-				NSString* ext = @"jpg";
-				NSString* uuid = [[NSUUID UUID] UUIDString];
 				NSString* dir = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
-				NSString* path = [NSString stringWithFormat:@"%@/IMG_%@.%@", dir, uuid, ext];
+				NSString* path = [NSString stringWithFormat:@"%@/IMG_%@.jpg", dir, [[NSUUID UUID] UUIDString]];
 
 				NSError* error = nil;
-				if (![data writeToFile:path options:NSDataWritingWithoutOverwriting error:&error]) {
+				if (![thumbnailData writeToFile:path options:NSDataWritingWithoutOverwriting error:&error])
 					reject([NSString stringWithFormat:@"Failed to save thumbnail: %@", error]);
-				} else {
+				else
 					resolve(path);
-				}
 			});
-		@}
-	}
-
-	[Require("source.include", "Foundation/Foundation.h")]
-	extern(iOS) static class CoreFoundationExtensions
-	{
-		[Foreign(Language.ObjC)]
-		public static void Retain(this IntPtr ptr)
-		@{
-			CFRetain(ptr);
-		@}
-
-		[Foreign(Language.ObjC)]
-		public static void Release(this IntPtr ptr)
-		@{
-			CFRelease(ptr);
 		@}
 	}
 }

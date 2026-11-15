@@ -4,7 +4,7 @@ namespace Fuse.Controls
 		PhotoPreview
 
 		This element provides a fast path for previewing photos
-		captured with `CameraView` inside a `NativeViewHost`.
+		captured with `CameraView`.
 
 		A `PhotoPreview` has to be connected to `CameraView`. Whenever
 		a photo is captured it will be loaded by the connected `PhotoPreview`
@@ -14,8 +14,7 @@ namespace Fuse.Controls
 
 		Example:
 		```xml
-			<NativeViewHost>
-				<Panel ux:Name="previewPanel" Visibility="Hidden">
+			<Panel ux:Name="previewPanel" Visibility="Hidden">
 					<Button Text="DISMISS" Alignment="Bottom" Margin="10">
 						<Clicked>
 							<Set previewPanel.Visibility="Hidden" />
@@ -31,7 +30,6 @@ namespace Fuse.Controls
 					<Set previewPanel.Visibility="Visible" />
 					<Set cameraPanel.Visibility="Hidden" />
 				</CameraView.PhotoLoaded>
-			</NativeViewHost>
 		```xml
 	*/
 	public partial class PhotoPreview

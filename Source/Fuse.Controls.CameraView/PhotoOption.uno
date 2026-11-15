@@ -18,6 +18,8 @@ namespace Fuse.Controls
 			{
 				if (key == PhotoResolution.Name)
 					options.Add(PhotoResolution.From(obj[key] as Fuse.Scripting.Object));
+				else if (key == PhotoQuality.Name)
+					options.Add(PhotoQuality.FromValue(obj[key]));
 				else
 					throw new Exception("Unexpected PhotoOption: " + key);
 			}
@@ -49,6 +51,23 @@ namespace Fuse.Controls
 		}
 	}
 
+	public class PhotoQuality : PhotoOption
+	{
+		public const string Name = "PhotoQuality";
+
+		public readonly int Value;
+
+		public PhotoQuality(int value)
+		{
+			Value = value;
+		}
+
+		internal static PhotoQuality FromValue(object value)
+		{
+			return new PhotoQuality((int)Fuse.Scripting.Value.ToNumber(value));
+		}
+	}
+
 	internal abstract class PhotoOptionPromise : Promise<PhotoOption[]>
 	{
 		public Promise<PhotoOption[]> Visit(PhotoOption[] options)
@@ -59,6 +78,8 @@ namespace Fuse.Controls
 				{
 					if (option is PhotoResolution)
 						Visit((PhotoResolution)option);
+					else if (option is PhotoQuality)
+						Visit((PhotoQuality)option);
 					else
 						throw new Exception("Unexpected PhotoOption: " + option);
 				}
@@ -73,5 +94,6 @@ namespace Fuse.Controls
 		}
 
 		protected abstract void Visit(PhotoResolution photoResolution);
+		protected abstract void Visit(PhotoQuality photoQuality);
 	}
 }

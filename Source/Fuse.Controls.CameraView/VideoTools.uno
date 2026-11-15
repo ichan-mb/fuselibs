@@ -68,7 +68,7 @@ namespace Fuse.VideoTools
 			[Foreign(Language.ObjC)]
 			extern (iOS) public static bool SaveVideo(string outputFileURL)
 			@{
-				NSURL *url = [NSURL URLWithString:outputFileURL];
+				NSURL *url = [NSURL fileURLWithPath:outputFileURL];
 				[[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
 						PHAssetChangeRequest *changeRequest = [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:url];
 						NSLog(@"%@", changeRequest.description);
@@ -84,45 +84,14 @@ namespace Fuse.VideoTools
 		}
 
 		[ForeignInclude(Language.Java,
-			"android.os.Environment",
-			"java.io.File",
-			"android.media.MediaScannerConnection"
+			"com.fuse.controls.cameraview.CameraStorage"
 		)]
 		extern (Android) internal class AndroidVideoTools
 		{
 			[Foreign(Language.Java)]
 			public static bool SaveVideo(string outputFileURL)
 			@{
-				String filename = "";
-				File originalFile;
-				File destinationFile;
-
-				try {
-					originalFile = new File(outputFileURL);
-				} catch (Exception e) {
-					return false;
-				}
-
-				String outPath = null;
-				String state = Environment.getExternalStorageState();
-
-				if(Environment.MEDIA_MOUNTED.equals(state))
-					outPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES) + "/" + originalFile.getName();
-				else
-					outPath = com.fuse.Activity.getRootActivity().getFilesDir().getAbsolutePath() + "/" + originalFile.getName();
-
-				try {
-					destinationFile = new File(outPath);
-				} catch (Exception e) {
-					return false;
-				}
-
-				boolean managed = originalFile.renameTo(destinationFile);
-
-				if (managed)
-					MediaScannerConnection.scanFile(com.fuse.Activity.getRootActivity(), new String[] { outPath }, null, null);
-
-				return managed;
+				return CameraStorage.saveVideoToGallery(outputFileURL);
 			@}
 		}
 	}

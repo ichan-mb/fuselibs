@@ -12,252 +12,1040 @@
 
 	<Page ux:Class="CameraPage">
 		<Router ux:Dependency="router" />
-		<DockPanel>
-			<JavaScript>
-				var Observable = require("FuseJS/Observable");
-				var Camera = _camera;
+		<Panel>
+			<DockPanel>
+				<JavaScript>
+					var Observable = require("FuseJS/Observable");
+					var Timer = require("FuseJS/Timer");
+					var Camera = _camera;
 
-				var captureMode = Observable();
-				var flashMode = Observable();
+					// ------------------------------------------------------------------
+					// State
+					// ------------------------------------------------------------------
 
-				var capturedPhotos = Observable();
+					var captureMode = Observable();
+					var flashMode = Observable();
+					var capturedPhotos = Observable();
 
-				function getCameraInfo() {
-					Camera.getCameraInfo()
-						.then(function(info) {
-							console.log("captureMode: " + info[Camera.INFO_CAPTURE_MODE]);
-							console.log("flashMode: " + info[Camera.INFO_FLASH_MODE]);
-							console.log("cameraFacing: " + info[Camera.INFO_CAMERA_FACING]);
-							console.log("supportedFlashModes: " + info[Camera.INFO_SUPPORTED_FLASH_MODES].join());
+					var cameraWidth = Observable(0);
+					var cameraHeight = Observable(0);
 
-							captureMode.value = info[Camera.INFO_CAPTURE_MODE];
-							flashMode.value = info[Camera.INFO_FLASH_MODE];
+					var controlsVisible = Observable(false);
 
-							if (Camera.INFO_PHOTO_RESOLUTIONS in info) {
-								var availableResolutions = info[Camera.INFO_PHOTO_RESOLUTIONS];
-								availableResolutions.forEach(function(e) {
-									console.log(e.width + "x" + e.height);
+					var infoText = Observable("camera: loading");
+					var capabilitiesText = Observable("");
+
+					var zoom = Observable(1);
+					var minZoom = Observable(1);
+					var maxZoom = Observable(1);
+					var zoomText = Observable("1.00x");
+
+					var torchOn = Observable(false);
+					var torchLabel = Observable("TORCH: OFF");
+
+					var exposure = Observable(0);
+					var minExposure = Observable(0);
+					var maxExposure = Observable(0);
+					var exposureText = Observable("EV: 0.0");
+
+					var iso = Observable(100);
+					var minIso = Observable(100);
+					var maxIso = Observable(3200);
+					var isoText = Observable("ISO: auto");
+					var shutterSlider = Observable(50);
+					var minShutter = Observable(0.0001);
+					var maxShutter = Observable(0.1);
+					var shutterText = Observable("SHUTTER: auto");
+
+					var whiteBalanceLabel = Observable("AUTO");
+					var whiteBalanceKelvin = Observable(5500);
+					var whiteBalanceTint = Observable(0);
+					var whiteBalanceText = Observable("5500K / 0");
+
+					var focusModeLabel = Observable("CONTINUOUS");
+					var mirrorModeLabel = Observable("AUTO");
+
+					var lenses = Observable();
+
+					var barcodeText = Observable("");
+					var barcodeScanning = Observable(false);
+					var barcodeButtonLabel = Observable("START BARCODE SCANNING");
+
+					var faceText = Observable("");
+					var faceDetecting = Observable(false);
+					var faceButtonLabel = Observable("START FACE DETECTION");
+					var faceOverlayVisible = Observable(false);
+					var faceWidth = Observable(0);
+					var faceHeight = Observable(0);
+					var faceMargin = Observable("0,0,0,0");
+					var faceRoll = Observable(0);
+
+					var analysisText = Observable("");
+					var analysisRunning = Observable(false);
+					var analysisButtonLabel = Observable("START FRAME ANALYSIS");
+					var overlayEnabled = Observable(false);
+					var overlayButtonLabel = Observable("ZEBRA + PEAKING");
+
+					var errorText = Observable("");
+					var hasStatus = Observable(false);
+
+					var photoMetadataText = Observable("no photo captured yet");
+					var recordingMetadataText = Observable("no recording yet");
+
+					var isRecording = Observable(false);
+					var isPaused = Observable(false);
+					var pauseLabel = Observable("PAUSE");
+					var durationText = Observable("");
+
+					var recordingSession = null;
+					var durationTimerId = -1;
+					var cameraBack = true;
+
+					// True while we are updating UI state from a camera response, so
+					// the change handlers do not call back into the camera.
+					var syncing = false;
+
+					function sync(fn) {
+						syncing = true;
+						fn();
+						syncing = false;
+					}
+
+					function refreshStatus() {
+						hasStatus.value = !!(barcodeText.value || faceText.value || analysisText.value || errorText.value);
+					}
+
+					function formatShutter(seconds) {
+						if (!(seconds > 0)) return "n/a";
+						if (seconds >= 1) return seconds.toFixed(2) + "s";
+						return "1/" + Math.round(1 / seconds) + "s";
+					}
+
+					function formatDuration(ms) {
+						var total = Math.floor(ms / 1000);
+						var minutes = Math.floor(total / 60);
+						var seconds = total % 60;
+						return (minutes < 10 ? "0" : "") + minutes + ":" + (seconds < 10 ? "0" : "") + seconds;
+					}
+
+					// ------------------------------------------------------------------
+					// Camera info and capabilities
+					// ------------------------------------------------------------------
+
+					function loadCameraInfo() {
+						Camera.getCameraInfo()
+							.then(function (info) {
+								sync(function () {
+									captureMode.value = info[Camera.INFO_CAPTURE_MODE];
+									flashMode.value = info[Camera.INFO_FLASH_MODE];
+									zoom.value = info[Camera.INFO_ZOOM];
+									zoomText.value = info[Camera.INFO_ZOOM].toFixed(2) + "x";
+									torchOn.value = info[Camera.INFO_TORCH_ON];
+									torchLabel.value = "TORCH: " + (info[Camera.INFO_TORCH_ON] ? "ON" : "OFF");
+									exposure.value = info[Camera.INFO_EXPOSURE_COMPENSATION];
+									exposureText.value = "EV: " + info[Camera.INFO_EXPOSURE_COMPENSATION].toFixed(1);
+									whiteBalanceLabel.value = String(info[Camera.INFO_WHITE_BALANCE]).toUpperCase();
+									focusModeLabel.value = String(info[Camera.INFO_FOCUS_MODE]).toUpperCase();
+									mirrorModeLabel.value = String(info[Camera.INFO_MIRROR_MODE]).toUpperCase();
+									infoText.value =
+										"facing " + info[Camera.INFO_CAMERA_FACING] +
+										", flash " + info[Camera.INFO_FLASH_MODE] +
+										", lens " + (info[Camera.INFO_LENS_ID] || "-");
 								});
-								photoResolution = availableResolutions[Math.floor(availableResolutions.length * 0.4)];
 
-								var options = {};
-								options[Camera.OPTION_PHOTO_RESOLUTION] = photoResolution;
+								if (Camera.INFO_PHOTO_RESOLUTIONS in info) {
+									var resolutions = info[Camera.INFO_PHOTO_RESOLUTIONS];
+									if (resolutions.length > 0) {
+										var options = {};
+										options[Camera.OPTION_PHOTO_RESOLUTION] = resolutions[Math.floor(resolutions.length * 0.4)];
+										Camera.setPhotoOptions(options).catch(function (error) {
+											console.log("Failed to set photo options: " + error);
+										});
+									}
+								}
+								loadCapabilities();
+								loadLenses();
+								startErrorMonitoring();
+							})
+							.catch(function (error) {
+								infoText.value = "camera info failed: " + error;
+							});
 
-								Camera.setPhotoOptions(options)
-									.then(function() {
-										console.log("New photo options set: " + JSON.stringify(options));
+					}
+
+					function loadCapabilities() {
+						Camera.getCameraCapabilities()
+							.then(function (caps) {
+								sync(function () {
+									minZoom.value = caps[Camera.CAP_MIN_ZOOM];
+									maxZoom.value = caps[Camera.CAP_MAX_ZOOM];
+									minExposure.value = caps[Camera.CAP_MIN_EXPOSURE_COMPENSATION];
+									maxExposure.value = caps[Camera.CAP_MAX_EXPOSURE_COMPENSATION];
+									minIso.value = caps[Camera.CAP_MIN_ISO] || 100;
+									maxIso.value = caps[Camera.CAP_MAX_ISO] || 3200;
+									minShutter.value = caps[Camera.CAP_MIN_SHUTTER_SECONDS] || 0.0001;
+									maxShutter.value = caps[Camera.CAP_MAX_SHUTTER_SECONDS] || 0.1;
+									iso.value = Math.max(minIso.value, Math.min(maxIso.value, iso.value));
+
+									capabilitiesText.value =
+										"zoom " + caps[Camera.CAP_MIN_ZOOM].toFixed(1) + "-" + caps[Camera.CAP_MAX_ZOOM].toFixed(1) +
+										", iso " + caps[Camera.CAP_MIN_ISO] + "-" + caps[Camera.CAP_MAX_ISO] +
+										", wb " + (caps[Camera.CAP_WHITE_BALANCE_MODES] || []).join("/") +
+										", focus " + (caps[Camera.CAP_FOCUS_MODES] || []).join("/");
+								});
+							})
+							.catch(function (error) {
+								capabilitiesText.value = "capabilities failed: " + error;
+							});
+					}
+
+					function loadLenses() {
+						Camera.getAvailableLenses()
+							.then(function (list) {
+								lenses.value = list.map(function (lens) {
+									return {
+										id: lens[Camera.LENS_ID],
+										name: lens[Camera.LENS_NAME],
+										facing: lens[Camera.LENS_FACING]
+									};
+								});
+							})
+							.catch(function (error) {
+								console.log("Failed to get lenses: " + error);
+							});
+					}
+
+					// ------------------------------------------------------------------
+					// Capture
+					// ------------------------------------------------------------------
+
+					function setCaptureMode(mode) {
+						Camera.setCaptureMode(mode)
+							.then(function (applied) {
+								captureMode.value = applied;
+							})
+							.catch(function (error) {
+								console.log("Failed to set capture mode: " + error);
+							});
+					}
+
+					function capturePhoto() {
+						Camera.capturePhoto()
+							.then(function (photo) {
+								photo.getMetadata()
+									.then(function (metadata) {
+										photoMetadataText.value =
+											metadata.width + "x" + metadata.height +
+											", iso " + metadata.iso +
+											", " + formatShutter(metadata.exposureTime) +
+											", f/" + metadata.fNumber;
 									})
-									.catch(function(error) {
-										console.log("Failed to set photo options: " + error);
+									.catch(function () { });
+
+								var sizehint = { width: 64, height: 64 };
+								Promise.all([photo.save(), photo.saveThumbnail(sizehint)])
+									.then(function (result) {
+										capturedPhotos.add({
+											photoFilePath: result[0],
+											thumbnailFilePath: result[1]
+										});
+										photo.release();
+									})
+									.catch(function (error) {
+										console.log("Failed to save photo: " + error);
+										photo.release();
 									});
-							}
-						})
-						.catch(function(err) {
-							console.log("Failed to get camera info: " + err);
-						});
-				}
-				getCameraInfo();
+							})
+							.catch(function (error) {
+								console.log("Failed to capture photo: " + error);
+							});
+					}
 
-				function nextFlashMode() {
-					if (flashMode.value == Camera.FLASH_MODE_AUTO) return Camera.FLASH_MODE_ON;
-					else if (flashMode.value == Camera.FLASH_MODE_ON) return Camera.FLASH_MODE_OFF;
-					else if (flashMode.value == Camera.FLASH_MODE_OFF) return Camera.FLASH_MODE_AUTO;
-					else throw "Invalid flash mode";
-				}
+					function thumbnailClicked(args) {
+						router.push("ImagePage", args.data.photoFilePath);
+					}
 
-				function setCaptureMode(cm) {
-					Camera.setCaptureMode(cm)
-						.then(function(mode) {
-							captureMode.value = mode;
-							console.log("Capture mode set to: " + mode);
-						})
-						.catch(function(err) {
-							console.log("Failed to set capture mode: " + err);
-						});
-				}
+					// ------------------------------------------------------------------
+					// Recording
+					// ------------------------------------------------------------------
 
-				function capturePhoto() {
-					Camera.capturePhoto()
-						.then(function (photo) {
-							var sizehint = {
-								width: 64,
-								height: 64
-							};
-							Promise.all([photo.save(), photo.saveThumbnail(sizehint)])
-								.then(function(result) {
-									var photoFilePath = result[0];
-									var thumbnailFilePath = result[1];
-									console.log("Photo saved to: " + photoFilePath + ", thumbnail saved to: " + thumbnailFilePath);
-									capturedPhotos.add({
-										photoFilePath: photoFilePath,
-										thumbnailFilePath: thumbnailFilePath
-									});
-									photo.release();
+					function startRecording() {
+						Camera.startRecording()
+							.then(function (session) {
+								recordingSession = session;
+								isRecording.value = true;
+								isPaused.value = false;
+								pauseLabel.value = "PAUSE";
+								startDurationTimer();
+							})
+							.catch(function (error) {
+								console.log("Failed to start recording: " + error);
+							});
+					}
+
+					function stopRecording() {
+						var session = recordingSession;
+						if (session == null) return;
+
+						recordingSession = null;
+						isRecording.value = false;
+						isPaused.value = false;
+						stopDurationTimer();
+
+						session.stop()
+							.then(function (recording) {
+								recording.getMetadata()
+									.then(function (metadata) {
+										recordingMetadataText.value =
+											metadata.width + "x" + metadata.height +
+											", " + formatDuration(metadata.duration) +
+											", " + Math.round(metadata.fileSize / 1024) + " kB";
+									})
+									.catch(function () { });
+
+								recording.saveThumbnail({ width: 96, height: 96 })
+									.then(function (thumbnailPath) {
+										capturedPhotos.add({
+											photoFilePath: thumbnailPath,
+											thumbnailFilePath: thumbnailPath
+										});
+									})
+									.catch(function () { });
+
+								router.push("VideoPage", recording.filePath());
+							})
+							.catch(function (error) {
+								console.log("Failed to stop recording: " + error);
+							});
+					}
+
+					function toggleRecordingPause() {
+						if (recordingSession == null) return;
+
+						if (isPaused.value) {
+							recordingSession.resume()
+								.then(function (resumed) {
+									if (resumed) {
+										isPaused.value = false;
+										pauseLabel.value = "PAUSE";
+									}
 								})
-								.catch(function(error) {
-									console.log("Failed to save photo: " + error);
-									photo.release();
+								.catch(function (error) {
+									console.log("Failed to resume recording: " + error);
 								});
+						} else {
+							recordingSession.pause()
+								.then(function (paused) {
+									if (paused) {
+										isPaused.value = true;
+										pauseLabel.value = "RESUME";
+									}
+								})
+								.catch(function (error) {
+									console.log("Failed to pause recording: " + error);
+								});
+						}
+					}
 
-						})
-						.catch(function (error) {
-							console.log("Failed to capture photo: " + error);
+					function updateDuration() {
+						if (recordingSession == null) return;
+						recordingSession.getDuration()
+							.then(function (ms) {
+								durationText.value = formatDuration(ms);
+							})
+							.catch(function () { });
+					}
+
+					function startDurationTimer() {
+						if (durationTimerId != -1) return;
+						durationTimerId = Timer.create(updateDuration, 500, true);
+					}
+
+					function stopDurationTimer() {
+						if (durationTimerId != -1) {
+							Timer.destroy(durationTimerId);
+							durationTimerId = -1;
+						}
+						durationText.value = "";
+					}
+
+					// ------------------------------------------------------------------
+					// Camera controls
+					// ------------------------------------------------------------------
+
+					function flipCameraFacing() {
+						var front = Camera.CAMERA_FACING_FRONT;
+						var back = Camera.CAMERA_FACING_BACK;
+						Camera.setCameraFacing(cameraBack ? front : back)
+							.then(function (applied) {
+								cameraBack = applied == back;
+								loadCameraInfo();
+								loadLenses();
+							})
+							.catch(function (error) {
+								console.log("Failed to set camera facing: " + error);
+							});
+					}
+
+					function selectLens(args) {
+						Camera.setCameraLens(args.data.id)
+							.then(function () {
+								loadCameraInfo();
+							})
+							.catch(function (error) {
+								console.log("Failed to set camera lens: " + error);
+							});
+					}
+
+					function changeFlashMode() {
+						var next = Camera.FLASH_MODE_AUTO;
+						if (flashMode.value == Camera.FLASH_MODE_AUTO) next = Camera.FLASH_MODE_ON;
+						else if (flashMode.value == Camera.FLASH_MODE_ON) next = Camera.FLASH_MODE_OFF;
+
+						Camera.setFlashMode(next)
+							.then(function (applied) {
+								flashMode.value = applied;
+							})
+							.catch(function (error) {
+								console.log("Failed to set flash mode: " + error);
+							});
+					}
+
+					function toggleTorch() {
+						var next = !torchOn.value;
+						Camera.setTorchMode(next)
+							.then(function (applied) {
+								torchOn.value = applied;
+								torchLabel.value = "TORCH: " + (applied ? "ON" : "OFF");
+							})
+							.catch(function (error) {
+								errorText.value = "torch: " + error;
+								refreshStatus();
+							});
+					}
+
+					zoom.onValueChanged(module, function (value) {
+						zoomText.value = value.toFixed(2) + "x";
+						if (syncing) return;
+						Camera.setZoom(value).catch(function (error) {
+							console.log("Failed to set zoom: " + error);
 						});
-				}
+					});
 
-				var isRecording = Observable(false);
-				var recordingSession = null;
-
-				function startRecording() {
-					isRecording.value = true;
-					Camera.startRecording()
-						.then(function (session) {
-							recordingSession = session;
-						})
-						.catch(function (error) {
-							console.log("Failed to start recording: " + error);
-							isRecording.value = false;
+					exposure.onValueChanged(module, function (value) {
+						exposureText.value = "EV: " + value.toFixed(1);
+						if (syncing) return;
+						Camera.setExposureCompensation(value).catch(function (error) {
+							errorText.value = "exposure: " + error;
+							refreshStatus();
 						});
-				}
+					});
 
-				function stopRecording() {
-					isRecording.value = false;
-					recordingSession.stop()
-						.then(function (recording) {
-							router.push("VideoPage", recording.filePath());
+					function shutterSeconds() {
+						var low = minShutter.value;
+						var high = maxShutter.value;
+						if (!(low > 0) || !(high > low)) return low;
+						return low * Math.pow(high / low, shutterSlider.value / 100);
+					}
+
+					function applyManualExposure() {
+						if (syncing) return;
+						var seconds = shutterSeconds();
+						Camera.setManualExposure(iso.value, seconds)
+							.then(function (settings) {
+								isoText.value = "ISO: " + Math.round(settings.iso);
+								shutterText.value = "SHUTTER: " + formatShutter(settings.shutterSeconds);
+							})
+							.catch(function (error) {
+								errorText.value = "manual exposure: " + error;
+								refreshStatus();
+							});
+					}
+
+					iso.onValueChanged(module, applyManualExposure);
+					shutterSlider.onValueChanged(module, applyManualExposure);
+
+					function setAutoExposure() {
+						Camera.setAutoExposure()
+							.then(function () {
+								isoText.value = "ISO: auto";
+								shutterText.value = "SHUTTER: auto";
+							})
+							.catch(function (error) {
+								errorText.value = "auto exposure: " + error;
+								refreshStatus();
+							});
+					}
+
+					var whiteBalanceModes = [
+						Camera.WHITE_BALANCE_AUTO,
+						Camera.WHITE_BALANCE_INCANDESCENT,
+						Camera.WHITE_BALANCE_FLUORESCENT,
+						Camera.WHITE_BALANCE_WARM_FLUORESCENT,
+						Camera.WHITE_BALANCE_DAYLIGHT,
+						Camera.WHITE_BALANCE_CLOUDY,
+						Camera.WHITE_BALANCE_TWILIGHT,
+						Camera.WHITE_BALANCE_SHADE
+					];
+					var whiteBalanceIndex = 0;
+
+					function nextWhiteBalance() {
+						whiteBalanceIndex = (whiteBalanceIndex + 1) % whiteBalanceModes.length;
+						var mode = whiteBalanceModes[whiteBalanceIndex];
+						Camera.setWhiteBalance(mode)
+							.then(function (applied) {
+								whiteBalanceLabel.value = String(applied).toUpperCase();
+							})
+							.catch(function (error) {
+								errorText.value = "white balance: " + error;
+								refreshStatus();
+							});
+					}
+
+					function applyWhiteBalanceTemperature() {
+						whiteBalanceText.value = Math.round(whiteBalanceKelvin.value) + "K / " + Math.round(whiteBalanceTint.value);
+						if (syncing) return;
+						Camera.setWhiteBalanceTemperature(whiteBalanceKelvin.value, whiteBalanceTint.value)
+							.then(function (settings) {
+								whiteBalanceLabel.value = "MANUAL";
+								whiteBalanceText.value = Math.round(settings.kelvin) + "K / " + Math.round(settings.tint);
+							})
+							.catch(function (error) {
+								errorText.value = "white balance: " + error;
+								refreshStatus();
+							});
+					}
+
+					whiteBalanceKelvin.onValueChanged(module, applyWhiteBalanceTemperature);
+					whiteBalanceTint.onValueChanged(module, applyWhiteBalanceTemperature);
+
+					var focusModes = [Camera.FOCUS_MODE_CONTINUOUS, Camera.FOCUS_MODE_AUTO, Camera.FOCUS_MODE_LOCKED];
+					var focusModeIndex = 0;
+
+					function nextFocusMode() {
+						focusModeIndex = (focusModeIndex + 1) % focusModes.length;
+						Camera.setFocusMode(focusModes[focusModeIndex])
+							.then(function (applied) {
+								focusModeLabel.value = String(applied).toUpperCase();
+							})
+							.catch(function (error) {
+								errorText.value = "focus: " + error;
+								refreshStatus();
+							});
+					}
+
+					var mirrorModes = [Camera.MIRROR_MODE_AUTO, Camera.MIRROR_MODE_ON, Camera.MIRROR_MODE_OFF];
+					var mirrorModeIndex = 0;
+
+					function nextMirrorMode() {
+						mirrorModeIndex = (mirrorModeIndex + 1) % mirrorModes.length;
+						Camera.setMirrorMode(mirrorModes[mirrorModeIndex])
+							.then(function (applied) {
+								mirrorModeLabel.value = String(applied).toUpperCase();
+							})
+							.catch(function (error) {
+								errorText.value = "mirror: " + error;
+								refreshStatus();
+							});
+					}
+
+					// ------------------------------------------------------------------
+					// Frame analysis
+					// ------------------------------------------------------------------
+
+					function toggleBarcodeScanning() {
+						if (barcodeScanning.value) {
+							barcodeScanning.value = false;
+							barcodeButtonLabel.value = "START BARCODE SCANNING";
+							Camera.stopBarcodeScanning().catch(function () { });
+							return;
+						}
+
+						Camera.startBarcodeScanning(function (barcode) {
+							barcodeText.value = barcode[Camera.BARCODE_FORMAT] + ": " + barcode[Camera.BARCODE_VALUE];
+							refreshStatus();
 						})
-						.catch(function (error) {
-							console.log("Failed to stop recording: " + error);
-						});
-					recordingSession = null;
-				}
+							.then(function () {
+								barcodeScanning.value = true;
+								barcodeButtonLabel.value = "STOP BARCODE SCANNING";
+							})
+							.catch(function (error) {
+								errorText.value = "barcode: " + error;
+								refreshStatus();
+							});
+					}
 
-				var cameraBack = true;
-				function flipCameraFacing() {
-					var front = Camera.CAMERA_FACING_FRONT;
-					var back = Camera.CAMERA_FACING_BACK;
-					Camera.setCameraFacing(cameraBack ? front : back)
-						.then(function (newFacing) {
-							cameraBack = newFacing == back;
-							getCameraInfo();
-							console.log("Camera facing set to: " + (newFacing == back ? "back" : "front"));
+					function toggleFaceDetection() {
+						if (faceDetecting.value) {
+							faceDetecting.value = false;
+							faceButtonLabel.value = "START FACE DETECTION";
+							faceText.value = "";
+							faceOverlayVisible.value = false;
+							refreshStatus();
+							Camera.stopFaceDetection().catch(function () { });
+							return;
+						}
+
+						Camera.startFaceDetection(function (faces) {
+							if (faces.length == 0) {
+								faceOverlayVisible.value = false;
+								faceText.value = "no faces";
+							} else {
+								var face = faces[0];
+								faceWidth.value = face[Camera.FACE_WIDTH] * cameraWidth.value;
+								faceHeight.value = face[Camera.FACE_HEIGHT] * cameraHeight.value;
+								faceMargin.value =
+									(face[Camera.FACE_X] * cameraWidth.value) + "," +
+									(face[Camera.FACE_Y] * cameraHeight.value) + ",0,0";
+								faceRoll.value = face[Camera.FACE_ROLL];
+								faceOverlayVisible.value = true;
+								faceText.value =
+									faces.length + " face(s), first at " +
+									face[Camera.FACE_X].toFixed(2) + ", " + face[Camera.FACE_Y].toFixed(2) +
+									" size " + face[Camera.FACE_WIDTH].toFixed(2) + " x " + face[Camera.FACE_HEIGHT].toFixed(2);
+							}
+							refreshStatus();
 						})
-						.catch(function (err) {
-							console.log("Failed to set camera facing: " + err);
+							.then(function () {
+								faceDetecting.value = true;
+								faceButtonLabel.value = "STOP FACE DETECTION";
+							})
+							.catch(function (error) {
+								errorText.value = "faces: " + error;
+								refreshStatus();
+							});
+					}
+
+					function formatPercent(value) {
+						return Math.round(value * 100) + "%";
+					}
+
+					function toggleFrameAnalysis() {
+						if (analysisRunning.value) {
+							analysisRunning.value = false;
+							analysisButtonLabel.value = "START FRAME ANALYSIS";
+							analysisText.value = "";
+							refreshStatus();
+							Camera.stopFrameAnalysis().catch(function () { });
+							return;
+						}
+
+						var options = {};
+						options[Camera.OPTION_ANALYSIS_MAX_FPS] = 10;
+						options[Camera.OPTION_ANALYSIS_LUMA_WIDTH] = 96;
+						options[Camera.OPTION_ANALYSIS_LUMA_HEIGHT] = 72;
+
+						Camera.startFrameAnalysis(function (stats) {
+							analysisText.value =
+								"mean " + formatPercent(stats[Camera.STATS_MEAN]) +
+								"  p50 " + formatPercent(stats[Camera.STATS_P50]) +
+								"  clip " + formatPercent(stats[Camera.STATS_CLIPPED_HIGH]) +
+								"/" + formatPercent(stats[Camera.STATS_CLIPPED_LOW]) +
+								"  " + stats[Camera.STATS_ANALYSIS_TIME].toFixed(1) + "ms";
+							refreshStatus();
+						}, options)
+							.then(function () {
+								analysisRunning.value = true;
+								analysisButtonLabel.value = "STOP FRAME ANALYSIS";
+							})
+							.catch(function (error) {
+								errorText.value = "analysis: " + error;
+								refreshStatus();
+							});
+					}
+
+					function toggleOverlay() {
+						var options = {};
+
+						if (overlayEnabled.value) {
+							overlayEnabled.value = false;
+							overlayButtonLabel.value = "ZEBRA + PEAKING";
+						} else {
+							options[Camera.OPTION_OVERLAY_ZEBRA] = 0.95;
+							options[Camera.OPTION_OVERLAY_PEAKING] = 0.6;
+							overlayEnabled.value = true;
+							overlayButtonLabel.value = "HIDE OVERLAY";
+						}
+
+						Camera.setOverlayOptions(options).catch(function (error) {
+							overlayEnabled.value = false;
+							overlayButtonLabel.value = "ZEBRA + PEAKING";
+							errorText.value = "overlay: " + error;
+							refreshStatus();
 						});
-				}
+					}
 
-				function changeFlashMode() {
-					Camera.setFlashMode(nextFlashMode())
-						.then(function(newFlashMode) {
-							flashMode.value = newFlashMode;
-							console.log("Flash mode set to: " + flashMode.value);
-						})
-						.catch(function(err) {
-							console.log("Failed to set flash mode: " + err);
+					// ------------------------------------------------------------------
+					// Lifecycle
+					// ------------------------------------------------------------------
+
+					function toggleControls() {
+						controlsVisible.value = !controlsVisible.value;
+					}
+
+					function tapToFocus(args) {
+						Camera.setCameraFocusPoint(
+							parseFloat(args.x),
+							parseFloat(args.y),
+							cameraWidth.value,
+							cameraHeight.value,
+							0
+						).catch(function () { });
+					}
+
+					function cameraPlaced(args) {
+						cameraWidth.value = parseFloat(args.width);
+						cameraHeight.value = parseFloat(args.height);
+					}
+
+					function startErrorMonitoring() {
+						Camera.startErrorMonitoring(function (event) {
+							errorText.value =
+								event[Camera.EVENT_TYPE] + ": " +
+								event[Camera.EVENT_REASON] + " - " +
+								event[Camera.EVENT_MESSAGE];
+							refreshStatus();
+						}).catch(function (error) {
+							if (String(error).indexOf("already active") < 0)
+								console.log("Failed to start error monitoring: " + error);
 						});
-				}
-
-				function thumbnailClicked(args) {
-					router.push("ImagePage", args.data.photoFilePath);
-				}
+					}
 
 
+					loadCameraInfo();
 
-				var cameraWidth = Observable(0);
-				var cameraHeight = Observable(0);
+					module.exports = {
+						captureMode: captureMode,
+						flashMode: flashMode,
+						capturedPhotos: capturedPhotos,
+						controlsVisible: controlsVisible,
+						infoText: infoText,
+						capabilitiesText: capabilitiesText,
+						zoom: zoom,
+						minZoom: minZoom,
+						maxZoom: maxZoom,
+						zoomText: zoomText,
+						torchLabel: torchLabel,
+						exposure: exposure,
+						minExposure: minExposure,
+						maxExposure: maxExposure,
+						exposureText: exposureText,
+						iso: iso,
+						minIso: minIso,
+						maxIso: maxIso,
+						isoText: isoText,
+						shutterSlider: shutterSlider,
+						shutterText: shutterText,
+						whiteBalanceLabel: whiteBalanceLabel,
+						whiteBalanceKelvin: whiteBalanceKelvin,
+						whiteBalanceTint: whiteBalanceTint,
+						whiteBalanceText: whiteBalanceText,
+						focusModeLabel: focusModeLabel,
+						mirrorModeLabel: mirrorModeLabel,
+						lenses: lenses,
+						barcodeText: barcodeText,
+						barcodeButtonLabel: barcodeButtonLabel,
+						faceText: faceText,
+						faceButtonLabel: faceButtonLabel,
+						faceOverlayVisible: faceOverlayVisible,
+						faceWidth: faceWidth,
+						faceHeight: faceHeight,
+						faceMargin: faceMargin,
+						faceRoll: faceRoll,
+						analysisText: analysisText,
+						analysisButtonLabel: analysisButtonLabel,
+						overlayButtonLabel: overlayButtonLabel,
+						errorText: errorText,
+						hasStatus: hasStatus,
+						photoMetadataText: photoMetadataText,
+						recordingMetadataText: recordingMetadataText,
+						isRecording: isRecording,
+						isPaused: isPaused,
+						pauseLabel: pauseLabel,
+						durationText: durationText,
 
-				function tapToFocus(args) {
+						toggleControls: toggleControls,
+						capturePhoto: capturePhoto,
+						startRecording: startRecording,
+						stopRecording: stopRecording,
+						toggleRecordingPause: toggleRecordingPause,
+						thumbnailClicked: thumbnailClicked,
+						flipCameraFacing: flipCameraFacing,
+						selectLens: selectLens,
+						changeFlashMode: changeFlashMode,
+						toggleTorch: toggleTorch,
+						setAutoExposure: setAutoExposure,
+						nextWhiteBalance: nextWhiteBalance,
+						nextFocusMode: nextFocusMode,
+						nextMirrorMode: nextMirrorMode,
+						toggleBarcodeScanning: toggleBarcodeScanning,
+						toggleFaceDetection: toggleFaceDetection,
+						toggleFrameAnalysis: toggleFrameAnalysis,
+						toggleOverlay: toggleOverlay,
+						setCaptureModePhoto: function () { setCaptureMode(Camera.CAPTURE_MODE_PHOTO); },
+						setCaptureModeVideo: function () { setCaptureMode(Camera.CAPTURE_MODE_VIDEO); },
+						tapToFocus: tapToFocus,
+						cameraPlaced: cameraPlaced
+					};
+				</JavaScript>
 
-					Camera.setCameraFocusPoint(parseFloat(args.x), parseFloat(args.y), cameraWidth.value, cameraHeight.value, 0);
-				}
-
-				function cameraPlaced(args) {
-				  cameraWidth.value = parseFloat(args.width);
-				  cameraHeight.value = parseFloat(args.height);
-				}
-
-				module.exports = {
-					captureMode: captureMode,
-					setCaptureModePhoto: function () { setCaptureMode(Camera.CAPTURE_MODE_PHOTO); },
-					setCaptureModeVideo: function () { setCaptureMode(Camera.CAPTURE_MODE_VIDEO); },
-					capturePhoto: capturePhoto,
-					startRecording: startRecording,
-					stopRecording: stopRecording,
-					isRecording: isRecording,
-					flipCameraFacing: flipCameraFacing,
-					flashMode: flashMode,
-					changeFlashMode: changeFlashMode,
-					capturedPhotos: capturedPhotos,
-					thumbnailClicked: thumbnailClicked,
-					tapToFocus: tapToFocus,
-					cameraPlaced: cameraPlaced
-				};
-			</JavaScript>
-
-			<Panel Dock="Top">
-				<Panel Alignment="Right" Padding="14" HitTestMode="LocalBoundsAndChildren" Clicked="{changeFlashMode}">
-					<FlashMode Mode="{flashMode}" />
+				<Panel Dock="Top" Padding="8,8,8,0">
+					<Panel Alignment="Left" Padding="12,6" HitTestMode="LocalBoundsAndChildren" Clicked="{toggleControls}">
+						<Rectangle Layer="Background" CornerRadius="12" Opacity="0.4">
+							<SolidColor Color="#000" />
+						</Rectangle>
+						<Text Value="CONTROLS" TextColor="#fff" FontSize="13" />
+					</Panel>
+					<Panel Alignment="Right" Padding="12,4" HitTestMode="LocalBoundsAndChildren" Clicked="{changeFlashMode}">
+						<FlashMode Mode="{flashMode}" />
+					</Panel>
 				</Panel>
-			</Panel>
 
-			<DockPanel Dock="Bottom" Padding="8">
-				<StackPanel Dock="Top">
-					<ScrollView AllowedScrollDirections="Horizontal" Padding="8,0,8,0">
-						<StackPanel Height="48" Width="48" Orientation="Horizontal" ItemSpacing="4">
-							<Each Items="{capturedPhotos}">
-								<Image File="{thumbnailFilePath}" StretchMode="UniformToFill" BoxSizing="FillAspect" Aspect="1" Clicked="{thumbnailClicked}" />
-							</Each>
+				<Panel Dock="Top" Padding="12,6" Margin="64,0,64,0" ux:Name="_statusBar" Visibility="Collapsed">
+					<WhileTrue Value="{hasStatus}">
+						<Set _statusBar.Visibility="Visible" />
+					</WhileTrue>
+					<Rectangle Layer="Background" CornerRadius="8" Opacity="0.6">
+						<SolidColor Color="#000" />
+					</Rectangle>
+					<StackPanel ItemSpacing="2">
+						<Text Value="{barcodeText}" TextColor="#fff" FontSize="12" TextWrapping="Wrap" Alignment="Center" />
+						<Text Value="{faceText}" TextColor="#fff" FontSize="12" TextWrapping="Wrap" Alignment="Center" />
+						<Text Value="{analysisText}" TextColor="#fff" FontSize="12" TextWrapping="Wrap" Alignment="Center" />
+						<Text Value="{errorText}" TextColor="#f88" FontSize="12" TextWrapping="Wrap" Alignment="Center" />
+					</StackPanel>
+				</Panel>
+
+				<DockPanel Dock="Bottom" Padding="8">
+					<StackPanel Dock="Top">
+						<Text Value="{durationText}" TextColor="#f66" FontSize="13" Alignment="Center" Margin="0,0,0,4" />
+						<Panel ux:Name="_pausePanel" Visibility="Collapsed" Alignment="Center" Margin="0,0,0,6">
+							<WhileTrue Value="{isRecording}">
+								<Set _pausePanel.Visibility="Visible" />
+							</WhileTrue>
+							<Panel Padding="14,6" HitTestMode="LocalBoundsAndChildren" Clicked="{toggleRecordingPause}">
+								<Rectangle Layer="Background" CornerRadius="12" Opacity="0.4">
+									<SolidColor Color="#fff" />
+								</Rectangle>
+								<Text Value="{pauseLabel}" TextColor="#fff" FontSize="12" />
+							</Panel>
+						</Panel>
+						<ScrollView AllowedScrollDirections="Horizontal" Padding="8,0,8,0">
+							<StackPanel Height="48" Orientation="Horizontal" ItemSpacing="4">
+								<Each Items="{capturedPhotos}">
+									<Image File="{thumbnailFilePath}" StretchMode="UniformToFill" BoxSizing="FillAspect" Aspect="1" Clicked="{thumbnailClicked}" />
+								</Each>
+							</StackPanel>
+						</ScrollView>
+						<CaptureMode Width="72%" Margin="8" Mode="{captureMode}" />
+					</StackPanel>
+					<Grid Dock="Fill" Columns="1*,1*,1*">
+						<Panel Grid.Column="1">
+							<Match Value="{captureMode}">
+								<Case String="photo">
+									<CapturePhotoButton Clicked="{capturePhoto}" />
+								</Case>
+								<Case String="video">
+									<CaptureVideoButton />
+								</Case>
+							</Match>
+						</Panel>
+						<RotateIcon Grid.Column="2" Alignment="Center" Clicked="{flipCameraFacing}">
+							<Clicked>
+								<Scale Factor="0.8" Duration="0.15" Easing="ExponentialIn" EasingBack="BounceIn" DurationBack="0.35" />
+							</Clicked>
+						</RotateIcon>
+					</Grid>
+				</DockPanel>
+
+				<Panel Dock="Fill">
+					<CameraView.PhotoLoaded PhotoCaptureImageSource="_photoCaptureImageSource">
+						<Set _cameraPreview.Visibility="Visible" />
+						<Set _camera.Visibility="Hidden" />
+					</CameraView.PhotoLoaded>
+					<Panel ux:Name="_cameraPreview" Visibility="Hidden">
+						<Panel HitTestMode="LocalBoundsAndChildren" Alignment="Bottom" Width="72%" Margin="0,0,0,8">
+							<Rectangle Layer="Background" CornerRadius="8" Opacity="0.65">
+								<SolidColor Color="#fff" />
+							</Rectangle>
+							<Clicked>
+								<Set _cameraPreview.Visibility="Hidden" />
+								<Set _camera.Visibility="Visible" />
+							</Clicked>
+							<Text Value="DISMISS" Margin="4" TextColor="#000" Alignment="Center" />
+						</Panel>
+						<Image StretchMode="UniformToFill">
+							<CameraView.PhotoCaptureImageSource CameraView="_camera" ux:Name="_photoCaptureImageSource" />
+						</Image>
+					</Panel>
+					<CameraView ux:Name="_camera" PreviewStretchMode="UniformToFill" ClipToBounds="true" Placed="{cameraPlaced}" />
+
+					<!-- Example of an overlay driven by face detection -->
+					<Panel ux:Name="_faceOverlay" Alignment="TopLeft" Width="{faceWidth}" Height="{faceHeight}" Margin="{faceMargin}" HitTestMode="None" Visibility="Collapsed">
+						<WhileTrue Value="{faceOverlayVisible}">
+							<Set _faceOverlay.Visibility="Visible" />
+						</WhileTrue>
+						<Rotation Degrees="{faceRoll}" />
+						<Panel Height="26" Width="72" Alignment="TopCenter" Margin="0,-32,0,0">
+							<Rectangle Layer="Background" CornerRadius="6" Opacity="0.85">
+								<SolidColor Color="#000" />
+							</Rectangle>
+							<Text Value="HAT" TextColor="#ff0" FontSize="12" Alignment="Center" />
+						</Panel>
+					</Panel>
+				</Panel>
+
+				<Panel Clicked="{tapToFocus}" HitTestMode="LocalBounds" />
+			</DockPanel>
+
+			<Panel ux:Name="_controls" Visibility="Collapsed">
+				<WhileTrue Value="{controlsVisible}">
+					<Set _controls.Visibility="Visible" />
+				</WhileTrue>
+				<Rectangle Layer="Background" Opacity="0.92">
+					<SolidColor Color="#000" />
+				</Rectangle>
+				<DockPanel>
+					<Panel Dock="Top" Padding="14,10">
+						<Text Value="CAMERA CONTROLS" TextColor="#fff" FontSize="16" Alignment="Left" />
+						<Panel Alignment="Right" Padding="8,4" HitTestMode="LocalBoundsAndChildren" Clicked="{toggleControls}">
+							<Text Value="CLOSE" TextColor="#fff" FontSize="14" />
+						</Panel>
+					</Panel>
+
+					<ScrollView>
+						<StackPanel Padding="14,4,14,32" ItemSpacing="18">
+							<StackPanel ItemSpacing="6">
+								<Text Value="CAMERA" TextColor="#888" FontSize="12" />
+								<Text Value="{infoText}" TextColor="#ccc" FontSize="11" TextWrapping="Wrap" />
+								<Text Value="{capabilitiesText}" TextColor="#666" FontSize="11" TextWrapping="Wrap" />
+								<Panel Padding="12,8" HitTestMode="LocalBoundsAndChildren" Clicked="{flipCameraFacing}">
+									<Rectangle Layer="Background" CornerRadius="6" Opacity="0.35">
+										<SolidColor Color="#fff" />
+									</Rectangle>
+									<Text Value="FLIP CAMERA FACING" TextColor="#fff" FontSize="12" Alignment="Center" />
+								</Panel>
+								<StackPanel Orientation="Horizontal" ItemSpacing="4">
+									<Each Items="{lenses}">
+										<Panel Padding="12,6" Margin="0,0,6,0" HitTestMode="LocalBoundsAndChildren" Clicked="{selectLens}">
+											<Rectangle Layer="Background" CornerRadius="12" Opacity="0.35">
+												<SolidColor Color="#0af" />
+											</Rectangle>
+											<Text Value="{name}" TextColor="#fff" FontSize="12" />
+										</Panel>
+									</Each>
+								</StackPanel>
+							</StackPanel>
+
+							<StackPanel ItemSpacing="6">
+								<Text Value="ZOOM" TextColor="#888" FontSize="12" />
+								<Slider Minimum="{minZoom}" Maximum="{maxZoom}" Value="{zoom}" />
+								<Text Value="{zoomText}" TextColor="#fff" FontSize="12" />
+							</StackPanel>
+
+							<StackPanel ItemSpacing="6">
+								<Text Value="TORCH" TextColor="#888" FontSize="12" />
+								<Panel Padding="12,8" HitTestMode="LocalBoundsAndChildren" Clicked="{toggleTorch}">
+									<Rectangle Layer="Background" CornerRadius="6" Opacity="0.35">
+										<SolidColor Color="#ff0" />
+									</Rectangle>
+									<Text Value="{torchLabel}" TextColor="#fff" FontSize="12" Alignment="Center" />
+								</Panel>
+							</StackPanel>
+
+							<StackPanel ItemSpacing="6">
+								<Text Value="EXPOSURE COMPENSATION" TextColor="#888" FontSize="12" />
+								<Slider Minimum="{minExposure}" Maximum="{maxExposure}" Value="{exposure}" />
+								<Text Value="{exposureText}" TextColor="#fff" FontSize="12" />
+							</StackPanel>
+
+							<StackPanel ItemSpacing="6">
+								<Text Value="MANUAL EXPOSURE" TextColor="#888" FontSize="12" />
+								<Text Value="ISO" TextColor="#ccc" FontSize="11" />
+								<Slider Minimum="{minIso}" Maximum="{maxIso}" Value="{iso}" />
+								<Text Value="{isoText}" TextColor="#fff" FontSize="12" />
+								<Text Value="SHUTTER" TextColor="#ccc" FontSize="11" />
+								<Slider Minimum="0" Maximum="100" Value="{shutterSlider}" />
+								<Text Value="{shutterText}" TextColor="#fff" FontSize="12" />
+								<Panel Padding="12,8" HitTestMode="LocalBoundsAndChildren" Clicked="{setAutoExposure}">
+									<Rectangle Layer="Background" CornerRadius="6" Opacity="0.35">
+										<SolidColor Color="#f80" />
+									</Rectangle>
+									<Text Value="AUTO EXPOSURE" TextColor="#fff" FontSize="12" Alignment="Center" />
+								</Panel>
+							</StackPanel>
+
+							<StackPanel ItemSpacing="6">
+								<Text Value="WHITE BALANCE" TextColor="#888" FontSize="12" />
+								<Panel Padding="12,8" HitTestMode="LocalBoundsAndChildren" Clicked="{nextWhiteBalance}">
+									<Rectangle Layer="Background" CornerRadius="6" Opacity="0.35">
+										<SolidColor Color="#08f" />
+									</Rectangle>
+									<Text Value="{whiteBalanceLabel}" TextColor="#fff" FontSize="12" Alignment="Center" />
+								</Panel>
+								<Text Value="KELVIN" TextColor="#ccc" FontSize="11" />
+								<Slider Minimum="1000" Maximum="15000" Value="{whiteBalanceKelvin}" />
+								<Text Value="TINT" TextColor="#ccc" FontSize="11" />
+								<Slider Minimum="-150" Maximum="150" Value="{whiteBalanceTint}" />
+								<Text Value="{whiteBalanceText}" TextColor="#fff" FontSize="12" />
+							</StackPanel>
+
+							<StackPanel ItemSpacing="6">
+								<Text Value="FOCUS MODE" TextColor="#888" FontSize="12" />
+								<Panel Padding="12,8" HitTestMode="LocalBoundsAndChildren" Clicked="{nextFocusMode}">
+									<Rectangle Layer="Background" CornerRadius="6" Opacity="0.35">
+										<SolidColor Color="#8f8" />
+									</Rectangle>
+									<Text Value="{focusModeLabel}" TextColor="#fff" FontSize="12" Alignment="Center" />
+								</Panel>
+								<Text Value="MIRROR MODE" TextColor="#888" FontSize="12" />
+								<Panel Padding="12,8" HitTestMode="LocalBoundsAndChildren" Clicked="{nextMirrorMode}">
+									<Rectangle Layer="Background" CornerRadius="6" Opacity="0.35">
+										<SolidColor Color="#f8f" />
+									</Rectangle>
+									<Text Value="{mirrorModeLabel}" TextColor="#fff" FontSize="12" Alignment="Center" />
+								</Panel>
+							</StackPanel>
+
+							<StackPanel ItemSpacing="6">
+								<Text Value="FRAME ANALYSIS" TextColor="#888" FontSize="12" />
+								<Panel Padding="12,8" HitTestMode="LocalBoundsAndChildren" Clicked="{toggleBarcodeScanning}">
+									<Rectangle Layer="Background" CornerRadius="6" Opacity="0.35">
+										<SolidColor Color="#0af" />
+									</Rectangle>
+									<Text Value="{barcodeButtonLabel}" TextColor="#fff" FontSize="12" Alignment="Center" />
+								</Panel>
+								<Panel Padding="12,8" HitTestMode="LocalBoundsAndChildren" Clicked="{toggleFaceDetection}">
+									<Rectangle Layer="Background" CornerRadius="6" Opacity="0.35">
+										<SolidColor Color="#0af" />
+									</Rectangle>
+									<Text Value="{faceButtonLabel}" TextColor="#fff" FontSize="12" Alignment="Center" />
+								</Panel>
+								<Panel Padding="12,8" HitTestMode="LocalBoundsAndChildren" Clicked="{toggleFrameAnalysis}">
+									<Rectangle Layer="Background" CornerRadius="6" Opacity="0.35">
+										<SolidColor Color="#0af" />
+									</Rectangle>
+									<Text Value="{analysisButtonLabel}" TextColor="#fff" FontSize="12" Alignment="Center" />
+								</Panel>
+								<Panel Padding="12,8" HitTestMode="LocalBoundsAndChildren" Clicked="{toggleOverlay}">
+									<Rectangle Layer="Background" CornerRadius="6" Opacity="0.35">
+										<SolidColor Color="#0af" />
+									</Rectangle>
+									<Text Value="{overlayButtonLabel}" TextColor="#fff" FontSize="12" Alignment="Center" />
+								</Panel>
+							</StackPanel>
+
+							<StackPanel ItemSpacing="6">
+								<Text Value="LAST PHOTO" TextColor="#888" FontSize="12" />
+								<Text Value="{photoMetadataText}" TextColor="#fff" FontSize="12" TextWrapping="Wrap" />
+								<Text Value="LAST RECORDING" TextColor="#888" FontSize="12" />
+								<Text Value="{recordingMetadataText}" TextColor="#fff" FontSize="12" TextWrapping="Wrap" />
+							</StackPanel>
 						</StackPanel>
 					</ScrollView>
-					<CaptureMode Width="72%" Margin="8" Mode="{captureMode}" />
-				</StackPanel>
-				<Grid Dock="Fill" Columns="1*,1*,1*" >
-					<Panel Grid.Column="1">
-						<Match Value="{captureMode}">
-							<Case String="photo">
-								<CapturePhotoButton Clicked="{capturePhoto}" />
-							</Case>
-							<Case String="video">
-								<CaptureVideoButton />
-							</Case>
-						</Match>
-					</Panel>
-					<RotateIcon Grid.Column="2" Alignment="Center" Clicked="{flipCameraFacing}">
-						<Clicked>
-							<Scale Factor="0.8" Duration="0.15" Easing="ExponentialIn" EasingBack="BounceIn" DurationBack="0.35" />
-						</Clicked>
-					</RotateIcon>
-				</Grid>
-
-			</DockPanel>
-			<Panel Dock="Fill">
-				<CameraView.PhotoLoaded PhotoCaptureImageSource="_photoCaptureImageSource">
-					<Set _cameraPreview.Visibility="Visible" />
-					<Set _nativeViewHost.Visibility="Hidden" />
-				</CameraView.PhotoLoaded>
-				<Panel ux:Name="_cameraPreview" Visibility="Hidden">
-					<Panel HitTestMode="LocalBoundsAndChildren" Alignment="Bottom" Width="72%" Margin="0,0,0,8">
-						<Rectangle Layer="Background" CornerRadius="8" Opacity="0.65">
-							<SolidColor Color="#fff" />
-						</Rectangle>
-						<Clicked>
-							<Set _cameraPreview.Visibility="Hidden" />
-							<Set _nativeViewHost.Visibility="Visible" />
-						</Clicked>
-						<Text Value="DISMISS" Margin="4" TextColor="#000" Alignment="Center" />
-					</Panel>
-					<Image StretchMode="UniformToFill">
-						<CameraView.PhotoCaptureImageSource CameraView="_camera" ux:Name="_photoCaptureImageSource"  />
-					</Image>
-				</Panel>
-				<NativeViewHost ux:Name="_nativeViewHost">
-					<CameraView ux:Name="_camera" PreviewStretchMode="UniformToFill" ClipToBounds="true" Placed="{cameraPlaced}" />
-				</NativeViewHost>
+				</DockPanel>
 			</Panel>
-
-			<Panel Clicked="{tapToFocus}" HitTestMode="LocalBounds"></Panel>
-		</DockPanel>
+		</Panel>
 	</Page>
 
 	<Panel ux:Class="BackButton" Padding="8" Margin="4" HitTestMode="LocalBoundsAndChildren">

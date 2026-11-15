@@ -39,6 +39,8 @@ namespace Fuse.Controls
 
 		public abstract Future<string> Save();
 		public abstract Future<string> SaveThumbnail(ThumbnailSizeHint thumbnailSizeHint = null);
+		public abstract Future<bool> SaveToCameraRoll();
+		public abstract Future<PhotoMetadata> GetMetadata();
 		public abstract void Release();
 
 		static Photo()
@@ -46,6 +48,8 @@ namespace Fuse.Controls
 			ScriptClass.Register(typeof(Photo),
 				new ScriptPromise<Photo,string,string>("save", ExecutionThread.Any, save),
 				new ScriptPromise<Photo,string,string>("saveThumbnail", ExecutionThread.Any, saveThumbnail),
+				new ScriptPromise<Photo,bool,object>("saveToCameraRoll", ExecutionThread.Any, saveToCameraRoll, convertBool),
+				new ScriptPromise<Photo,PhotoMetadata,object>("getMetadata", ExecutionThread.Any, getMetadata, convertMetadata),
 				new ScriptMethod<Photo>("release", release));
 		}
 
@@ -127,6 +131,76 @@ namespace Fuse.Controls
 				}
 			}
 			return photo.SaveThumbnail(sizeHint);
+		}
+
+		/**
+			Save the photo to the device camera roll
+
+			@scriptmethod saveToCameraRoll()
+
+			Returns a promise that resolves to `true` when the photo was added to the camera roll.
+			On iOS this requires photo library access.
+		*/
+		static Future<bool> saveToCameraRoll(Context context, Photo photo, object[] args)
+		{
+			if (args.Length > 0)
+				return new Promise<bool>().RejectWithMessage("Unexpected argument(s)");
+
+			return photo.SaveToCameraRoll();
+		}
+
+		static object convertBool(Context c, bool value)
+		{
+			return value;
+		}
+
+		/**
+			Get the photo metadata
+
+			@scriptmethod getMetadata()
+
+			Returns a promise that resolves to an object describing the captured photo:
+
+			* `width` and `height` - the size in pixels, as the photo will be displayed
+			* `orientation` - the EXIF orientation (1 to 8)
+			* `timestamp` - the capture time in milliseconds since the Unix epoch, or 0
+			* `iso`, `exposureTime`, `fNumber` and `focalLength` - the camera settings
+			  used for the capture, or 0 when the platform does not provide them
+
+			```xml
+				<JavaScript>
+					Camera.capturePhoto()
+						.then(function(photo) {
+							photo.getMetadata()
+								.then(function(metadata) {
+									console.log(metadata.width + "x" + metadata.height);
+									photo.release();
+								});
+						})
+						.catch(function(err) { });
+				</JavaScript>
+			```
+		*/
+		static Future<PhotoMetadata> getMetadata(Context context, Photo photo, object[] args)
+		{
+			if (args.Length > 0)
+				return new Promise<PhotoMetadata>().RejectWithMessage("Unexpected argument(s)");
+
+			return photo.GetMetadata();
+		}
+
+		static object convertMetadata(Context c, PhotoMetadata metadata)
+		{
+			var obj = c.NewObject();
+			obj[PhotoMetadata.WidthName] = metadata.Width;
+			obj[PhotoMetadata.HeightName] = metadata.Height;
+			obj[PhotoMetadata.OrientationName] = metadata.Orientation;
+			obj[PhotoMetadata.TimestampName] = metadata.Timestamp;
+			obj[PhotoMetadata.IsoName] = metadata.Iso;
+			obj[PhotoMetadata.ExposureTimeName] = (double)metadata.ExposureTime;
+			obj[PhotoMetadata.FNumberName] = (double)metadata.FNumber;
+			obj[PhotoMetadata.FocalLengthName] = (double)metadata.FocalLength;
+			return obj;
 		}
 
 		/**

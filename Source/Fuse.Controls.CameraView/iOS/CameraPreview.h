@@ -10,6 +10,12 @@
 @property (nonatomic) AVCaptureSession* session;
 @property (nonatomic) BOOL fillView;
 
+/** Draws an opaque ARGB mask above the preview. Must be called on the main thread. */
+- (void)setOverlayPixels:(const uint32_t*)pixels width:(int)width height:(int)height;
+
+/** Removes the overlay. Must be called on the main thread. */
+- (void)clearOverlay;
+
 @end
 
 #endif

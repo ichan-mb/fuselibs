@@ -12,9 +12,14 @@ using Fuse.Resources.Exif;
 namespace Fuse.Controls.Android
 {
 	[ForeignInclude(Language.Java,
-		"com.fuse.camera.ImageStorageTools",
+		"com.fuse.controls.cameraview.CameraStorage",
+		"java.io.ByteArrayInputStream",
 		"java.io.File",
-		"java.io.FileOutputStream")]
+		"java.io.FileOutputStream",
+		"com.drew.imaging.ImageMetadataReader",
+		"com.drew.metadata.Metadata",
+		"com.drew.metadata.exif.ExifIFD0Directory",
+		"com.drew.metadata.exif.ExifSubIFDDirectory")]
 	extern(ANDROID) class NativePhoto : Photo
 	{
 		Java.Object _byteArray;
@@ -33,6 +38,50 @@ namespace Fuse.Controls.Android
 		{
 			return new SaveThumbnailPromise(_byteArray, thumbnailSizeHint);
 		}
+
+		public override Future<bool> SaveToCameraRoll()
+		{
+			var p = new SaveToCameraRollPromise(_byteArray);
+			p.Save();
+			return p;
+		}
+
+		class SaveToCameraRollPromise : CameraPromise<bool>
+		{
+			Java.Object _byteArray;
+
+			public SaveToCameraRollPromise(Java.Object byteArray)
+			{
+				_byteArray = byteArray;
+			}
+
+			public void Save()
+			{
+				SaveToCameraRoll(_byteArray, OnResolve, OnReject);
+			}
+
+			public void OnResolve(bool success) { Resolve(success); }
+			public void OnReject(string message) { Reject(new Exception(message)); }
+		}
+
+		[Foreign(Language.Java)]
+		static void SaveToCameraRoll(Java.Object byteArray, Action<bool> onResolve, Action<string> onReject)
+		@{
+			new java.lang.Thread(new java.lang.Runnable() {
+				public void run() {
+					try {
+						final boolean success = com.fuse.controls.cameraview.CameraStorage.saveImageBytesToGallery((byte[])byteArray);
+						new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+							public void run() { onResolve.run(success); }
+						});
+					} catch (final Exception e) {
+						new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+							public void run() { onReject.run(e.getMessage()); }
+						});
+					}
+				}
+			}).start();
+		@}
 
 		class UploadTexturePromise : CameraPromise<PhotoTexture>
 		{
@@ -126,6 +175,73 @@ namespace Fuse.Controls.Android
 				}
 			@}
 		}
+
+		public override Future<PhotoMetadata> GetMetadata()
+		{
+			var p = new MetadataPromise();
+			GetMetadata(_byteArray, p.OnResolve, p.OnReject);
+			return p;
+		}
+
+		class MetadataPromise : CameraPromise<PhotoMetadata>
+		{
+			public void OnResolve(int width, int height, int orientation, int iso, double timestamp, float exposureTime, float fNumber, float focalLength)
+			{
+				Resolve(PhotoMetadata.FromExif(width, height, orientation, iso, timestamp, exposureTime, fNumber, focalLength));
+			}
+
+			public void OnReject(string message) { Reject(new Exception(message)); }
+		}
+
+		[Foreign(Language.Java)]
+		static void GetMetadata(Java.Object byteArray, Action<int,int,int,int,double,float,float,float> onResolve, Action<string> onReject)
+		@{
+			byte[] bytes = (byte[])byteArray;
+
+			int width = 0;
+			int height = 0;
+			int orientation = 1;
+			int iso = 0;
+			double timestamp = 0.0;
+			float exposureTime = 0.0f;
+			float fNumber = 0.0f;
+			float focalLength = 0.0f;
+
+			android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+			options.inJustDecodeBounds = true;
+			android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+			width = options.outWidth;
+			height = options.outHeight;
+
+			try {
+				Metadata metadata = ImageMetadataReader.readMetadata(new ByteArrayInputStream(bytes));
+
+				ExifIFD0Directory ifd0 = metadata.getFirstDirectoryOfType(ExifIFD0Directory.class);
+				if (ifd0 != null && ifd0.containsTag(ExifIFD0Directory.TAG_ORIENTATION))
+					orientation = ifd0.getInt(ExifIFD0Directory.TAG_ORIENTATION);
+
+				ExifSubIFDDirectory sub = metadata.getFirstDirectoryOfType(ExifSubIFDDirectory.class);
+				if (sub != null) {
+					if (sub.containsTag(ExifSubIFDDirectory.TAG_ISO_EQUIVALENT))
+						iso = sub.getInt(ExifSubIFDDirectory.TAG_ISO_EQUIVALENT);
+					if (sub.containsTag(ExifSubIFDDirectory.TAG_EXPOSURE_TIME))
+						exposureTime = (float)sub.getDouble(ExifSubIFDDirectory.TAG_EXPOSURE_TIME);
+					if (sub.containsTag(ExifSubIFDDirectory.TAG_FNUMBER))
+						fNumber = (float)sub.getDouble(ExifSubIFDDirectory.TAG_FNUMBER);
+					if (sub.containsTag(ExifSubIFDDirectory.TAG_FOCAL_LENGTH))
+						focalLength = (float)sub.getDouble(ExifSubIFDDirectory.TAG_FOCAL_LENGTH);
+					if (sub.containsTag(ExifSubIFDDirectory.TAG_DATETIME_ORIGINAL)) {
+						java.util.Date date = sub.getDate(ExifSubIFDDirectory.TAG_DATETIME_ORIGINAL);
+						if (date != null)
+							timestamp = date.getTime();
+					}
+				}
+			} catch (Throwable e) {
+				// Metadata is optional, fall back to the defaults.
+			}
+
+			onResolve.run(width, height, orientation, iso, timestamp, exposureTime, fNumber, focalLength);
+		@}
 
 		internal override Future<PhotoTexture> GetTexture()
 		{
@@ -251,7 +367,7 @@ namespace Fuse.Controls.Android
 					new java.lang.Runnable() {
 						public void run() {
 							try {
-								String filePath = ImageStorageTools.createFilePath("jpeg", true);
+								String filePath = CameraStorage.createImageFilePath("jpeg");
 								File picture = new File(filePath);
 								FileOutputStream fos = new FileOutputStream(picture);
 								fos.write((byte[])byteArray);
@@ -267,7 +383,7 @@ namespace Fuse.Controls.Android
 		}
 
 		[ForeignInclude(Language.Java,
-			"com.fuse.camera.ImageStorageTools",
+			"com.fuse.controls.cameraview.CameraStorage",
 			"java.lang.Thread",
 			"java.lang.Runnable",
 			"android.graphics.Bitmap",
@@ -353,7 +469,7 @@ namespace Fuse.Controls.Android
 
 					output = Bitmap.createScaledBitmap(input, scaledWidth, scaledHeight, true);
 
-					String filePath = ImageStorageTools.createFilePath("jpeg", true);
+					String filePath = CameraStorage.createImageFilePath("jpeg");
 					File picture = new File(filePath);
 					FileOutputStream fos = new FileOutputStream(picture);
 					output.compress(Bitmap.CompressFormat.JPEG, 100, fos);

@@ -3,10 +3,10 @@
 	<Fuse.Controls.iOS.CameraView ux:Condition="iOS" ux:Template="iOSAppearance" Host="this" />
 	<Panel ux:Template="GraphicsAppearance">
 		<iOS>
-			<Text FontSize="28" Alignment="VerticalCenter" TextAlignment="Center" TextWrapping="Wrap" Value="CameraView is a native view, use inside &lt;NativeViewHost /&gt;" TextColor="#000" />
+			<Text FontSize="28" Alignment="VerticalCenter" TextAlignment="Center" TextWrapping="Wrap" Value="CameraView requires the native renderer" TextColor="#000" />
 		</iOS>
 		<Android>
-			<Text FontSize="28" Alignment="VerticalCenter" TextAlignment="Center" TextWrapping="Wrap" Value="CameraView is a native view, use inside &lt;NativeViewHost /&gt;" TextColor="#000" />
+			<Text FontSize="28" Alignment="VerticalCenter" TextAlignment="Center" TextWrapping="Wrap" Value="CameraView requires the native renderer" TextColor="#000" />
 		</Android>
 		<Panel>
 			<Panel ux:Template="GraphicsAppearance">
