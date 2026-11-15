@@ -11,6 +11,7 @@
     "Fuse.Audio",
     "Fuse.Camera",
     "Fuse.CameraRoll",
+    "Fuse.Controls.AVPlayer",
     "Fuse.Controls.CameraView",
     "Fuse.ImageTools",
     "Fuse.Launcher",

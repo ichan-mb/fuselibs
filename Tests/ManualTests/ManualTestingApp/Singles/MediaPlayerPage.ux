@@ -1,0 +1,320 @@
+<Page Title="MediaPlayer" ux:Class="MediaPlayerPage">
+	<InfoStack ux:Key="Info">
+		<p
+		>Tests the `MediaPlayer` element, which uses ExoPlayer (AndroidX Media3) on Android and `AVPlayer` on iOS.</p>
+		<p
+		>Check that playback, position and duration work for all sources, that the status line follows play / pause / loading / completed / failed, that dragging the slider seeks, that looping, speed, volume, mute, stretch modes, native controls and the quality cap can be changed while playing, and that the app pauses and resumes correctly when backgrounded.</p>
+		<p
+		>The page starts with a bundled file. Use the source buttons to switch to an HLS or MP4 stream; the URL is replaced, so the position resets.</p>
+		<p>The status text shows the most recently activated trigger.</p>
+	</InfoStack>
+
+	<JavaScript>
+function seekBack() {
+	_player.seek(Math.max(0, _player.getPosition() - 10));
+}
+
+function seekForward() {
+	_player.seek(_player.getPosition() + 10);
+}
+
+function logState() {
+	console.log(
+		"MediaPlayer state=" +
+			_player.getState() +
+			" position=" +
+			_player.getPosition() +
+			" duration=" +
+			_player.getDuration(),
+	);
+}
+
+module.exports = {
+	seekBack: seekBack,
+	seekForward: seekForward,
+	logState: logState,
+};
+	</JavaScript>
+
+	<DockPanel>
+		<!-- Declared before the player so the triggers inside it can reference them -->
+		<ScrollView Dock="Bottom" Height="52%">
+			<StackPanel Margin="4">
+				<Text ux:Name="_status" Value="Status: -" />
+				<Text
+					Value="Position: {=floor({ReadProperty _player.PlaybackPosition})}s of {=floor({ReadProperty _player.Duration})}s"
+				/>
+				<Slider
+					Minimum="0"
+					Maximum="{_player.Duration}"
+					Value="{_player.PlaybackPosition}"
+				/>
+
+				<Text Value="Source" Margin="0,6,0,0" />
+				<Grid Columns="1*,1*" DefaultRow="auto">
+					<StdButton Text="HLS stream">
+						<Clicked>
+							<Change _player.Url="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="MP4 stream">
+						<Clicked>
+							<Change
+								_player.Url="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+							/>
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Broken URL">
+						<Clicked>
+							<Change _player.Url="https://example.invalid/missing.mp4" />
+						</Clicked>
+					</StdButton>
+				</Grid>
+
+				<Text Value="Transport" Margin="0,6,0,0" />
+				<Grid Columns="1*,1*" DefaultRow="auto">
+					<StdButton Text="Play">
+						<Clicked>
+							<Play Target="_player" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Pause">
+						<Clicked>
+							<Pause Target="_player" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Stop">
+						<Clicked>
+							<Stop Target="_player" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Reset">
+						<Clicked>
+							<Reset Target="_player" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Seek 0%">
+						<Clicked>
+							<Seek Target="_player" Progress="0" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Seek 50%">
+						<Clicked>
+							<Seek Target="_player" Progress="0.5" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="-10s (JS)" Clicked="{seekBack}" />
+					<StdButton Text="+10s (JS)" Clicked="{seekForward}" />
+					<StdButton Text="Log state (JS)" Clicked="{logState}" />
+				</Grid>
+
+				<Text Value="Rate and audio" Margin="0,6,0,0" />
+				<Grid Columns="1*,1*" DefaultRow="auto">
+					<StdButton Text="Rate 0.5">
+						<Clicked>
+							<Change _player.PlaybackRate="0.5" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Rate 2.0">
+						<Clicked>
+							<Change _player.PlaybackRate="2" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Volume 0.5">
+						<Clicked>
+							<Change _player.Volume="0.5" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Volume 1.0">
+						<Clicked>
+							<Change _player.Volume="1" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Mute">
+						<Clicked>
+							<Change _player.Muted="true" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Unmute">
+						<Clicked>
+							<Change _player.Muted="false" />
+						</Clicked>
+					</StdButton>
+				</Grid>
+
+				<Text
+					Value="Loop and AutoPlay (applied when a source is loaded)"
+					Margin="0,6,0,0"
+				/>
+				<Grid Columns="1*,1*" DefaultRow="auto">
+					<StdButton Text="Loop on">
+						<Clicked>
+							<Change _player.IsLooping="true" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Loop off">
+						<Clicked>
+							<Change _player.IsLooping="false" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="AutoPlay on">
+						<Clicked>
+							<Change _player.AutoPlay="true" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="AutoPlay off">
+						<Clicked>
+							<Change _player.AutoPlay="false" />
+						</Clicked>
+					</StdButton>
+				</Grid>
+
+				<Text Value="Presentation" Margin="0,6,0,0" />
+				<Grid Columns="1*,1*" DefaultRow="auto">
+					<StdButton Text="Uniform">
+						<Clicked>
+							<Change _player.StretchMode="Uniform" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="UniformToFill">
+						<Clicked>
+							<Change _player.StretchMode="UniformToFill" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Fill">
+						<Clicked>
+							<Change _player.StretchMode="Fill" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Controls off">
+						<Clicked>
+							<Change _player.ShowControls="false" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Controls on">
+						<Clicked>
+							<Change _player.ShowControls="true" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Keep screen on">
+						<Clicked>
+							<Change _player.KeepScreenOn="true" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Keep screen off">
+						<Clicked>
+							<Change _player.KeepScreenOn="false" />
+						</Clicked>
+					</StdButton>
+				</Grid>
+
+				<Text Value="Stream quality (HLS only)" Margin="0,6,0,0" />
+				<Grid Columns="1*,1*" DefaultRow="auto">
+					<StdButton Text="Quality Auto">
+						<Clicked>
+							<Change _player.StreamQuality="Auto" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Quality SD">
+						<Clicked>
+							<Change _player.StreamQuality="SD" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Quality HD">
+						<Clicked>
+							<Change _player.StreamQuality="HD" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Quality FullHD">
+						<Clicked>
+							<Change _player.StreamQuality="FullHD" />
+						</Clicked>
+					</StdButton>
+				</Grid>
+
+				<Text Value="Background behaviour" Margin="0,6,0,0" />
+				<Grid Columns="1*,1*" DefaultRow="auto">
+					<StdButton Text="Bg: pause">
+						<Clicked>
+							<Change _player.PauseWhenBackgrounded="true" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Bg: keep playing">
+						<Clicked>
+							<Change _player.PauseWhenBackgrounded="false" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="Resume on foreground">
+						<Clicked>
+							<Change _player.ResumeOnForeground="true" />
+						</Clicked>
+					</StdButton>
+					<StdButton Text="No resume">
+						<Clicked>
+							<Change _player.ResumeOnForeground="false" />
+						</Clicked>
+					</StdButton>
+				</Grid>
+
+				<Text Value="Errors" Margin="0,6,0,0" />
+				<Text Value="{_player.ErrorMessage}" TextWrapping="Wrap" />
+			</StackPanel>
+		</ScrollView>
+
+		<Panel>
+			<Panel
+				ux:Name="_loadingMessage"
+				Background="#000"
+				Opacity="0.5"
+				Visibility="Hidden"
+			>
+				<Text TextColor="#fff" Alignment="Center">Loading...</Text>
+			</Panel>
+
+			<Panel
+				ux:Name="_completedMessage"
+				Background="#000"
+				Opacity="0.5"
+				Visibility="Hidden"
+			>
+				<Text TextColor="#fff" Alignment="Center">Completed</Text>
+			</Panel>
+
+			<Panel ux:Name="_failedMessage" Background="#000" Visibility="Hidden">
+				<Text
+					TextColor="#f00"
+					Alignment="Center"
+					TextWrapping="Wrap"
+				>Failed: {_player.ErrorMessage}</Text>
+			</Panel>
+
+			<MediaPlayer
+				ux:Name="_player"
+				File="../Assets/video/big_buck_bunny_0.mp4"
+				AutoPlay="false"
+				StretchMode="Uniform"
+				Margin="4"
+			>
+
+				<WhilePlaying>
+					<Change _status.Value="Status: playing" />
+				</WhilePlaying>
+				<WhilePaused>
+					<Change _status.Value="Status: paused" />
+				</WhilePaused>
+				<WhileLoading>
+					<Change _status.Value="Status: loading" />
+					<Change _loadingMessage.Visibility="Visible" />
+				</WhileLoading>
+				<WhileCompleted>
+					<Change _status.Value="Status: completed" />
+					<Change _completedMessage.Visibility="Visible" />
+				</WhileCompleted>
+				<WhileFailed>
+					<Change _status.Value="Status: failed" />
+					<Change _failedMessage.Visibility="Visible" />
+				</WhileFailed>
+			</MediaPlayer>
+		</Panel>
+	</DockPanel>
+</Page>
