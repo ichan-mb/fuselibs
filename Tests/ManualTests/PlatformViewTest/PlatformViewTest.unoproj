@@ -1,0 +1,15 @@
+{
+  "outputType": "app",
+  "references": [
+    "Fuse",
+    "Fuse.PlatformView"
+  ],
+  "includes": [
+    "*",
+    "FusePlatformViewSetup.swift:Swift:iOS",
+    "PlatformViewSetup.kt:Kotlin:Android"
+  ],
+  "iOS": {
+    "bundleIdentifier": "com.fuseopen.platformviewtest"
+  }
+}

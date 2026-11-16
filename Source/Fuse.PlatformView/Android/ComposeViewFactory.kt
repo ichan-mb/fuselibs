@@ -2,17 +2,92 @@ package com.fuse.android.kt
 
 import android.content.Context
 import android.util.AttributeSet
+import android.view.View.MeasureSpec
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.ViewCompositionStrategy
-import androidx.lifecycle.LifecycleOwner
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.findViewTreeLifecycleOwner
 import com.fuse.Activity
 import org.json.JSONArray
 import org.json.JSONObject
+
+/** A composable that renders a native view for a Fuse `PlatformView`. */
+typealias PlatformViewContent = @Composable (PlatformViewData) -> Unit
+
+/**
+ * Registry of Compose views available to Fuse `PlatformView`s, keyed by `ViewName`.
+ *
+ * Prefer `PlatformViewRegistry.register` over assigning directly.
+ */
+val viewRegistration: MutableMap<String, PlatformViewContent> = LinkedHashMap()
+
+/**
+ * Registration API for Compose views embedded in Fuse.
+ *
+ * Views should be registered before a `PlatformView` with the same `ViewName` is created.
+ *
+ * ```kotlin
+ * PlatformViewRegistry.register("MyView") { data -> MyView(data) }
+ * ```
+ */
+object PlatformViewRegistry {
+    private var didBootstrap = false
+
+    /**
+     * Runs the app-provided `com.fuse.platformview.PlatformViewSetup.install()` hook once, if present.
+     *
+     * Apps register their views in that object:
+     * ```kotlin
+     * package com.fuse.platformview
+     *
+     * object PlatformViewSetup {
+     *     @JvmStatic fun install() {
+     *         PlatformViewRegistry.register("MyView") { data -> MyView(data) }
+     *     }
+     * }
+     * ```
+     */
+    private fun bootstrapIfNeeded() {
+        if (didBootstrap) return
+        didBootstrap = true
+
+        try {
+            val setup = Class.forName("com.fuse.platformview.PlatformViewSetup")
+            setup.getMethod("install").invoke(null)
+        } catch (e: ClassNotFoundException) {
+            // The app did not provide a setup object.
+        } catch (e: Throwable) {
+            android.util.Log.e("PlatformView", "PlatformViewSetup.install() failed", e)
+        }
+    }
+
+    /** Registers a Compose view under the given name. */
+    fun register(name: String, content: PlatformViewContent) {
+        bootstrapIfNeeded()
+        viewRegistration[name] = content
+    }
+
+    /** Removes the view registered under the given name. */
+    fun unregister(name: String) {
+        bootstrapIfNeeded()
+        viewRegistration.remove(name)
+    }
+
+    /** Returns the view registered under the given name, if any. */
+    internal fun find(name: String): PlatformViewContent? {
+        bootstrapIfNeeded()
+        return viewRegistration[name]
+    }
+}
 
 /**
  * Jetpack Compose View Factory for Fuse Platform Views
@@ -24,22 +99,39 @@ import org.json.JSONObject
 
 /**
  * ViewModel that manages data synchronization between Fuse and Jetpack Compose views. This class
- * uses MutableLiveData to automatically notify Compose views when data changes, and includes
- * callback functions to notify Fuse when data is modified from the Compose side.
+ * uses MutableLiveData to notify Compose views when data changes, and holds callback functions used
+ * to notify Fuse when data is modified from the Compose side.
  *
- * The ViewModel follows Android's MVVM architecture pattern and ensures data persistence across
- * configuration changes while maintaining the connection to Fuse's data layer.
+ * Fuse-to-native updates go through `set*`, which only updates the LiveData. Native-to-Fuse updates
+ * go through `update*`, which updates the LiveData and invokes the matching callback. Keeping these
+ * paths separate prevents data pushed from Fuse from being echoed back to Fuse.
  */
 class PlatformViewData() : ViewModel() {
 
     /** General event callback for custom events from Compose views */
-    var onCallbackReceived: (String, String) -> Unit = { key: String, value: String -> }
+    var onCallbackReceived: (String, String) -> Unit = { _, _ -> }
+
+    /**
+     * Invoked when Fuse sends a command to this native view via `PlatformView.Invoke`.
+     * The first argument is the command name, the second is the JSON arguments (or an empty string).
+     */
+    var onCommand: (String, String) -> Unit = { _, _ -> }
+
+    /** Invoked when this native view becomes visible. */
+    var onAppeared: () -> Unit = {}
+
+    /** Invoked when this native view is no longer visible. */
+    var onDisappeared: () -> Unit = {}
+
+    /** Environment overrides supplied by Fuse (for example `colorScheme` and `layoutDirection`). */
+    var environment: Map<String, Any?> by mutableStateOf(emptyMap())
+        private set
 
     /** LiveData containing object/map data passed between Fuse and Compose */
-    val get: MutableLiveData<Map<String, Any>> = MutableLiveData(mapOf())
+    val get: MutableLiveData<Map<String, Any?>> = MutableLiveData<Map<String, Any?>>(emptyMap<String, Any?>())
 
     /** LiveData containing array/list data passed between Fuse and Compose */
-    val getArray: MutableLiveData<List<Any>> = MutableLiveData(listOf())
+    val getArray: MutableLiveData<List<Any?>> = MutableLiveData<List<Any?>>(emptyList<Any?>())
 
     /** LiveData containing string data passed between Fuse and Compose */
     val getString: MutableLiveData<String> = MutableLiveData("")
@@ -50,15 +142,30 @@ class PlatformViewData() : ViewModel() {
     /** LiveData containing float data passed between Fuse and Compose */
     val getFloat: MutableLiveData<Float> = MutableLiveData(0.0f)
 
+    /** LiveData containing double data passed between Fuse and Compose */
+    val getDouble: MutableLiveData<Double> = MutableLiveData(0.0)
+
     /** LiveData containing boolean data passed between Fuse and Compose */
     val getBool: MutableLiveData<Boolean> = MutableLiveData(false)
 
+    /** Callback invoked when integer data changes in Compose */
+    private var onIntegerReceived: (Int) -> Unit = {}
+    /** Callback invoked when double data changes in Compose */
+    private var onDoubleReceived: (Double) -> Unit = {}
+    /** Callback invoked when float data changes in Compose */
+    private var onFloatReceived: (Float) -> Unit = {}
+    /** Callback invoked when boolean data changes in Compose */
+    private var onBoolReceived: (Boolean) -> Unit = {}
+    /** Callback invoked when string data changes in Compose */
+    private var onStringReceived: (String) -> Unit = {}
+    /** Callback invoked when object/map data changes in Compose */
+    private var onObjectReceived: (Map<String, Any?>) -> Unit = {}
+    /** Callback invoked when array/list data changes in Compose */
+    private var onArrayReceived: (List<Any?>) -> Unit = {}
+
     /**
-     * Sets up observers for all LiveData properties and establishes callback connections to Fuse.
-     * This method connects the Android LiveData system with Fuse's callback system, enabling
-     * two-way data binding between Compose views and Fuse.
+     * Registers the callbacks used to propagate native changes back to Fuse.
      *
-     * @param lifecycleOwner The lifecycle owner to bind observers to (typically the Activity)
      * @param onIntegerReceived Callback invoked when integer data changes in Compose
      * @param onFloatReceived Callback invoked when float data changes in Compose
      * @param onBoolReceived Callback invoked when boolean data changes in Compose
@@ -68,22 +175,38 @@ class PlatformViewData() : ViewModel() {
      * @param onCallbackReceived Callback invoked for custom events from Compose
      */
     fun installCallback(
-            lifecycleOwner: LifecycleOwner,
             onIntegerReceived: (Int) -> Unit,
+            onDoubleReceived: (Double) -> Unit,
             onFloatReceived: (Float) -> Unit,
             onBoolReceived: (Boolean) -> Unit,
             onStringReceived: (String) -> Unit,
-            onObjectReceived: (Map<String, Any>) -> Unit,
-            onArrayReceived: (List<Any>) -> Unit,
+            onObjectReceived: (Map<String, Any?>) -> Unit,
+            onArrayReceived: (List<Any?>) -> Unit,
             onCallbackReceived: (String, String) -> Unit
     ) {
-        getInteger.observe(lifecycleOwner, onIntegerReceived)
-        getFloat.observe(lifecycleOwner, onFloatReceived)
-        getBool.observe(lifecycleOwner, onBoolReceived)
-        getString.observe(lifecycleOwner, onStringReceived)
-        get.observe(lifecycleOwner, onObjectReceived)
-        getArray.observe(lifecycleOwner, onArrayReceived)
+        this.onIntegerReceived = onIntegerReceived
+        this.onDoubleReceived = onDoubleReceived
+        this.onFloatReceived = onFloatReceived
+        this.onBoolReceived = onBoolReceived
+        this.onStringReceived = onStringReceived
+        this.onObjectReceived = onObjectReceived
+        this.onArrayReceived = onArrayReceived
         this.onCallbackReceived = onCallbackReceived
+    }
+
+    /** Removes all callbacks so a disposed view does not notify Fuse anymore. */
+    fun clearCallbacks() {
+        onIntegerReceived = {}
+        onDoubleReceived = {}
+        onFloatReceived = {}
+        onBoolReceived = {}
+        onStringReceived = {}
+        onObjectReceived = {}
+        onArrayReceived = {}
+        onCallbackReceived = { _, _ -> }
+        onCommand = { _, _ -> }
+        onAppeared = {}
+        onDisappeared = {}
     }
 
     /**
@@ -96,34 +219,100 @@ class PlatformViewData() : ViewModel() {
         onCallbackReceived(key, value)
     }
 
-    /** Updates the integer LiveData value, triggering observers and Fuse callbacks */
+    /** Delivers a command sent from Fuse to this native view. */
+    fun invoke(command: String, arguments: String) {
+        onCommand(command, arguments)
+    }
+
+    /** Applies environment overrides supplied by Fuse. */
+    fun setEnvironment(newEnvironment: Map<String, Any?>) {
+        environment = newEnvironment
+    }
+
+    // Native -> Fuse
+
+    /** Updates the integer value and notifies Fuse */
     fun updateInteger(newInt: Int) {
+        getInteger.value = newInt
+        onIntegerReceived(newInt)
+    }
+
+    /** Updates the float value and notifies Fuse */
+    fun updateFloat(newFloat: Float) {
+        getFloat.value = newFloat
+        onFloatReceived(newFloat)
+    }
+
+    /** Updates the double value and notifies Fuse */
+    fun updateDouble(newDouble: Double) {
+        getDouble.value = newDouble
+        onDoubleReceived(newDouble)
+    }
+
+    /** Updates the boolean value and notifies Fuse */
+    fun updateBool(newBool: Boolean) {
+        getBool.value = newBool
+        onBoolReceived(newBool)
+    }
+
+    /** Updates the string value and notifies Fuse */
+    fun updateString(newString: String) {
+        getString.value = newString
+        onStringReceived(newString)
+    }
+
+    /** Updates the object/map value and notifies Fuse */
+    fun updateObject(newObject: Map<String, Any?>) {
+        get.value = newObject
+        onObjectReceived(newObject)
+    }
+
+    /** Updates the array/list value and notifies Fuse */
+    fun updateList(newList: List<Any?>) {
+        getArray.value = newList
+        onArrayReceived(newList)
+    }
+
+    // Fuse -> native (no callback, so updates are not echoed back)
+
+    /** Updates integer data from Fuse, without notifying Fuse. */
+    fun setInteger(newInt: Int) {
         getInteger.value = newInt
     }
 
-    /** Updates the float LiveData value, triggering observers and Fuse callbacks */
-    fun updateFloat(newFloat: Float) {
+    /** Updates float data from Fuse, without notifying Fuse. */
+    fun setFloat(newFloat: Float) {
         getFloat.value = newFloat
     }
 
-    /** Updates the boolean LiveData value, triggering observers and Fuse callbacks */
-    fun updateBool(newBool: Boolean) {
+    /** Updates double data from Fuse, without notifying Fuse. */
+    fun setDouble(newDouble: Double) {
+        getDouble.value = newDouble
+    }
+
+    /** Updates boolean data from Fuse, without notifying Fuse. */
+    fun setBool(newBool: Boolean) {
         getBool.value = newBool
     }
 
-    /** Updates the string LiveData value, triggering observers and Fuse callbacks */
-    fun updateString(newString: String) {
+    /** Updates string data from Fuse, without notifying Fuse. */
+    fun setString(newString: String) {
         getString.value = newString
     }
 
-    /** Updates the object/map LiveData value, triggering observers and Fuse callbacks */
-    fun updateObject(newObject: Map<String, Any>) {
+    /** Updates object/map data from Fuse, without notifying Fuse. */
+    fun setObject(newObject: Map<String, Any?>) {
         get.value = newObject
     }
 
-    /** Updates the array/list LiveData value, triggering observers and Fuse callbacks */
-    fun updateList(newList: List<Any>) {
+    /** Updates array/list data from Fuse, without notifying Fuse. */
+    fun setList(newList: List<Any?>) {
         getArray.value = newList
+    }
+
+    protected override fun onCleared() {
+        clearCallbacks()
+        super.onCleared()
     }
 }
 
@@ -175,115 +364,241 @@ class ComposeContainer @JvmOverloads constructor(context: Context, attrs: Attrib
      * @param objectCallback Callback for object data changes from Compose to Fuse (JSON serialized)
      * @param arrayCallback Callback for array data changes from Compose to Fuse (JSON serialized)
      * @param eventCallback Callback for custom events from Compose to Fuse
+     * @param onViewNotFound Callback invoked when no view is registered under `name`
      */
     fun showView(
             name: String,
             integerCallback: (Int) -> Unit,
+            doubleCallback: (Double) -> Unit,
             floatCallback: (Float) -> Unit,
             boolCallback: (Boolean) -> Unit,
             stringCallback: (String) -> Unit,
             objectCallback: (String) -> Unit,
             arrayCallback: (String) -> Unit,
-            eventCallback: (String, String) -> Unit
+            eventCallback: (String, String) -> Unit,
+            onViewNotFound: (String) -> Unit,
+            loadedCallback: () -> Unit,
+            appearedCallback: () -> Unit,
+            disappearedCallback: () -> Unit
     ) {
-        viewRegistration[name]?.let { it ->
-            composeView.setContent {
-                composeView.findViewTreeLifecycleOwner()?.let { lifeCycleOwner ->
-                    platformData.installCallback(
-                            lifeCycleOwner,
-                            integerCallback,
-                            floatCallback,
-                            boolCallback,
-                            stringCallback,
-                            { data: Map<String, Any> ->
-                                objectCallback(JSONObject(data).toString())
-                            },
-                            { data: List<Any> -> arrayCallback(JSONArray(data).toString()) },
-                            eventCallback
-                    )
+        val content = PlatformViewRegistry.find(name)
+        if (content == null) {
+            onViewNotFound(name)
+            composeView.setContent { }
+            return
+        }
+
+        // Callbacks are installed once, outside of composition, so they are not
+        // re-registered on every recomposition.
+        platformData.installCallback(
+                integerCallback,
+                doubleCallback,
+                floatCallback,
+                boolCallback,
+                stringCallback,
+                { data -> objectCallback(data.toJsonString()) },
+                { data -> arrayCallback(data.toJsonString()) },
+                eventCallback
+        )
+        platformData.onAppeared = appearedCallback
+        platformData.onDisappeared = disappearedCallback
+
+        composeView.setContent {
+            val layoutDirection = when (platformData.environment["layoutDirection"]) {
+                "rtl" -> LayoutDirection.Rtl
+                "ltr" -> LayoutDirection.Ltr
+                else -> LocalLayoutDirection.current
+            }
+
+            CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
+                DisposableEffect(Unit) {
+                    platformData.onAppeared()
+                    onDispose { platformData.onDisappeared() }
                 }
-                it(platformData)
+                content(platformData)
             }
         }
+
+        loadedCallback()
     }
 
     /** Updates integer data from Fuse side, triggering Compose view updates */
     fun setDataInteger(data: Int) {
-        platformData.updateInteger(data)
+        platformData.setInteger(data)
     }
 
     /** Updates float data from Fuse side, triggering Compose view updates */
     fun setDataFloat(data: Float) {
-        platformData.updateFloat(data)
+        platformData.setFloat(data)
+    }
+
+    /** Updates double data from Fuse side, triggering Compose view updates */
+    fun setDataDouble(data: Double) {
+        platformData.setDouble(data)
     }
 
     /** Updates boolean data from Fuse side, triggering Compose view updates */
     fun setDataBool(data: Boolean) {
-        platformData.updateBool(data)
+        platformData.setBool(data)
     }
 
     /** Updates string data from Fuse side, triggering Compose view updates */
     fun setDataString(data: String) {
-        platformData.updateString(data)
+        platformData.setString(data)
+    }
+
+    /**
+     * Measures the container. When a dimension is unspecified (for example `Height="Auto"`),
+     * the size reported by the hosted Compose content is used.
+     */
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        composeView.measure(widthMeasureSpec, heightMeasureSpec)
+
+        val width = when (MeasureSpec.getMode(widthMeasureSpec)) {
+            MeasureSpec.UNSPECIFIED -> composeView.measuredWidth
+            MeasureSpec.AT_MOST -> minOf(composeView.measuredWidth, MeasureSpec.getSize(widthMeasureSpec))
+            else -> MeasureSpec.getSize(widthMeasureSpec)
+        }
+
+        val height = when (MeasureSpec.getMode(heightMeasureSpec)) {
+            MeasureSpec.UNSPECIFIED -> composeView.measuredHeight
+            MeasureSpec.AT_MOST -> minOf(composeView.measuredHeight, MeasureSpec.getSize(heightMeasureSpec))
+            else -> MeasureSpec.getSize(heightMeasureSpec)
+        }
+
+        setMeasuredDimension(width, height)
+    }
+
+    /** Delivers a command from Fuse to the current Compose content. */
+    fun invoke(command: String, arguments: String) {
+        platformData.invoke(command, arguments)
+    }
+
+    /** Applies environment overrides (color scheme, layout direction) from Fuse. */
+    fun setEnvironment(json: String) {
+        val map: Map<String, Any?> = try {
+            JSONObject(json).toMap()
+        } catch (e: Exception) {
+            emptyMap()
+        }
+        platformData.setEnvironment(map)
+        contentDescription = map["accessibilityLabel"] as? String
     }
 
     /**
      * Updates object data from Fuse side by parsing JSON string to Map. The JSON is deserialized
-     * and passed to Compose views as a Map<String, Any>.
+     * and passed to Compose views as a Map<String, Any?>.
      *
      * @param data JSON string representing the object data
      */
     fun setDataObject(data: String) {
-        val jsonObj = JSONObject(data)
-        val map = jsonObj.toMap()
-        platformData.updateObject(map)
+        val map: Map<String, Any?> = try {
+            JSONObject(data).toMap()
+        } catch (e: Exception) {
+            emptyMap()
+        }
+        platformData.setObject(map)
     }
 
     /**
      * Updates array data from Fuse side by parsing JSON string to List. The JSON array is
-     * deserialized and passed to Compose views as a List<Any>.
+     * deserialized and passed to Compose views as a List<Any?>.
      *
      * @param data JSON string representing the array data
      */
     fun setDataArray(data: String) {
-        val jsonArray = JSONArray(data)
-        val list = jsonArray.toArrayList()
-        platformData.updateList(list)
+        val list: List<Any?> = try {
+            JSONArray(data).toArrayList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+        platformData.setList(list)
+    }
+
+    /** Removes the current Compose content and stops notifying Fuse. */
+    fun clearView() {
+        platformData.clearCallbacks()
+        composeView.setContent { }
+    }
+
+    /** Releases all callbacks and content associated with this container. */
+    fun dispose() {
+        clearView()
+        removeAllViews()
     }
 }
 
 /**
- * Extension function to convert JSONArray to ArrayList for easier use in Compose. Handles nested
- * JSONObjects by recursively converting them to Maps.
+ * Converts a [JSONArray] to an [ArrayList]. Nested objects and arrays are converted recursively,
+ * and `JSONObject.NULL` is converted to Kotlin `null`.
  *
  * @return ArrayList containing the converted JSON array elements
  */
-fun JSONArray.toArrayList(): ArrayList<Any> {
-    val list = ArrayList<Any>()
-    for (i in 0 until this.length()) {
-        val obj = this.optJSONObject(i)
-        if (obj != null) list.add(obj.toMap()) else list.add(this.get(i))
+fun JSONArray.toArrayList(): ArrayList<Any?> {
+    val list = ArrayList<Any?>(length())
+    for (i in 0 until length()) {
+        list.add(opt(i).toKotlinValue())
     }
     return list
 }
 
 /**
- * Extension function to convert JSONObject to Map for easier use in Compose. Handles nested
- * structures including nested JSONArrays and JSONObjects. Also handles JSONObject.NULL values by
- * converting them to Kotlin null.
+ * Converts a [JSONObject] to a [Map]. Nested objects and arrays are converted recursively, and
+ * `JSONObject.NULL` is converted to Kotlin `null`.
  *
- * @return Map<String, Any> containing the converted JSON object data
+ * @return Map containing the converted JSON object data
  */
- fun JSONObject.toMap(): Map<String, Any> = keys().asSequence().associateWith {
-     when (val value = this[it])
-     {
-         is JSONArray ->
-         {
-             val map = (0 until value.length()).associate { Pair(it.toString(), value[it]) }
-             JSONObject(map).toMap().values.toList()
-         }
-         is JSONObject -> value.toMap()
-         JSONObject.NULL -> null
-         else  -> value
-     } as Any
- }
+fun JSONObject.toMap(): Map<String, Any?> {
+    val map = LinkedHashMap<String, Any?>()
+    val keys = keys()
+    while (keys.hasNext()) {
+        val key = keys.next()
+        map[key] = opt(key).toKotlinValue()
+    }
+    return map
+}
+
+/** Converts a raw JSON value to its Kotlin equivalent. */
+private fun Any?.toKotlinValue(): Any? = when (this) {
+    null, JSONObject.NULL -> null
+    is JSONObject -> toMap()
+    is JSONArray -> toArrayList()
+    else -> this
+}
+
+/** Converts a Kotlin value to a JSON-safe value that [JSONObject] and [JSONArray] accept. */
+private fun Any?.toJsonValue(): Any {
+    if (this == null || this == JSONObject.NULL) return JSONObject.NULL
+
+    if (this is Map<*, *>) {
+        val json = JSONObject()
+        for ((key, value) in this) {
+            json.put(key.toString(), value.toJsonValue())
+        }
+        return json
+    }
+
+    if (this is Iterable<*>) {
+        val json = JSONArray()
+        for (value in this) {
+            json.put(value.toJsonValue())
+        }
+        return json
+    }
+
+    if (this is Array<*>) {
+        val json = JSONArray()
+        for (value in this) {
+            json.put(value.toJsonValue())
+        }
+        return json
+    }
+
+    return this
+}
+
+/** Serializes a map to a JSON string for notifying Fuse. */
+private fun Map<String, Any?>.toJsonString(): String = this.toJsonValue().toString()
+
+/** Serializes a list to a JSON string for notifying Fuse. */
+private fun List<Any?>.toJsonString(): String = this.toJsonValue().toString()

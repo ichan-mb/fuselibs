@@ -29,29 +29,62 @@ namespace Fuse.Controls.Native.iOS
 	extern(iOS) class PlatformNativeView : LeafView, IPlatformView
 	{
 
+		static int _instanceIdCounter;
+
+		static int NextInstanceId()
+		{
+			_instanceIdCounter++;
+			return _instanceIdCounter;
+		}
+
 		PlatformView _host;
-		ObjC.Object _container;
+		int _instanceId;
+		bool _loaded;
 
 		[UXConstructor]
 		public PlatformNativeView([UXParameter("Host")]PlatformView host) : base(Create())
 		{
 			_host = host;
-			Source = _host.ViewName;
+			_instanceId = NextInstanceId();
+
+			// Data is assigned before the source so that the SwiftUI view is
+			// created with the current values through PushAllData().
+			DataFloat = _host.DataFloat;
+			DataDouble = _host.DataDouble;
+			DataInteger = _host.DataInteger;
+			DataBool = _host.DataBool;
+			DataString = _host.DataString;
 			if (_host.DataObject != null)
 				Data = Json.Stringify(_host.DataObject);
 			if (_host.DataArray != null)
 				DataArray = Json.Stringify(_host.DataArray);
-			DataFloat = _host.DataFloat;
-			DataInteger = _host.DataInteger;
-			DataBool = _host.DataBool;
-			DataString = _host.DataString;
+
+			Source = _host.ViewName;
+			_host.PublishEnvironment(this);
 		}
 
 		public override void Dispose()
 		{
+			if (_loaded)
+			{
+				_host.OnUnloaded();
+				_loaded = false;
+			}
+
+			if (_instanceId != 0)
+			{
+				DisposeView(_instanceId);
+				_instanceId = 0;
+			}
+
 			base.Dispose();
-			_container = null;
 			_host = null;
+		}
+
+		void HandleLoaded()
+		{
+			_loaded = true;
+			_host.OnLoaded();
 		}
 
 		string _data;
@@ -67,7 +100,7 @@ namespace Fuse.Controls.Native.iOS
 				if (value != _data)
 				{
 					_data = value;
-					SetData(Handle, Source, value);
+					SetData(Handle, _instanceId, value);
 				}
 			}
 		}
@@ -85,7 +118,7 @@ namespace Fuse.Controls.Native.iOS
 				if (value != _dataArray)
 				{
 					_dataArray = value;
-					SetDataArray(Handle, Source, value);
+					SetDataArray(Handle, _instanceId, value);
 				}
 			}
 		}
@@ -103,7 +136,25 @@ namespace Fuse.Controls.Native.iOS
 				if (value != _dataFloat)
 				{
 					_dataFloat = value;
-					SetDataFloat(Handle, Source, value);
+					SetDataFloat(Handle, _instanceId, value);
+				}
+			}
+		}
+
+		double _dataDouble;
+		/**
+			Double data to pass to the SwiftUI view.
+			Changes are automatically synchronized with the SwiftUI view.
+		*/
+		public double DataDouble
+		{
+			get { return _dataDouble; }
+			set
+			{
+				if (value != _dataDouble)
+				{
+					_dataDouble = value;
+					SetDataDouble(Handle, _instanceId, value);
 				}
 			}
 		}
@@ -121,7 +172,7 @@ namespace Fuse.Controls.Native.iOS
 				if (value != _dataInteger)
 				{
 					_dataInteger = value;
-					SetDataInteger(Handle, Source, value);
+					SetDataInteger(Handle, _instanceId, value);
 				}
 			}
 		}
@@ -139,7 +190,7 @@ namespace Fuse.Controls.Native.iOS
 				if (value != _dataBool)
 				{
 					_dataBool = value;
-					SetDataBool(Handle, Source, value);
+					SetDataBool(Handle, _instanceId, value);
 				}
 			}
 		}
@@ -157,7 +208,7 @@ namespace Fuse.Controls.Native.iOS
 				if (value != _dataString)
 				{
 					_dataString = value;
-					SetDataString(Handle, Source, value);
+					SetDataString(Handle, _instanceId, value ?? "");
 				}
 			}
 		}
@@ -167,7 +218,8 @@ namespace Fuse.Controls.Native.iOS
 			The name of the SwiftUI view to display.
 
 			Should correspond to a view registered with SwiftUIViewFactory.
-			Changing the source will replace the current SwiftUI view with the new one.
+			Changing the source will replace the current SwiftUI view with the new one
+			and re-synchronize the current data values.
 		*/
 		public string Source
 		{
@@ -177,68 +229,172 @@ namespace Fuse.Controls.Native.iOS
 				if (value != _source)
 				{
 					_source = value;
-					SetSource(Handle, value, _host.OnDataIntegerChanged, _host.OnDataFloatChanged, _host.OnDataBoolChanged, _host.OnDataStringChanged, _host.OnDataObjectChanged, _host.OnDataArrayChanged, _host.TriggerEvent);
+
+					if (_loaded)
+					{
+						_host.OnUnloaded();
+						_loaded = false;
+					}
+
+					if (string.IsNullOrEmpty(value))
+					{
+						ClearSource(Handle);
+					}
+					else
+					{
+						SetSource(Handle, _instanceId, value,
+							_host.OnDataIntegerChanged,
+							_host.OnDataDoubleChanged,
+							_host.OnDataFloatChanged,
+							_host.OnDataBoolChanged,
+							_host.OnDataStringChanged,
+							_host.OnDataObjectChanged,
+							_host.OnDataArrayChanged,
+							_host.TriggerEvent,
+							_host.OnViewNotFound,
+							HandleLoaded,
+							_host.OnAppeared,
+							_host.OnDisappeared);
+						PushAllData();
+					}
+				}
+			}
+		}
+
+		/**
+			Pushes the current data values to the SwiftUI view. Used when the native view is
+			(re)created, for example after changing ViewName.
+		*/
+		void PushAllData()
+		{
+			if (string.IsNullOrEmpty(_source))
+				return;
+
+			if (_data != null)
+				SetData(Handle, _instanceId, _data);
+			if (_dataArray != null)
+				SetDataArray(Handle, _instanceId, _dataArray);
+
+			SetDataFloat(Handle, _instanceId, _dataFloat);
+			SetDataDouble(Handle, _instanceId, _dataDouble);
+			SetDataInteger(Handle, _instanceId, _dataInteger);
+			SetDataBool(Handle, _instanceId, _dataBool);
+			SetDataString(Handle, _instanceId, _dataString ?? "");
+
+			_host.ClearPendingData();
+		}
+
+		/**
+			Sends a command with optional JSON arguments to the SwiftUI view.
+		*/
+		public void Invoke(string command, string arguments)
+		{
+			InvokeCommand(Handle, _instanceId, command, arguments ?? "");
+		}
+
+		[Foreign(Language.ObjC)]
+		static void InvokeCommand(ObjC.Object handle, int instanceId, string command, string arguments)
+		@{
+			[SwiftUIViewFactory invokeWithId:instanceId command:command arguments:arguments];
+		@}
+
+		string _environment;
+		/**
+			JSON environment overrides (color scheme, layout direction) for the SwiftUI view.
+		*/
+		public string Environment
+		{
+			get { return _environment; }
+			set
+			{
+				if (value != _environment)
+				{
+					_environment = value;
+					SetEnvironment(Handle, _instanceId, value ?? "{}");
 				}
 			}
 		}
 
 		[Foreign(Language.ObjC)]
-		void SetSource(ObjC.Object handle, string viewName,
+		static void SetEnvironment(ObjC.Object handle, int instanceId, string json)
+		@{
+			[SwiftUIViewFactory setEnvironmentWithId:instanceId json:json];
+		@}
+
+		[Foreign(Language.ObjC)]
+		void SetSource(ObjC.Object handle, int instanceId, string viewName,
 			Action<int> intCallback,
+			Action<double> doubleCallback,
 			Action<float> floatCallback,
 			Action<bool> boolCallback,
 			Action<string> stringCallback,
 			Action<string> objectCallback,
 			Action<string> arrayCallback,
-			Action<string, string> callback)
+			Action<string, string> callback,
+			Action<string> notFoundCallback,
+			Action loadedCallback,
+			Action appearedCallback,
+			Action disappearedCallback)
 		@{
 			SwiftUIHostingContainer* swiftUIHostingContainer = (SwiftUIHostingContainer*)handle;
-			UIView *oldView = swiftUIHostingContainer.subviews.firstObject;
-			if (oldView) {
-				[oldView removeFromSuperview];
-				oldView = nil;
-			}
-			UIViewController* hostingController = [SwiftUIViewFactory makeSwiftUIViewWithName:viewName dataIntegerCallback:intCallback dataFloatCallback:floatCallback dataBoolCallback:boolCallback dataStringCallback:stringCallback dataObjectCallback:objectCallback dataArrayCallback:arrayCallback eventCallback:callback];
-			swiftUIHostingContainer.swiftUIView = hostingController.view;
-			[swiftUIHostingContainer addSubview:hostingController.view];
+			UIViewController* hostingController = [SwiftUIViewFactory makeSwiftUIViewWithId:instanceId name:viewName dataIntegerCallback:intCallback dataDoubleCallback:doubleCallback dataFloatCallback:floatCallback dataBoolCallback:boolCallback dataStringCallback:stringCallback dataObjectCallback:objectCallback dataArrayCallback:arrayCallback eventCallback:callback notFoundCallback:notFoundCallback loadedCallback:loadedCallback appearedCallback:appearedCallback disappearedCallback:disappearedCallback];
+			swiftUIHostingContainer.hostingController = hostingController;
 			[swiftUIHostingContainer setNeedsLayout];
-			@{PlatformNativeView:of(_this)._container:set(hostingController)};
 		@}
 
 		[Foreign(Language.ObjC)]
-		static void SetData(ObjC.Object handle, string viewName, string data)
+		static void ClearSource(ObjC.Object handle)
 		@{
-			[SwiftUIViewFactory setDataWithViewName:viewName data:data isArray:NO];
+			SwiftUIHostingContainer* swiftUIHostingContainer = (SwiftUIHostingContainer*)handle;
+			swiftUIHostingContainer.hostingController = nil;
 		@}
 
 		[Foreign(Language.ObjC)]
-		static void SetDataArray(ObjC.Object handle, string viewName, string data)
+		static void DisposeView(int instanceId)
 		@{
-			[SwiftUIViewFactory setDataWithViewName:viewName data:data isArray:YES];
+			[SwiftUIViewFactory disposeWithId:instanceId];
 		@}
 
 		[Foreign(Language.ObjC)]
-		static void SetDataFloat(ObjC.Object handle, string viewName, float data)
+		static void SetData(ObjC.Object handle, int instanceId, string data)
 		@{
-			[SwiftUIViewFactory setDataWithViewName:viewName dataFloat:data];
+			[SwiftUIViewFactory setDataWithId:instanceId data:data isArray:NO];
 		@}
 
 		[Foreign(Language.ObjC)]
-		static void SetDataInteger(ObjC.Object handle, string viewName, int data)
+		static void SetDataArray(ObjC.Object handle, int instanceId, string data)
 		@{
-			[SwiftUIViewFactory setDataWithViewName:viewName dataInteger:data];
+			[SwiftUIViewFactory setDataWithId:instanceId data:data isArray:YES];
 		@}
 
 		[Foreign(Language.ObjC)]
-		static void SetDataBool(ObjC.Object handle, string viewName, bool data)
+		static void SetDataFloat(ObjC.Object handle, int instanceId, float data)
 		@{
-			[SwiftUIViewFactory setDataWithViewName:viewName dataBool:data];
+			[SwiftUIViewFactory setDataWithId:instanceId dataFloat:data];
 		@}
 
 		[Foreign(Language.ObjC)]
-		static void SetDataString(ObjC.Object handle, string viewName, string data)
+		static void SetDataDouble(ObjC.Object handle, int instanceId, double data)
 		@{
-			[SwiftUIViewFactory setDataWithViewName:viewName dataString:data];
+			[SwiftUIViewFactory setDataWithId:instanceId dataDouble:data];
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetDataInteger(ObjC.Object handle, int instanceId, int data)
+		@{
+			[SwiftUIViewFactory setDataWithId:instanceId dataInteger:data];
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetDataBool(ObjC.Object handle, int instanceId, bool data)
+		@{
+			[SwiftUIViewFactory setDataWithId:instanceId dataBool:data];
+		@}
+
+		[Foreign(Language.ObjC)]
+		static void SetDataString(ObjC.Object handle, int instanceId, string data)
+		@{
+			[SwiftUIViewFactory setDataWithId:instanceId dataString:data];
 		@}
 
 		/**

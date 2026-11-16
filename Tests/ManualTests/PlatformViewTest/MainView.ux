@@ -1,0 +1,87 @@
+<App>
+    <JavaScript>
+        var Observable = require("FuseJS/Observable");
+
+        var title = Observable("Hello from Fuse");
+        var count = Observable(0);
+        var profile = Observable({ name: "Ada", nested: { active: true }, list: [1, 2, 3] });
+
+        function bump() {
+            count.value = count.value + 1;
+        }
+
+        function sendCommand() {
+            first.invoke("bump", { amount: 1 });
+        }
+
+        function onNativeEvent(args) {
+            console.log("PlatformView event: " + args.eventName + " / " + args.eventValue);
+            if (args.eventData) console.log("  eventData: " + JSON.stringify(args.eventData));
+        }
+
+        function onLoaded() { console.log("PlatformView Loaded"); }
+        function onUnloaded() { console.log("PlatformView Unloaded"); }
+        function onAppeared() { console.log("PlatformView Appeared"); }
+        function onDisappeared() { console.log("PlatformView Disappeared"); }
+
+        module.exports = {
+            title: title,
+            count: count,
+            profile: profile,
+            bump: bump,
+            sendCommand: sendCommand,
+            onNativeEvent: onNativeEvent,
+            onLoaded: onLoaded,
+            onUnloaded: onUnloaded,
+            onAppeared: onAppeared,
+            onDisappeared: onDisappeared
+        };
+    </JavaScript>
+
+    <ClientPanel>
+        <ScrollView>
+            <StackPanel Padding="16" ItemSpacing="12">
+                <Text FontSize="22" TextAlignment="Center">PlatformView manual test</Text>
+
+                <Button Text="Send command to first view" Clicked="{sendCommand}" />
+                <Button Text="Bump count" Clicked="{bump}" />
+
+                <!-- Exercises: data binding, DataDouble, DataObject, events, lifecycle,
+                     accessibility, batched updates and intrinsic sizing. -->
+                <Fuse.Controls.PlatformView ux:Name="first"
+                                            ViewName="SampleView"
+                                            DataString="{title}"
+                                            DataInteger="{count}"
+                                            DataDouble="3.141592653589793"
+                                            DataObject="{profile}"
+                                            DataUpdateMode="Batched"
+                                            AccessibilityLabel="Sample native view"
+                                            AccessibilityHint="Double tap the native button"
+                                            EventHandler="{onNativeEvent}"
+                                            Loaded="{onLoaded}"
+                                            Appeared="{onAppeared}"
+                                            Disappeared="{onDisappeared}"
+                                            Unloaded="{onUnloaded}"
+                                            Height="Auto"
+                                            MinHeight="120" />
+
+                <!-- Exercises: independent per-instance state with the same ViewName. -->
+                <Fuse.Controls.PlatformView ViewName="SampleView"
+                                            DataString="Second instance"
+                                            Height="120" />
+
+                <!-- Exercises: color scheme / layout direction overrides. -->
+                <Fuse.Controls.PlatformView ViewName="SampleView"
+                                            DataString="RTL / dark"
+                                            ColorScheme="Dark"
+                                            LayoutDirection="RightToLeft"
+                                            Height="120" />
+
+                <!-- Exercises: missing registration diagnostic. -->
+                <Fuse.Controls.PlatformView ViewName="ThisViewDoesNotExist"
+                                            DataString="Missing view"
+                                            Height="80" />
+            </StackPanel>
+        </ScrollView>
+    </ClientPanel>
+</App>
