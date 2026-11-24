@@ -1,5 +1,4 @@
 using Uno;
-using Uno.Net.Http;
 
 namespace Fuse.Triggers.Actions
 {
@@ -44,9 +43,28 @@ namespace Fuse.Triggers.Actions
 	{
 		public string Uri {get; set;}
 
+		/** An Android package to target. */
+		public string AndroidPackage {get; set;}
+
+		/** An explicit Android activity class. Requires `AndroidPackage`. */
+		public string AndroidClassName {get; set;}
+
+		/** A MIME type for the intent data, for example `"text/plain"`. */
+		public string MimeType {get; set;}
+
+		/** Comma-separated Android intent flag names, for example `"newTask,clearTop"`. */
+		public string AndroidFlags {get; set;}
+
 		protected override void Perform(Node target)
 		{
-			Fuse.LauncherImpl.InterAppLauncher.LaunchUri(new Uri(this.Uri));
+			Fuse.LauncherImpl.InterAppLauncher.LaunchUri(new InterAppLaunchOptions
+			{
+				Uri = this.Uri,
+				AndroidPackage = this.AndroidPackage,
+				AndroidClassName = this.AndroidClassName,
+				MimeType = this.MimeType,
+				AndroidFlags = InterAppUriHelper.SplitAndroidFlags(this.AndroidFlags)
+			}).Catch(e => { debug_log("InterApp.LaunchUri - " + e.Message); });
 		}
 	}
 
@@ -58,6 +76,58 @@ namespace Fuse.Triggers.Actions
 		protected override void Perform(Node target)
 		{
 			Fuse.LauncherImpl.InterAppLauncher.LaunchApp(this.Uri, this.AppStoreUri);
+		}
+	}
+
+	/** Launch an Android application by package id. */
+	public class LaunchPackage : TriggerAction
+	{
+		public string ApplicationId {get; set;}
+		public string AppStoreUri {get; set;}
+
+		/** Comma-separated Android intent flag names, for example `"newTask,clearTop"`. */
+		public string AndroidFlags {get; set;}
+
+		protected override void Perform(Node target)
+		{
+			Fuse.LauncherImpl.InterAppLauncher.LaunchPackage(this.ApplicationId, new InterAppLaunchOptions
+			{
+				AppStoreUri = this.AppStoreUri,
+				AndroidFlags = InterAppUriHelper.SplitAndroidFlags(this.AndroidFlags)
+			}).Catch(e => { debug_log("InterApp.LaunchPackage - " + e.Message); });
+		}
+	}
+
+	/** Open the operating system's settings page for this application. */
+	public class OpenSettings : TriggerAction
+	{
+		protected override void Perform(Node target)
+		{
+			Fuse.LauncherImpl.InterAppLauncher.OpenSettings()
+				.Catch(e => { debug_log("InterApp.OpenSettings - " + e.Message); });
+		}
+	}
+
+	/** Open the store page for an application. */
+	public class OpenStore : TriggerAction
+	{
+		/** The Android package whose Play Store page should be opened. */
+		public string AndroidPackage {get; set;}
+
+		/** The iOS App Store id, with or without the `id` prefix. */
+		public string AppStoreId {get; set;}
+
+		/** An explicit store URI that overrides the platform defaults. */
+		public string StoreUri {get; set;}
+
+		protected override void Perform(Node target)
+		{
+			Fuse.LauncherImpl.InterAppLauncher.OpenStore(new InterAppStoreOptions
+			{
+				AndroidPackage = this.AndroidPackage,
+				AppStoreId = this.AppStoreId,
+				StoreUri = this.StoreUri
+			}).Catch(e => { debug_log("InterApp.OpenStore - " + e.Message); });
 		}
 	}
 }

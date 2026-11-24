@@ -11,6 +11,105 @@ namespace Fuse
 			InterAppLauncher.LaunchUri(uri);
 		}
 
+		/** Whether the platform can open the given URI. */
+		public static bool CanOpenUri(string uri)
+		{
+			return InterAppLauncher.CanOpenUri(uri);
+		}
+
+		/**
+			Whether the platform can launch the given application.
+
+			On Android pass a package name. On iOS pass a URI scheme.
+		*/
+		public static bool CanLaunchApp(string applicationId)
+		{
+			return InterAppLauncher.CanLaunchApp(applicationId);
+		}
+
+		/**
+			Open a URI.
+
+			The returned future resolves to `InterAppLaunchStatus.Opened` once
+			the platform hands the request to another application, and rejects
+			with a user-facing message when it cannot.
+		*/
+		public static Future<InterAppLaunchStatus> LaunchUri(string uri)
+		{
+			return InterAppLauncher.LaunchUri(uri);
+		}
+
+		/**
+			Open a URI with explicit launch options.
+
+			The returned future resolves to `InterAppLaunchStatus.Opened` once
+			the platform hands the request to another application, and rejects
+			with a user-facing message when it cannot.
+		*/
+		public static Future<InterAppLaunchStatus> LaunchUri(InterAppLaunchOptions options)
+		{
+			return InterAppLauncher.LaunchUri(options);
+		}
+
+		/**
+			Launch an app by URI, or on Android by package id.
+
+			This legacy overload does not report the launch result. Use
+			`LaunchApp(InterAppLaunchOptions)` to observe it.
+		*/
+		public static void LaunchApp(string uri, string appStoreUri = null)
+		{
+			InterAppLauncher.LaunchApp(uri, appStoreUri);
+		}
+
+		/**
+			Launch an app by URI, or on Android by package id.
+
+			The returned future resolves to `InterAppLaunchStatus.Opened` once
+			the platform hands the request to another application, and rejects
+			with a user-facing message when it cannot.
+		*/
+		public static Future<InterAppLaunchStatus> LaunchApp(InterAppLaunchOptions options)
+		{
+			return InterAppLauncher.LaunchApp(options);
+		}
+
+		/**
+			Launch an Android application by package id.
+
+			Unlike `LaunchApp`, this never treats the argument as a URI.
+			Rejects on iOS, which has no API for launching an app by bundle id.
+		*/
+		public static Future<InterAppLaunchStatus> LaunchPackage(
+			string applicationId, InterAppLaunchOptions options = null)
+		{
+			return InterAppLauncher.LaunchPackage(applicationId, options);
+		}
+
+		/**
+			Open the operating system's settings page for this application.
+
+			The returned future resolves to `InterAppLaunchStatus.Opened` once the
+			settings page is shown, and rejects with a user-facing message when it
+			cannot be opened.
+		*/
+		public static Future<InterAppLaunchStatus> OpenSettings()
+		{
+			return InterAppLauncher.OpenSettings();
+		}
+
+		/**
+			Open the store page for an application.
+
+			The returned future resolves to `InterAppLaunchStatus.Opened` once the
+			store page is shown, and rejects with a user-facing message when it
+			cannot be opened.
+		*/
+		public static Future<InterAppLaunchStatus> OpenStore(InterAppStoreOptions options)
+		{
+			return InterAppLauncher.OpenStore(options);
+		}
+
 		/** Whether the platform can launch a phone call. */
 		public static bool CanCall()
 		{

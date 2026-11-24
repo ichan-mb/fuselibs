@@ -1,0 +1,41 @@
+<extensions backend="cplusplus">
+
+	<processFile condition="ANDROID" name="InterAppLauncherHelper.java" targetName="app/src/main/java/com/fuse/launcher/interapp/InterAppLauncherHelper.java" />
+
+	<!--
+		Package visibility for the common URI schemes documented by
+		FuseJS/InterApp. Custom schemes and packages must be declared by the
+		application using `Android.Queries.Schemes` / `Android.Queries.Packages`.
+	-->
+	<require condition="ANDROID" androidManifest.rootElement>
+		<![CDATA[
+			<queries>
+				<intent>
+					<action android:name="android.intent.action.VIEW" />
+					<data android:scheme="http" />
+				</intent>
+				<intent>
+					<action android:name="android.intent.action.VIEW" />
+					<data android:scheme="https" />
+				</intent>
+				<intent>
+					<action android:name="android.intent.action.VIEW" />
+					<data android:scheme="tel" />
+				</intent>
+				<intent>
+					<action android:name="android.intent.action.VIEW" />
+					<data android:scheme="sms" />
+				</intent>
+				<intent>
+					<action android:name="android.intent.action.VIEW" />
+					<data android:scheme="mailto" />
+				</intent>
+				<intent>
+					<action android:name="android.intent.action.VIEW" />
+					<data android:scheme="geo" />
+				</intent>
+			</queries>
+		]]>
+	</require>
+
+</extensions>

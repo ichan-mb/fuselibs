@@ -7,10 +7,10 @@
     "Fuse.Launcher.Test"
   ],
   "references": [
-    "Uno.Net.Http"
+    "Uno.Net.Http",
+    "Uno.Threading"
   ],
   "projects": [
-    "../Fuse.Android.Permissions/Fuse.Android.Permissions.unoproj",
     "../Fuse.Android/Fuse.Android.unoproj",
     "../Fuse.iOS/Fuse.iOS.unoproj",
     "../Fuse.Nodes/Fuse.Nodes.unoproj",
@@ -19,8 +19,7 @@
     "../Fuse.Triggers/Fuse.Triggers.unoproj"
   ],
   "includes": [
-    "InterApp/InterAppLauncher.uno",
-    "InterApp/InterAppTrigger.uno",
-    "InterApp/JS.uno"
+    "InterApp/*.uno",
+    "android/*"
   ]
 }
