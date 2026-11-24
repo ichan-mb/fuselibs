@@ -1,6 +1,10 @@
 <extensions backend="cplusplus" condition="ANDROID">
 
+	<require androidManifest.permission="android.permission.ACCESS_FINE_LOCATION" />
+	<require androidManifest.permission="android.permission.ACCESS_COARSE_LOCATION" />
 	<require androidManifest.permission="android.permission.FOREGROUND_SERVICE" />
+	<require androidManifest.permission="android.permission.FOREGROUND_SERVICE_LOCATION" />
+	<!-- Add android.permission.ACCESS_BACKGROUND_LOCATION to the app manifest when using background geofencing. -->
 
 	<processFile name="GeoLocationTmp.java" targetName="@(java.sourceDirectory)/com/foreign/Fuse/GeoLocation/GeoLocationTmp.java" />
 
@@ -10,7 +14,11 @@
 		<service android:name="fuse.geolocation.BackgroundService"
 			android:enabled="true"
 			android:exported="true"
+			android:foregroundServiceType="location"
 			android:launchMode="singleTop" />
+
+		<receiver android:name="fuse.geolocation.GeofenceReceiver"
+			android:exported="false" />
 	]]></require>
 
 	<!-- http://iconhandbook.co.uk/reference/chart/android/ -->

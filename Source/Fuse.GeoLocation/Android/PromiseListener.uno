@@ -18,14 +18,14 @@ namespace Fuse.GeoLocation
 	extern(Android) internal class PromiseListener
 	{
 		Promise<Location> _promise;
-		static Java.Object _listener;
-		static Java.Object _locationManager;
+		Java.Object _listener;
+		Java.Object _locationManager;
 		public PromiseListener(Java.Object locationManagerHandle, double timeout, Promise<Location> promise)
 		{
 			_locationManager = locationManagerHandle;
 			_promise = promise;
 			_listener = CreateListener(OnLocationChanged);
-			StartUpdatesWithTimer(_locationManager, _listener, OnTimeout, (int)timeout);
+			StartUpdatesWithTimer(_locationManager, _listener, OnTimeout, OnError, (int)timeout);
 		}
 
 		void OnTimeout()
@@ -33,6 +33,13 @@ namespace Fuse.GeoLocation
 			if(_promise.State != FutureState.Pending) return;
 			StopUpdate(_locationManager, _listener);
 			_promise.Reject(new Uno.Exception("Location request timed out"));
+		}
+
+		void OnError(string message)
+		{
+			if(_promise.State != FutureState.Pending) return;
+			StopUpdate(_locationManager, _listener);
+			_promise.Reject(new Uno.Exception(message));
 		}
 
 		void OnLocationChanged(Java.Object location)
@@ -61,7 +68,7 @@ namespace Fuse.GeoLocation
 		@}
 
 		[Foreign(Language.Java)]
-		static void StartUpdatesWithTimer(Java.Object locationManager, Java.Object listener, Action onTimeout, int timeout)
+		void StartUpdatesWithTimer(Java.Object locationManager, Java.Object listener, Action onTimeout, Action<string> onError, int timeout)
 		@{
 			Handler h = new Handler(Looper.getMainLooper());
 			h.postDelayed(onTimeout, (long)timeout);
@@ -72,14 +79,22 @@ namespace Fuse.GeoLocation
 					LocationManager lm = (LocationManager) locationManager;
 
 					if (ContextCompat.checkSelfPermission(com.fuse.Activity.getRootActivity(), android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-						&& ContextCompat.checkSelfPermission(com.fuse.Activity.getRootActivity(), android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+						|| ContextCompat.checkSelfPermission(com.fuse.Activity.getRootActivity(), android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
 					{
-						lm.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, (UpdateListener)listener, null);
-						lm.requestSingleUpdate(LocationManager.GPS_PROVIDER, (UpdateListener)listener, null);
+						try
+						{
+							lm.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, (UpdateListener)listener, null);
+							lm.requestSingleUpdate(LocationManager.GPS_PROVIDER, (UpdateListener)listener, null);
+						}
+						catch (Exception e)
+						{
+							if (onError != null)
+								onError.run(e.getMessage());
+						}
 					}
 					else
 					{
-						@{RequestPermissions():call()};
+						@{global::Fuse.GeoLocation.PromiseListener:of(_this).RequestPermissions():call()};
 					}
 				}
 			});
@@ -119,7 +134,7 @@ namespace Fuse.GeoLocation
 			}
 		@}
 
-		static void RequestPermissions()
+		void RequestPermissions()
 		{
 			int permissionState = CheckPermissions();
 
@@ -156,13 +171,20 @@ namespace Fuse.GeoLocation
 					break;
 			}
 		}
-		static void OnPermissionsResult(PlatformPermission[] grantedPermissions)
+		void OnPermissionsResult(PlatformPermission[] grantedPermissions)
 		{
-			GetSingleUpdate(_locationManager, _listener);
+			try
+			{
+				GetSingleUpdate(_locationManager, _listener);
+			}
+			catch (Exception e)
+			{
+				OnError(e.Message);
+			}
 		}
-		static void OnPermissionsError(Exception e)
+		void OnPermissionsError(Exception e)
 		{
-
+			OnError(e.Message);
 		}
 
 		[Foreign(Language.Java)]

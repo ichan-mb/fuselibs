@@ -3,6 +3,14 @@
   "description": "Native Location",
   "publisher": "Fuse Open",
   "outputType": "library",
+  "ios": {
+    "pList": {
+      "NSLocationUsageDescription": "This app uses your location to provide location-based features.",
+      "NSLocationWhenInUseUsageDescription": "This app uses your location while it is in use to provide location-based features.",
+      "NSLocationAlwaysAndWhenInUseUsageDescription": "This app uses your location to provide location-based features, including while it is in the background.",
+      "NSLocationAlwaysUsageDescription": "This app uses your location to provide location-based features, including while it is in the background."
+    }
+  },
   "references": [
     "Uno.Collections",
     "Uno.Threading"
@@ -18,6 +26,8 @@
     "*",
     "Android/Android.uxl:extensions",
     "Android/UpdateListener.java:java:Android",
+    "Android/HeadingListener.java:java:Android",
+    "Android/GeofenceReceiver.java:java:Android",
     "Android/BackgroundService.java:java:Android",
     "Android/Assets/DefaultIcon.png:file",
     "iOS/LocationManagerDelegate.h:objcheader:iOS",
