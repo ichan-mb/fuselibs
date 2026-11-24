@@ -1,5 +1,12 @@
 #import "ImageHelper.h"
+#import <ImageIO/ImageIO.h>
+#import <CoreImage/CoreImage.h>
+#import <math.h>
+#import "ImageHelper+Private.h"
 
+// Transform methods are implemented in ImageHelper+Transform.m.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wincomplete-implementation"
 
 @implementation ImageHelper
 
@@ -8,16 +15,223 @@
 }
 
 +(NSString *)contentTypeForImageData:(NSData *)data {
-    uint8_t c;
-    [data getBytes:&c length:1];
-    switch (c) {
-		  case 0xFF:
-		      return @"jpg";
-		  case 0x89:
-		      return @"png";
-			default:
-					return nil;
-    }
+	if (data == nil || data.length < 3)
+		return nil;
+
+	const uint8_t* b = (const uint8_t*)data.bytes;
+
+	if (b[0] == 0xFF && b[1] == 0xD8)
+		return @"jpg";
+	if (b[0] == 0x89 && b[1] == 'P' && b[2] == 'N')
+		return @"png";
+	if (b[0] == 'G' && b[1] == 'I' && b[2] == 'F')
+		return @"gif";
+
+	if (data.length >= 12) {
+		if (b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' &&
+				b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P')
+			return @"webp";
+
+		if (b[4] == 'f' && b[5] == 't' && b[6] == 'y' && b[7] == 'p')
+			return @"heic";
+	}
+
+	return nil;
+}
+
++(NSString*) getMimeType:(NSString*)path {
+	NSData* data = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:nil];
+	NSString* extension = [self contentTypeForImageData:data];
+
+	if ([extension isEqualToString:@"jpg"])
+		return @"image/jpeg";
+	if ([extension isEqualToString:@"png"])
+		return @"image/png";
+	if ([extension isEqualToString:@"gif"])
+		return @"image/gif";
+	if ([extension isEqualToString:@"webp"])
+		return @"image/webp";
+	if ([extension isEqualToString:@"heic"])
+		return @"image/heic";
+
+	return @"";
+}
+
++(long long) getFileSize:(NSString*)path {
+	NSDictionary* attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
+	return attributes != nil ? [[attributes objectForKey:NSFileSize] longLongValue] : 0;
+}
+
++(int) getOrientation:(NSString*)path {
+	NSURL* url = [NSURL fileURLWithPath:path];
+	CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)url, nil);
+	if (source == nil)
+		return 1;
+
+	int orientation = 1;
+	CFDictionaryRef properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil);
+	if (properties != nil) {
+		CFNumberRef value = CFDictionaryGetValue(properties, kCGImagePropertyOrientation);
+		if (value != nil)
+			CFNumberGetValue(value, kCFNumberIntType, &orientation);
+		CFRelease(properties);
+	}
+	CFRelease(source);
+	return orientation;
+}
+
++(int) getFrameCount:(NSString*)path {
+	NSURL* url = [NSURL fileURLWithPath:path];
+	CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)url, nil);
+	if (source == nil)
+		return 1;
+
+	size_t count = CGImageSourceGetCount(source);
+	CFRelease(source);
+
+	return (int)MAX(1, count);
+}
+
++(BOOL) hasAlpha:(NSString*)path {
+	NSURL* url = [NSURL fileURLWithPath:path];
+	CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)url, nil);
+	if (source == nil)
+		return NO;
+
+	CGImageRef image = CGImageSourceCreateImageAtIndex(source, 0, nil);
+	CFRelease(source);
+	if (image == NULL)
+		return NO;
+
+	CGImageAlphaInfo alpha = CGImageGetAlphaInfo(image);
+	CGImageRelease(image);
+
+	return alpha != kCGImageAlphaNone &&
+		alpha != kCGImageAlphaNoneSkipLast &&
+		alpha != kCGImageAlphaNoneSkipFirst;
+}
+
++(NSString*) getExif:(NSString*)path {
+	NSURL* url = [NSURL fileURLWithPath:path];
+	CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)url, nil);
+	if (source == nil)
+		return @"";
+
+	NSDictionary* properties = CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source, 0, nil));
+	CFRelease(source);
+	if (properties == nil)
+		return @"";
+
+	NSDictionary* exif = properties[(__bridge NSString*)kCGImagePropertyExifDictionary];
+	NSDictionary* tiff = properties[(__bridge NSString*)kCGImagePropertyTIFFDictionary];
+	NSDictionary* gps = properties[(__bridge NSString*)kCGImagePropertyGPSDictionary];
+
+	NSMutableString* result = [NSMutableString string];
+
+	id value = exif[@"DateTimeOriginal"];
+	if (value == nil) value = exif[@"DateTimeDigitized"];
+	if (value != nil) [result appendFormat:@"dateTime\t%@\n", value];
+
+	value = tiff[@"Make"];
+	if (value != nil) [result appendFormat:@"make\t%@\n", value];
+
+	value = tiff[@"Model"];
+	if (value != nil) [result appendFormat:@"model\t%@\n", value];
+
+	value = exif[@"ISOSpeedRatings"];
+	if ([value isKindOfClass:[NSArray class]])
+		value = [value firstObject];
+	if (value != nil) [result appendFormat:@"iso\t%@\n", value];
+
+	value = exif[@"FNumber"];
+	if (value != nil) [result appendFormat:@"fNumber\t%@\n", value];
+
+	value = exif[@"ExposureTime"];
+	if (value != nil) [result appendFormat:@"exposureTime\t%@\n", value];
+
+	value = exif[@"FocalLength"];
+	if (value != nil) [result appendFormat:@"focalLength\t%@\n", value];
+
+	value = exif[@"Flash"];
+	if (value != nil) [result appendFormat:@"flash\t%@\n", value];
+
+	value = gps[@"Latitude"];
+	if (value != nil) [result appendFormat:@"gpsLatitude\t%@\n", value];
+
+	value = gps[@"Longitude"];
+	if (value != nil) [result appendFormat:@"gpsLongitude\t%@\n", value];
+
+	value = gps[@"Altitude"];
+	if (value != nil) [result appendFormat:@"gpsAltitude\t%@\n", value];
+
+	return result;
+}
+
++(void) clearCache {
+	NSString* directory = [self createImagePath:YES];
+	NSFileManager* manager = [NSFileManager defaultManager];
+	NSArray* files = [manager contentsOfDirectoryAtPath:directory error:nil];
+
+	for (NSString* file in files)
+		if ([file hasPrefix:@"IMG_"])
+			[manager removeItemAtPath:[directory stringByAppendingPathComponent:file] error:nil];
+}
+
++(NSString*) normalizedFormat:(NSString*)format path:(NSString*)path {
+	if (format == nil || [format length] == 0) {
+		NSString* extension = [[path pathExtension] lowercaseString];
+		if ([extension isEqualToString:@"jpeg"])
+			return @"jpg";
+		if ([extension isEqualToString:@"jpg"] || [extension isEqualToString:@"png"] || [extension isEqualToString:@"webp"])
+			return extension;
+		return @"jpg";
+	}
+
+	format = [format lowercaseString];
+	if ([format isEqualToString:@"jpeg"])
+		return @"jpg";
+	return format;
+}
+
++(NSString*) targetPathForImage:(NSString*)path format:(NSString*)format inPlace:(BOOL)inPlace {
+	BOOL hasFormat = format != nil && [format length] > 0;
+	if (inPlace && !hasFormat)
+		return path;
+
+	NSString* targetFormat = [self normalizedFormat:format path:path];
+	NSString* extension = [[path pathExtension] lowercaseString];
+	BOOL match = [targetFormat isEqualToString:@"jpg"]
+		? ([extension isEqualToString:@"jpg"] || [extension isEqualToString:@"jpeg"])
+		: [extension isEqualToString:targetFormat];
+
+	if (inPlace && match)
+		return path;
+
+	return [self createImagePathWithExtension:targetFormat temp:YES];
+}
+
++(UIImage*) renderImage:(UIImage*)image size:(CGSize)size {
+	UIGraphicsBeginImageContextWithOptions(size, NO, 1.0);
+	[image drawInRect:CGRectMake(0, 0, size.width, size.height)];
+	UIImage* result = UIGraphicsGetImageFromCurrentImageContext();
+	UIGraphicsEndImageContext();
+	return result;
+}
+
++(BOOL) saveImage:(UIImage*)image path:(NSString*)path quality:(int)quality {
+	NSString* extension = [[path pathExtension] lowercaseString];
+
+	NSData* imageData;
+	if ([extension isEqualToString:@"png"]) {
+		imageData = UIImagePNGRepresentation(image);
+	} else if ([extension isEqualToString:@"webp"]) {
+		return NO;
+	} else {
+		float q = MAX(0.0f, MIN(1.0f, quality / 100.0f));
+		imageData = UIImageJPEGRepresentation(image, q);
+	}
+
+	return imageData != nil && [imageData writeToFile:path atomically:NO];
 }
 
 +(NSString*)imageFromDataSync:(NSData*)data {
@@ -27,8 +241,11 @@
 			[NSException raise:@"InvalidImageFormat" format:@"Invalid image format"];
 
 		UIImage* newImage = [UIImage imageWithData:data];
+		if (newImage == nil)
+			[NSException raise:@"InvalidImageData" format:@"Could not decode image"];
+
 		NSString* path = [self createImagePathWithExtension:extension temp:YES];
-		[self saveImage:newImage path:path];
+		[data writeToFile:path atomically:NO];
 		return path;
 	}
 	@catch (NSException* e) {
@@ -44,8 +261,11 @@
 			[NSException raise:@"InvalidImageFormat" format:@"Invalid image format"];
 
 		UIImage* newImage = [UIImage imageWithData:data];
+		if (newImage == nil)
+			[NSException raise:@"InvalidImageData" format:@"Could not decode image"];
+
 		NSString* path = [self createImagePathWithExtension:extension temp:YES];
-		[self saveImage:newImage path:path];
+		[data writeToFile:path atomically:NO];
 		onComplete(path);
 	}
 	@catch (NSException* e) {
@@ -55,17 +275,7 @@
 
 +(void)saveImage:(UIImage*)image path:(NSString*)path
 {
-	@autoreleasepool {
-		NSData* imageData;
-		NSString* ext = [[path pathExtension] lowercaseString];
-		if([ext isEqualToString:@"png"]) {
-			imageData = UIImagePNGRepresentation(image);
-		} else {
-			imageData = UIImageJPEGRepresentation(image, 0.9f);
-		}
-
-		[imageData writeToFile:path atomically:NO];
-	}
+	[self saveImage:image path:path quality:90];
 }
 
 +(NSArray*) getImageSize:(NSString*)path {
@@ -93,7 +303,19 @@
 			CFNumberGetValue(heightNum, kCFNumberCGFloatType, &height);
 		}
 
+		int orientation = 1;
+		CFNumberRef orientationNum = CFDictionaryGetValue(imageProperties, kCGImagePropertyOrientation);
+		if (orientationNum != nil) {
+			CFNumberGetValue(orientationNum, kCFNumberIntType, &orientation);
+		}
+
 		CFRelease(imageProperties);
+
+		if (orientation >= 5 && orientation <= 8) {
+			CGFloat tmp = width;
+			width = height;
+			height = tmp;
+		}
 	}
 
 	return @[ @( (int)width ), @( (int)height )]; //Weird spacing here to avoid uxl expansion issues
@@ -171,138 +393,73 @@
 	return img;
 }
 
-+(void)cropImage:(NSString*)path
-		desiredRect:(CGRect)rect
-		onComplete:(StringAction)onComplete
-		onFail:(StringAction)onFail
-		performInPlace:(BOOL)inPlace
-{
-	@try
-	{
-		UIImage* newImage = [UIImage imageWithCGImage:CGImageCreateWithImageInRect([[UIImage imageWithContentsOfFile:path] CGImage], rect)];
-		if(!inPlace)
-			path = [self createImagePath:YES];
 
-		[self saveImage:newImage path:path];
-		onComplete(path);
++(NSData*) rgbaDataFromImageAtPath:(NSString*)path
+{
+	UIImage* original = [UIImage imageWithContentsOfFile:path];
+	if (original == nil)
+		return nil;
+
+	UIImage* image = [self correctImageOrientation:original];
+	CGImageRef cgImage = image.CGImage;
+	if (cgImage == NULL)
+		return nil;
+
+	size_t width = CGImageGetWidth(cgImage);
+	size_t height = CGImageGetHeight(cgImage);
+
+	if (height > 0 && width > NSUIntegerMax / 4 / height)
+		return nil;
+
+	NSMutableData* data = [NSMutableData dataWithLength:width * height * 4];
+	CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+	CGContextRef context = CGBitmapContextCreate(
+		data.mutableBytes, width, height, 8, width * 4, colorSpace,
+		kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+
+	if (context == NULL) {
+		CGColorSpaceRelease(colorSpace);
+		return nil;
 	}
-	@catch (NSException* e)
-	{
-		onFail([NSString stringWithFormat:@"Image crop error: %@", e]);
+
+	// Store rows top-down so the buffer matches Android and .NET.
+	CGContextTranslateCTM(context, 0, height);
+	CGContextScaleCTM(context, 1, -1);
+	CGContextDrawImage(context, CGRectMake(0, 0, width, height), cgImage);
+
+	CGContextRelease(context);
+	CGColorSpaceRelease(colorSpace);
+
+	// Convert premultiplied alpha to straight RGBA so the buffer matches Android and .NET.
+	uint8_t* pixels = (uint8_t*)data.mutableBytes;
+	size_t count = width * height;
+
+	for (size_t i = 0; i < count; i++) {
+		uint8_t alpha = pixels[i * 4 + 3];
+		if (alpha > 0 && alpha < 255) {
+			pixels[i * 4 + 0] = (uint8_t)MIN(255, (pixels[i * 4 + 0] * 255) / alpha);
+			pixels[i * 4 + 1] = (uint8_t)MIN(255, (pixels[i * 4 + 1] * 255) / alpha);
+			pixels[i * 4 + 2] = (uint8_t)MIN(255, (pixels[i * 4 + 2] * 255) / alpha);
+		}
 	}
+
+	return data;
 }
 
-
-+(void)resizeImage:(NSString*)path
-		width:(float)desiredWidth
-		height:(float)desiredHeight
-		mode:(int)mode
-		onComplete:(StringAction)onComplete
-		onFail:(StringAction)onFail
-		performInPlace:(BOOL)inPlace
++(NSString*) localPathFromUri:(NSString*)uri
 {
+	if (uri == nil || [uri length] == 0)
+		return nil;
 
-	@try {
-
-		UIImage* image = [UIImage imageWithContentsOfFile:path];
-		CGSize currentSize = [image size];
-		float width = currentSize.width;
-		float height = currentSize.height;
-		float ratio;
-
-		UIImage *newImage = nil;
-
-		CGRect cropRect;
-
-		if (width > desiredWidth || height > desiredHeight)
-		{
-			switch(mode){
-				case 1:
-					//Keep aspect
-					if (width > desiredWidth) {
-						ratio = desiredWidth / width;
-						width *= ratio;
-						height *= ratio;
-					}
-					if (height > desiredHeight) {
-						ratio = desiredHeight / height;
-						width *= ratio;
-						height *= ratio;
-					}
-
-					UIGraphicsBeginImageContextWithOptions(CGSizeMake(width,height), NO, 1.0);
-					[image drawInRect:CGRectMake(0, 0, width, height)];
-					newImage = UIGraphicsGetImageFromCurrentImageContext();
-					UIGraphicsEndImageContext();
-					break;
-				case 2:
-					//resize to closest with aspect correction, then crop with centered rect
-					if (width > height) {
-						if (height > desiredHeight)
-						{
-							ratio = desiredHeight / height;
-							width *= ratio;
-							height *= ratio;
-						}else if (width > desiredWidth)
-						{
-							ratio = desiredWidth / width;
-							width *= ratio;
-							height *= ratio;
-						}
-					} else {
-						if (width > desiredWidth)
-						{
-							ratio = desiredWidth / width;
-							width *= ratio;
-							height *= ratio;
-						}
-						else if (height > desiredHeight)
-						{
-							ratio = desiredHeight / height;
-							width *= ratio;
-							height *= ratio;
-						}
-					}
-
-					UIGraphicsBeginImageContextWithOptions(CGSizeMake(width,height), NO, 1.0);
-					[image drawInRect:CGRectMake(0, 0, width, height)];
-					newImage = UIGraphicsGetImageFromCurrentImageContext();
-					UIGraphicsEndImageContext();
-
-
-					cropRect = CGRectMake(
-							MAX(0, width/2 - desiredWidth/2),
-							MAX(0, height/2 - desiredHeight/2),
-							MIN(desiredWidth, width),
-							MIN(desiredHeight, height));
-
-					@autoreleasepool {
-						struct CGImage* cgimage = CGImageCreateWithImageInRect([newImage CGImage], cropRect);
-						newImage = [UIImage imageWithCGImage:cgimage];
-						CGImageRelease(cgimage);
-					}
-					break;
-				default:
-					//Use width/height as given
-					UIGraphicsBeginImageContextWithOptions(CGSizeMake(desiredWidth, desiredHeight), NO, 1.0);
-					[image drawInRect:CGRectMake(0, 0, desiredWidth, desiredHeight)];
-					newImage = UIGraphicsGetImageFromCurrentImageContext();
-					UIGraphicsEndImageContext();
-			}
-			//Save the final image
-			if(!inPlace)
-				path = [self createImagePath:YES];
-
-			[self saveImage:newImage path:path];
-			onComplete(path);
-		}else
-		{
-			//No resizing necessary
-			onComplete(path);
-		}
-	}@catch (NSException * e){
-		onFail([NSString stringWithFormat:@"Image resize error: %@", e]);
+	if ([uri hasPrefix:@"file:"]) {
+		NSURL* url = [NSURL URLWithString:uri];
+		return [url path];
 	}
+
+	if ([uri hasPrefix:@"/"])
+		return uri;
+
+	return nil;
 }
 
 +(void) imageFromBase64String:(NSString*)b64
@@ -310,26 +467,67 @@
 		onFail:(StringAction)b
 {
 	@try {
-		NSData* data = [[NSData alloc] initWithBase64EncodedString:b64 options:NSDataBase64DecodingIgnoreUnknownCharacters];
-		UIImage* image = [UIImage imageWithData:data];
-		NSString* path = [self createImagePathWithExtension:@"png" temp:YES];
-		[self saveImage:image path:path];
-		a(path);
+		NSString* payload = b64;
+		if ([payload hasPrefix:@"data:"]) {
+			NSRange comma = [payload rangeOfString:@","];
+			if (comma.location != NSNotFound)
+				payload = [payload substringFromIndex:comma.location + 1];
+		}
+
+		NSData* data = [[NSData alloc] initWithBase64EncodedString:payload options:NSDataBase64DecodingIgnoreUnknownCharacters];
+		if (data == nil) {
+			b(@"Could not decode image");
+			return;
+		}
+
+		[self imageFromData:data onComplete:a onFail:b];
 	} @catch(NSException* e) {
 		b(@"Could not decode image");
 	}
 }
+
++(void) base64FromImageAtPath:(NSString*)path
+		quality:(int)quality
+		format:(NSString*)format
+		onComplete:(StringAction)a
+		onFail:(StringAction)b
+{
+	UIImage* image = [UIImage imageWithContentsOfFile:path];
+	if (image == nil) {
+		b(@"Could not load image");
+		return;
+	}
+
+	@try {
+		NSString* targetFormat = [self normalizedFormat:format path:path];
+
+		NSData* data;
+		if ([targetFormat isEqualToString:@"png"]) {
+			data = UIImagePNGRepresentation(image);
+		} else if ([targetFormat isEqualToString:@"webp"]) {
+			b(@"WebP encoding is not supported on iOS");
+			return;
+		} else {
+			float q = MAX(0.0f, MIN(1.0f, quality / 100.0f));
+			data = UIImageJPEGRepresentation(image, q);
+		}
+
+		if (data == nil) {
+			b(@"Could not encode image");
+			return;
+		}
+
+		a([data base64EncodedStringWithOptions:0]);
+	}@catch(NSException* e){
+		b(@"Could not encode image");
+	}
+}
+
 +(void) base64FromImageAtPath:(NSString*)path
 		onComplete:(StringAction)a
 		onFail:(StringAction)b
 {
-	UIImage* img = [UIImage imageWithContentsOfFile:path];
-	@try {
-		NSString* b64 = [UIImageJPEGRepresentation(img, 0.9f) base64EncodedStringWithOptions:NSDataBase64Encoding64CharacterLineLength];
-		a(b64);
-	}@catch(NSException* e){
-		b(@"Could not encode image");
-	}
+	[self base64FromImageAtPath:path quality:90 format:nil onComplete:a onFail:b];
 }
 
 +(NSString*) createImagePath:(BOOL)temp
@@ -369,3 +567,4 @@
 	return NSTemporaryDirectory();
 }
 @end
+#pragma clang diagnostic pop

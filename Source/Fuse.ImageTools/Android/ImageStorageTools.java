@@ -1,37 +1,32 @@
 package com.fuse.camera;
 
-import android.app.Activity;
 import android.content.ContentResolver;
-import android.content.Context;
-import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Log;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import android.webkit.MimeTypeMap;
 import java.util.UUID;
 
 public class ImageStorageTools {
-	private static final String TAG = ImageStorageTools.class.getSimpleName();
-
-	// Hmmm when to run this?
 	public static void clearCache()
 	{
 		try{
 			File[] files = new File(getTempFileDir()).listFiles();
+			if(files == null)
+				return;
+
 			for(File f : files){
-				f.delete();
+				if(f.getName().startsWith("IMG_"))
+					f.delete();
 			}
 		}catch(Exception e){
 			e.printStackTrace();
@@ -47,15 +42,12 @@ public class ImageStorageTools {
 	{
 		byte[] buffer = new byte[1024];
 		int read;
-		while ((read = in.read(buffer)) != -1) {
+		while ((read = in.read(buffer)) != -1)
 			out.write(buffer, 0, read);
-		}
 
 		in.close();
-		in = null;
 		out.flush();
 		out.close();
-		out = null;
 	}
 
 	public static Image copyImage(File inputFile, File targetFile, boolean move) throws Exception
@@ -76,29 +68,26 @@ public class ImageStorageTools {
 
 	public static Image saveBitmapAndGetImage(Bitmap bmp, boolean temp, Bitmap.CompressFormat fmt) throws Exception
 	{
-		String ext = fmt == Bitmap.CompressFormat.PNG ? "png" : "jpg";
-
-		File f = new File(createFilePath(ext, temp));
-		FileOutputStream fOut = new FileOutputStream(f);
-		bmp.compress(fmt, 100, fOut);
-		fOut.flush();
-		fOut.close();
-		Image i = Image.fromPath(f.getAbsolutePath());
-		i.setDims(bmp.getWidth(), bmp.getHeight());
-		bmp.recycle();
-		return i;
+		return saveBitmapAndGetImage(bmp, temp, fmt, 100);
 	}
 
-	public static void saveBitmap(Bitmap bmp, String path) throws Exception
+	public static Image saveBitmapAndGetImage(Bitmap bmp, boolean temp, Bitmap.CompressFormat fmt, int quality) throws Exception
 	{
-		String ext = path.substring(path.lastIndexOf('.') + 1).toLowerCase();
-		Bitmap.CompressFormat fmt = ext == "png" ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG;
-		File f = new File(path);
-		FileOutputStream fOut = new FileOutputStream(f);
-		bmp.compress(fmt, 100, fOut);
-		fOut.flush();
-		fOut.close();
+		String ext;
+		if (fmt == Bitmap.CompressFormat.PNG)
+			ext = "png";
+		else if (fmt == Bitmap.CompressFormat.WEBP)
+			ext = "webp";
+		else
+			ext = "jpg";
+
+		File f = new File(createFilePath(ext, temp));
+		ImageUtils.writeBitmap(bmp, f, ext, quality);
+
+		Image image = Image.fromPath(f.getAbsolutePath());
+		image.setDims(bmp.getWidth(), bmp.getHeight());
 		bmp.recycle();
+		return image;
 	}
 
 	public static String createFilePath(String ext, boolean temp) throws Exception
@@ -108,21 +97,61 @@ public class ImageStorageTools {
 
 	public static String getTempFileDir()
 	{
-		return com.fuse.Activity.getRootActivity().getExternalCacheDir().getAbsolutePath() + File.separator + "images";
+		File cacheDir = com.fuse.Activity.getRootActivity().getExternalCacheDir();
+		if (cacheDir == null)
+			cacheDir = com.fuse.Activity.getRootActivity().getCacheDir();
+
+		return new File(cacheDir, "images").getAbsolutePath();
 	}
 
-	public static String getPublicPicturesDir()
+	public static String getDocumentsFileDir()
 	{
-		return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), getAppName()).getAbsolutePath();
+		File dir = new File(com.fuse.Activity.getRootActivity().getFilesDir(), "images");
+		if (!dir.exists() && !dir.mkdirs())
+			throw new RuntimeException("Failed to create application directory: " + dir.getAbsolutePath());
+		return dir.getAbsolutePath();
+	}
+
+	public static File getSaveFilePath(String directory, String name, String extension) throws Exception
+	{
+		File dir = "temp".equals(directory)
+			? new File(getTempFileDir())
+			: new File(getDocumentsFileDir());
+
+		if (!dir.exists() && !dir.mkdirs())
+			throw new Exception("Failed to create directory: " + dir.getAbsolutePath());
+
+		String fileName = (name == null || name.length() == 0)
+			? getImageFileName(extension)
+			: ensureExtension(name, extension);
+
+		File file = new File(dir, fileName);
+		if (!file.exists())
+			return file;
+
+		String base = fileName.substring(0, fileName.length() - extension.length() - 1);
+		for (int i = 1; i < 1000; i++) {
+			File candidate = new File(dir, base + "-" + i + "." + extension);
+			if (!candidate.exists())
+				return candidate;
+		}
+
+		throw new Exception("Could not create a unique file name for: " + name);
+	}
+
+	static String ensureExtension(String name, String extension)
+	{
+		int dot = name.lastIndexOf('.');
+		String base = dot > 0 ? name.substring(0, dot) : name;
+		return base + "." + extension;
 	}
 
 	public static File getOutputMediaFile(boolean temp, String fileName) throws Exception {
-
 		File mediaStorageDir;
 		if(temp)
 			mediaStorageDir = new File(getTempFileDir());
 		else
-			mediaStorageDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), getAppName()); //TODO: Fall back on internal?
+			mediaStorageDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), getAppName());
 
 		if (!mediaStorageDir.exists()) {
 			if (!mediaStorageDir.mkdirs()) {
@@ -137,12 +166,6 @@ public class ImageStorageTools {
 	public static String getImageFileName(String extension)
 	{
 		return "IMG_" + UUID.randomUUID().toString() + "." + extension;
-	}
-
-	public static Bitmap getBitmapFromContentUri(Uri contentUri) throws Exception
-	{
-		ContentResolver cr = com.fuse.Activity.getRootActivity().getContentResolver();
-		return MediaStore.Images.Media.getBitmap(cr, contentUri);
 	}
 
 	public static String getMimeType(Uri uriImage)
@@ -170,24 +193,5 @@ public class ImageStorageTools {
 		ContentResolver cr = com.fuse.Activity.getRootActivity().getContentResolver();
 		copyStream(cr.openInputStream(contentUri), new FileOutputStream(outFile));
 		return Image.fromUri(Uri.fromFile(outFile));
-	}
-
-	public static String getRealPathFromURI(Uri contentUri) {
-		Cursor cursor = null;
-		try {
-			String[] proj = { MediaStore.Images.Media.DATA };
-			ContentResolver r = com.fuse.Activity.getRootActivity().getContentResolver();
-			cursor = r.query(contentUri, proj, null, null, null);
-			int column_index = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
-			cursor.moveToFirst();
-			return cursor.getString(column_index);
-		}catch(java.lang.IllegalArgumentException e){
-			Log.e(getAppName(), "Failed to get file path from uri " + contentUri);
-			e.printStackTrace();
-			throw(e);
-		} finally {
-			if (cursor != null)
-				cursor.close();
-		}
 	}
 }

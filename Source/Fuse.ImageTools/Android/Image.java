@@ -1,21 +1,11 @@
 package com.fuse.camera;
 
-import android.app.Activity;
-import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Matrix;
-import android.media.ThumbnailUtils;
-import android.media.ExifInterface;
 import android.net.Uri;
-import android.provider.MediaStore;
-import android.util.Log;
 import android.util.Base64;
-import android.os.Build;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.ByteArrayOutputStream;
 
 
 public class Image {
@@ -33,8 +23,6 @@ public class Image {
 	}
 
 	Pt _dims;
-
-	private static final String TAG = Image.class.getSimpleName();
 
 	private Uri _fileUri;
 	public Uri getFileUri()
@@ -54,40 +42,14 @@ public class Image {
 
 	public String getExtension()
 	{
-		String filenameArray[] = getFileName().split("\\.");
-		return filenameArray[filenameArray.length-1];
+		String name = getFileName();
+		int dot = name.lastIndexOf('.');
+		return dot >= 0 ? name.substring(dot + 1) : "";
 	}
 
 	public String getFilePath()
 	{
 		return getFile().getAbsolutePath();
-	}
-
-	public static BitmapFactory.Options getBitmapOptionsWithoutDecoding(String url){
-		BitmapFactory.Options opts = new BitmapFactory.Options();
-		opts.inJustDecodeBounds = true;
-		BitmapFactory.decodeFile(url, opts);
-		return opts;
-	}
-
-	//ref: https://stackoverflow.com/a/32206045/2139770
-	public static int getBitmapSizeWithoutDecoding(String url){
-		BitmapFactory.Options opts = getBitmapOptionsWithoutDecoding(url);
-		return opts.outHeight*opts.outWidth*32/(1024*1024*8);
-	}
-
-	//ref: http://stackoverflow.com/questions/6073744/android-how-to-check-how-much-memory-is-remaining
-	public static double availableMemoryMB(){
-		Runtime runtime = Runtime.getRuntime();
-		long maxHeapSizeInMB=runtime.maxMemory() / 1048576L;
-		long usedMemInMB=(runtime.totalMemory() - runtime.freeMemory()) / 1048576L;
-		return maxHeapSizeInMB - usedMemInMB;
-	}
-
-	static Bitmap rotateImage(Bitmap source, float angle) {
-		Matrix matrix = new Matrix();
-		matrix.postRotate(angle);
-		return Bitmap.createBitmap(source, 0, 0, source.getWidth(), source.getHeight(), matrix, true);
 	}
 
 	//ref: https://developer.android.com/topic/performance/graphics/load-bitmap
@@ -116,77 +78,12 @@ public class Image {
 	public void correctOrientationFromExif()
 	{
 		try{
-			int orientation =
-				new ExifInterface(getFilePath())
-					.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED);
-
-			int angle = 0;
-			switch(orientation) {
-				case ExifInterface.ORIENTATION_ROTATE_90:
-					angle = 90;
-				break;
-				case ExifInterface.ORIENTATION_ROTATE_180:
-					angle = 180;
-				break;
-				case ExifInterface.ORIENTATION_ROTATE_270:
-					angle = 270;
-				break;
-				default:
-					return;
-			}
-
-			Bitmap bmp = getBitmap();
-			try {
-				bmp = rotateImage(bmp, angle);
-			} catch (OutOfMemoryError oome1) {
-
-				/*
-				Attempt to downsize image, else dont do anything to the image.
-				Detect only for less than Oreo cos harder to get OutOfMemory errors on Oreo+
-				~ https://stackoverflow.com/questions/48091403/how-does-bitmap-allocation-work-on-oreo-and-how-to-investigate-their-memory
-				*/
-				if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-
-					// First decode with inJustDecodeBounds=true to check dimensions
-					final BitmapFactory.Options options = new BitmapFactory.Options();
-					options.inJustDecodeBounds = true;
-					BitmapFactory.decodeFile(_fileUri.getPath(), options);
-
-					//determine reduced resolution
-					long imageSize = getBitmapSizeWithoutDecoding(_fileUri.getPath());
-
-					double targetMB = availableMemoryMB() / 2;
-
-					if (targetMB < imageSize) {
-
-						double reductionPerc = targetMB / imageSize;
-						int newWidth = (int) Math.round(options.outWidth * reductionPerc);
-						int newHeight = (int) Math.round(options.outHeight * reductionPerc);
-
-						// Calculate inSampleSize
-						options.inSampleSize = calculateInSampleSize(options, newWidth, newHeight);
-
-						// Decode bitmap with inSampleSize set
-						options.inJustDecodeBounds = false;
-						try {
-							bmp = BitmapFactory.decodeFile(_fileUri.getPath(), options);
-							bmp = rotateImage(bmp, angle);
-						} catch (OutOfMemoryError oome2) {
-							//do nothing to image
-						}
-					}
-				}
-			}
-			ImageStorageTools.saveBitmap(bmp, getFilePath());
-			bmp.recycle();
+			Image result = ImageUtils.autoOrient(this, 100, null, true);
+			if (result != null && result != this)
+				setDims(result.getWidth(), result.getHeight());
 		}catch(Exception e){
 			e.printStackTrace();
 		}
-
-	}
-
-	public Bitmap getBitmap(){
-		return BitmapFactory.decodeFile(_fileUri.getPath(), null);
 	}
 
 	void setDims(int width, int height)
@@ -210,8 +107,13 @@ public class Image {
 		if(_dims!=null) return;
 		BitmapFactory.Options options = new BitmapFactory.Options();
 		options.inJustDecodeBounds = true;
-		Bitmap bmp = BitmapFactory.decodeFile(_fileUri.getPath(), options);
-		_dims = new Pt(options.outWidth, options.outHeight);
+		BitmapFactory.decodeFile(_fileUri.getPath(), options);
+
+		int orientation = ImageUtils.readOrientation(_fileUri.getPath());
+		if (orientation >= 5 && orientation <= 8)
+			_dims = new Pt(options.outHeight, options.outWidth);
+		else
+			_dims = new Pt(options.outWidth, options.outHeight);
 	}
 
 	private Image(Uri fileUri) {
@@ -235,23 +137,26 @@ public class Image {
 
 	public static Image fromBase64(String b64) throws Exception
 	{
-		byte[] decodedString = Base64.decode(b64, Base64.DEFAULT);
-		Bitmap bmp = BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
-		return ImageStorageTools.saveBitmapAndGetImage(bmp, true, Bitmap.CompressFormat.PNG);
+		byte[] decodedString = Base64.decode(stripDataUri(b64), Base64.DEFAULT);
+		return fromBytes(decodedString);
 	}
 
-	public static Image fromBitmap(Bitmap bmp) throws Exception
+	static String stripDataUri(String value)
 	{
-		return ImageStorageTools.saveBitmapAndGetImage(bmp, true, Bitmap.CompressFormat.PNG);
+		int comma = value.indexOf(',');
+		if (value.startsWith("data:") && comma >= 0)
+			return value.substring(comma + 1);
+		return value;
 	}
-
 
 	public static Image fromBytes(byte[] bitmapdata) throws Exception
 	{
 		BitmapFactory.Options options = new BitmapFactory.Options();
 		Bitmap bmp = BitmapFactory.decodeByteArray(bitmapdata, 0, bitmapdata.length, options);
-		Bitmap.CompressFormat fmt = ImageUtils.compressFormatFromOptions(options);
-		return ImageStorageTools.saveBitmapAndGetImage(bmp, true, fmt);
+		if (bmp == null)
+			throw new Exception("Could not decode image data");
+		String format = ImageUtils.formatFromMime(options.outMimeType);
+		return ImageStorageTools.saveBitmapAndGetImage(bmp, true, ImageUtils.compressFormatFor(format), 100);
 	}
 
 	public static Image create() throws Exception

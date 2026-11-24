@@ -25,11 +25,15 @@
     "Android/ImageStorageTools.java:java:Android",
     "Android/Image.java:java:Android",
     "Android/ImageUtils.java:java:Android",
+    "Android/ImageFilters.java:java:Android",
+    "Android/ImageFrameCounter.java:java:Android",
     "iOS/Actions.h:cheader:iOS",
     "iOS/ImagePicker.h:cheader:iOS",
     "iOS/ImagePicker.m:csource:iOS",
     "iOS/ImageHelper.h:cheader:iOS",
-    "iOS/ImageHelper.m:csource:iOS"
+    "iOS/ImageHelper+Private.h:cheader:iOS",
+    "iOS/ImageHelper.m:csource:iOS",
+    "iOS/ImageHelper+Transform.m:csource:iOS"
   ],
   "excludes": [
     "Tests/"

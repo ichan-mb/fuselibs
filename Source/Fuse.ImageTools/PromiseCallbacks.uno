@@ -24,25 +24,6 @@ namespace Fuse.ImageTools
 		}
 	}
 
-	internal sealed class BoolPromiseCallback
-	{
-		Promise<bool> _p;
-		public BoolPromiseCallback(Promise<bool> p)
-		{
-			_p = p;
-		}
-
-		public void Resolve()
-		{
-			_p.Resolve(true);
-		}
-
-		public void Reject(string reason)
-		{
-			_p.Reject(new Exception(reason));
-		}
-	}
-
 	internal sealed class PromiseCallback<T>
 	{
 		Promise<T> _p;

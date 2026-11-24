@@ -98,8 +98,46 @@
 ### Fuse.Drawing.Surface
 - Update assembly references for .NET 6.0 (#1476)
 
+### Fuse.GeoLocation
+- Add `watchPosition(onLocation, onError, options)` and `clearWatch(id)` for multiple independent watchers; watchers share one platform listener using the most demanding settings
+- Add `geocode(address, options)` and `reverseGeocode(coordinates, options)` returning address objects with name, street, city, region, country, postal code, formatted address and coordinates
+- Add `startUpdatingHeading(options)` / `stopUpdatingHeading()` and the `headingChanged` event for compass heading updates
+- Add `addGeofence(options)`, `removeGeofence(id)`, `removeAllGeofences()` and the `geofenceEntered` / `geofenceExited` events; iOS uses region monitoring and Android uses proximity alerts
+- Declare Android fine/coarse location permissions and the location foreground-service type for Android 14, and iOS `NSLocation*UsageDescription` entries
+- Add unit tests for coordinates, location payload, watchers, heading, geofences and geocoding
+- Add `Docs/README.md` API reference and `Docs/Guide.md` task-oriented guide
+- Add `requestAuthorization(type)` and the `authorizationStatusChanged` event
+- Normalize `authorizationStatus` across iOS and Android (`notDetermined`, `restricted`, `denied`, `authorizedWhenInUse`, `authorizedAlways`)
+- Add `maximumAge` and cached last-known location support to `getLocation`
+- Add `distanceFilter` to `startListening`
+- Extend location objects with `timestamp`, `altitudeAccuracy`, `heading`, `speedAccuracy`, `isMock`, `provider`, and validity flags
+- Add `GeoCoordinates.DistanceTo`, `BearingTo`, `IsValid`, `Equals` and `GetHashCode`
+- iOS: fix `getLocation` hanging for “Always” authorization and honor `distanceFilter`
+- Android: fix timestamp overflow, concurrent `getLocation` requests, missing error events, and permission handling
+
 ### Fuse.ImageTools
 - Android: Fix Android 13 permission (#1499)
+- Add `rotate(image, options)` and `flip(image, options)` to `FuseJS/ImageTools`
+- Add `autoOrient(image)` to normalize images using their EXIF orientation
+- Add `getImageInfo(image)` and populate `image.info` with `mimeType`, `fileSize`, `orientation` and `hasAlpha`
+- Add `delete(image)` and `clearCache()` for scratch images
+- Add `format` and `quality` options to `resize`, `crop` and `getBase64FromImage`
+- Resize and crop now apply EXIF orientation automatically and preserve or convert the image format
+- Base64 output is no longer line-wrapped, and `getImageFromBase64` accepts data URIs and preserves the source format
+- Add `thumbnail(image, options)` to create bounded thumbnails without upscaling
+- Add `convert(image, options)` for re-encoding without changing dimensions
+- Add `save(image, options)` to persist images to application documents or the temporary directory
+- Add `FIT` and `PAD` resize modes, with a `background` color for padding
+- Add `filter(image, options)` with grayscale, sepia, brightness, contrast, saturation and blur (Android/iOS)
+- Add `image.info.frameCount` and `image.info.isAnimated` (GIF/WebP frame counting on Android, ImageIO on iOS, System.Drawing on .NET)
+- Add `anchor` and `aspectRatio` options to `crop`
+- Add `getImageFromUri(uri)` with Android `content://` support
+- Add `drawText(image, options)` for captions and text watermarks
+- Add `getPixelBuffer(image)` returning straight RGBA8888 pixel data
+- Add `composite(image, overlay, options)` for watermarks and overlays
+- Add `image.info.exif` with common EXIF fields (date, camera, exposure, GPS)
+- Add `resize`, `crop`, `rotate`, `flip` and `autoOrient` support on .NET desktop targets
+- Fix the default resize mode rejecting `IGNORE_ASPECT` on Android
 
 ### Fuse.Launcher
 - Add options for the in-app browser (`InAppBrowserOptions`): reader mode, chrome collapsing, toolbar/control colors, title visibility, dismiss button style, presentation style and animation
@@ -110,6 +148,28 @@
 - Android: launch partial Custom Tabs with `startActivityForResult` so Chrome honors the requested sheet height
 - Validate that URLs are well-formed `http`/`https` URLs
 - Android: bump `androidx.browser` from 1.0.0 to 1.8.0
+
+### Fuse.Launcher.InterApp
+- Add `InterAppLaunchStatus`, `InterAppLaunchOptions` and `Future`-based `LaunchUri`/`LaunchApp` overloads that report launch results
+- Add `CanOpenUri()` and `CanLaunchApp()` availability checks
+- Add `canOpenUri`, `canLaunchApp` and promise-returning `launchUri`/`launchApp` to `FuseJS/InterApp`; the legacy `launchApp(uri, appStoreUri)` form is still supported
+- Android: launch a specific package with `AndroidPackage`, use `ACTION_VIEW` for URI schemes and fall back to `AppStoreUri`
+- Android: declare package-visibility queries for the common inter-app URI schemes
+- iOS: use `openURL:options:completionHandler:`, support `UniversalLinksOnly` and fall back to `AppStoreUri`
+- Add `Android.Queries.Schemes`/`Android.Queries.Packages` and `iOS.PList.LSApplicationQueriesSchemes` project properties for availability checks
+- Add `CanOpenUri`/`CanLaunchApp` and the new `LaunchApp` overloads to `Fuse.Launcher`
+- Add `openSettings()` / `OpenSettings()` to open the app's system settings page
+- Add `openStore()` / `OpenStore()` with Android package and iOS App Store id support, plus a web store fallback
+- Add explicit `launchPackage()` / `LaunchPackage()` for launching an Android app by package id
+- Add Android launch options: `androidClassName`, `androidFlags`, `mimeType` and string `androidExtras`
+- Expose launch options on `FuseJS/InterApp.launchUri` and `<LaunchUri>`
+- Add `<LaunchPackage>` with `ApplicationId`, `AppStoreUri` and `AndroidFlags`
+- Add `<OpenSettings>` and `<OpenStore>` trigger actions
+- Add `receivedUriData` with the URI query string, source application, universal link, open-in-place and cold-start metadata; `receivedUri` remains available
+- Android: report the referring package and App Link status for incoming URIs
+- iOS: report the source application, universal link status and open-in-place flag for incoming URIs
+- Remove the unnecessary `INTERNET` permission request from `LaunchUri`
+- Add a README and unit tests for Android package-id detection
 
 ### Fuse.Launcher.Maps
 - Add `MapLaunchOptions`, `MapLocation` and `MapLaunchStatus` with a `Future`-based `LaunchMaps` API

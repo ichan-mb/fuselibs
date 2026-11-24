@@ -3,8 +3,6 @@ using Uno;
 using Fuse;
 using Uno.UX;
 using Fuse.Scripting;
-using Fuse.Android.Permissions;
-using Fuse.Scripting.JSObjectUtils;
 namespace Fuse.ImageTools
 {
 
@@ -12,7 +10,9 @@ namespace Fuse.ImageTools
 	{
 		IgnoreAspect = 0,
 		KeepAspect = 1,
-		ScaleAndCrop = 2
+		ScaleAndCrop = 2,
+		Fit = 3,
+		Pad = 4
 	}
 
 	/**
@@ -20,13 +20,22 @@ namespace Fuse.ImageTools
 
 		Utility methods for common Image manipulation.
 
+		Supports resizing, cropping, rotation, flipping, EXIF auto-orientation, thumbnails, format conversion,
+		compositing, color filters, Base64 and buffer encoding, and saving images to persistent application storage.
+
 		> To use this module, add `Fuse.ImageTools` to your package references in your `.unoproj`.
 
 		Fuse represents images as frozen JavaScript Image objects, consisting of a path, a filename, a width and a height.
+		The `info` property contains metadata such as `mimeType`, `fileSize`, `orientation`, `hasAlpha`,
+		`frameCount` and `isAnimated`.
 		Once created or acquired, Images can be passed around to other APIs to use, fetch or alter their underlying data.
 		All images are temporary "scratch images" until storage has been specified either through publishing to the CameraRoll or other.
 
-		On Android using this API will request the WRITE_EXTERNAL_STORAGE and READ_EXTERNAL_STORAGE permissions.
+		Transform operations accept optional `format` and `quality` options. WebP encoding is supported on Android;
+		iOS and .NET targets reject `format: "webp"` because their native encoders do not support it.
+
+		On Android 13 and newer this API requests the READ_MEDIA_IMAGES, READ_MEDIA_VIDEO and READ_MEDIA_AUDIO
+		permissions. Older versions request READ_EXTERNAL_STORAGE and WRITE_EXTERNAL_STORAGE.
 
 		## Example
 		```xml
@@ -48,7 +57,7 @@ namespace Fuse.ImageTools
 		```
 	*/
 	[UXGlobalModule]
-	public class ImageTools : NativeModule
+	public partial class ImageTools : NativeModule
 	{
 
 		static readonly ImageTools _instance;
@@ -59,13 +68,29 @@ namespace Fuse.ImageTools
 			Resource.SetGlobalKey(_instance = this, "FuseJS/ImageTools");
 			AddMember(new NativePromise<Image, Scripting.Object>("resize", ResizeImageInterface, Image.Converter));
 			AddMember(new NativePromise<Image, Scripting.Object>("crop", CropImageInterface, Image.Converter));
+			AddMember(new NativePromise<Image, Scripting.Object>("rotate", RotateImageInterface, Image.Converter));
+			AddMember(new NativePromise<Image, Scripting.Object>("flip", FlipImageInterface, Image.Converter));
+			AddMember(new NativePromise<Image, Scripting.Object>("autoOrient", AutoOrientImageInterface, Image.Converter));
+			AddMember(new NativePromise<Image, Scripting.Object>("thumbnail", ThumbnailImageInterface, Image.Converter));
+			AddMember(new NativePromise<Image, Scripting.Object>("convert", ConvertImageInterface, Image.Converter));
+			AddMember(new NativePromise<Image, Scripting.Object>("composite", CompositeImageInterface, Image.Converter));
+			AddMember(new NativePromise<Image, Scripting.Object>("filter", FilterImageInterface, Image.Converter));
+			AddMember(new NativePromise<Image, Scripting.Object>("drawText", DrawTextImageInterface, Image.Converter));
+			AddMember(new NativePromise<byte[], Scripting.Object>("getPixelBuffer", PixelBufferInterface, null));
+			AddMember(new NativePromise<Image, Scripting.Object>("save", SaveImageInterface, Image.Converter));
+			AddMember(new NativePromise<Image, Scripting.Object>("getImageInfo", GetImageInfoInterface, Image.InfoConverter));
+			AddMember(new NativePromise<bool, Scripting.Object>("delete", DeleteImageInterface, null));
+			AddMember(new NativePromise<bool, Scripting.Object>("clearCache", ClearCacheInterface, null));
 			AddMember(new NativePromise<Image, Scripting.Object>("getImageFromBase64", ImageFromBase64Interface, Image.Converter));
+			AddMember(new NativePromise<Image, Scripting.Object>("getImageFromUri", ImageFromUriInterface, Image.Converter));
 			AddMember(new NativePromise<string, Scripting.Object>("getBase64FromImage", Base64FromImageInterface, null));
 			AddMember(new NativePromise<Image, Scripting.Object>("getImageFromBuffer", ImageFromBufferInterface, Image.Converter));
 			AddMember(new NativePromise<byte[], Scripting.Object>("getBufferFromImage", BufferFromImageInterface, null));
 			AddMember(new NativeProperty<object, int>("IGNORE_ASPECT", ResizeMode.IgnoreAspect));
 			AddMember(new NativeProperty<object, int>("KEEP_ASPECT", ResizeMode.KeepAspect));
 			AddMember(new NativeProperty<object, int>("SCALE_AND_CROP", ResizeMode.ScaleAndCrop));
+			AddMember(new NativeProperty<object, int>("FIT", ResizeMode.Fit));
+			AddMember(new NativeProperty<object, int>("PAD", ResizeMode.Pad));
 		}
 
 		public static Image ImageFromByteArray(byte[] bytes)
@@ -88,260 +113,21 @@ namespace Fuse.ImageTools
 			}
 		}
 
-		/**
-			@scriptmethod getImageFromBuffer(imageData)
-			@param imageData (ArrayBuffer) The image data
-			@return (Promise) a Promise of an Image
-
-			Creates a new temporary image file from an ArrayBuffer of image data.
-
-			## Example
-			```js
-				var ImageTools = require("FuseJS/ImageTools");
-				ImageTools.getImageFromBuffer(imageData).
-					then(function (image) { console.log("Scratch image path is: " + image.path); });
-			```
-		*/
-		Future<Image> ImageFromBufferInterface(Context c, object[] args)
-		{
-			var p = new Promise<Image>();
-			var cb = new ImagePromiseCallback(p);
-			if(args.Length == 1){
-				var bytes = args[0] as byte[];
-				if(bytes!=null)
-				{
-					if defined(Android)
-					{
-						sbyte[] sbytes = new sbyte[bytes.Length];
-						for(var i = 0; i<bytes.Length; i++)
-							sbytes[i] = (sbyte) bytes[i];
-						AndroidImageUtils.GetImageFromBuffer(sbytes, cb.Resolve, cb.Reject);
-					}
-					else if defined(iOS)
-					{
-						iOSImageUtils.GetImageFromBuffer(bytes, cb.Resolve, cb.Reject);
-					}
-					else
-					{
-						cb.Reject("Not supported on current platform.");
-					}
-				}else{
-						cb.Reject("getImageFromBuffer requires an arraybuffer argument");
-				}
-			}else{
-					cb.Reject("getImageFromBuffer requires an arraybuffer argument");
-			}
-
-			return p;
-		}
-
-		/**
-			@scriptmethod getBufferFromImage(image)
-			@param image (Object) The image to fetch data for
-			@return (Promise) a Promise of an ArrayBuffer of image data
-
-			Retrieves the underlying image data for an image as an ArrayBuffer.
-
-			## Example
-			```js
-				// Here image is expected to be an `Image` object
-				var ImageTools = require("FuseJS/ImageTools");
-				ImageTools.getBufferFromImage(image)
-					.then(function(buf) { console.log("Image contains " + buf.byteLength + " bytes"); });
-			```
-		*/
-		Future<byte[]> BufferFromImageInterface(Context c, object[] args)
-		{
-			var p = new Promise<byte[]>();
-			if(args.Length == 1){
-				var img = Image.FromObject(args[0]);
-				if(img != null)
-				{
-					try
-					{
-						byte[] bytes = Uno.IO.File.ReadAllBytes(img.Path);
-						p.Resolve(bytes);
-					}catch(Exception e)
-					{
-						p.Reject(e);
-					}
-				}else{
-					p.Reject(new Exception("Invalid image reference"));
-				}
-			}else{
-				p.Reject(new Exception("Invalid arguments"));
-			}
-			return p;
-		}
-
-		/**
-			@scriptmethod resize(image, options)
-			@param image (Object) The image to resize
-			@param options (Object) The resize options
-			@return (Promise) a Promise of an Image
-
-			Resizes an image using the options provided, and returns a Promise of the transformed Image.
-
-			The `options` parameter must be an object with one or more of the following properties defined:
-
-			* `desiredWidth` - The new width in pixels
-			* `desiredHeight` - The new height in pixels
-			* `mode` - The resizing mode, which can be:
-			  - `ImageTools.IGNORE_ASPECT` - The image is resized exactly to the desired width and height. This is the default.
-			  - `ImageTools.KEEP_ASPECT`- The image is resized to within the closest size possible to the desired size while still maintaining the original aspect ratio.
-			  - `ImageTools.SCALE_AND_CROP` - The image is first scaled and centered while maintaining aspect to the closest edge of the desired bounds, then cropped according to the Crop rule. This allows you to make an aspect correct square portrait out of a landscape shot, for instance.
-			* `performInPlace` - Boolean value determining whether the existing image will replaced
-
-			## Example
-			```js
-				// Here we assume that we have an existing image variable `originalImage`
-				var ImageTools = require("FuseJS/ImageTools");
-
-				var options = {
-					mode: ImageTools.IGNORE_ASPECT,
-					desiredWidth: 320, //The desired width in pixels
-					desiredHeight: 240 //The desired height in pixels
-				};
-
-				ImageTools.resize(originalImage, options)
-					.then(function(newImage) { console.log("Path of resized image is " + newImage.path); });
-			```
-		*/
-		Future<Image> ResizeImageInterface(Context c, object[] args)
-		{
-			if(args.Length!=2)
-				throw new Exception("resize takes 2 arguments: An Image and an Object of options");
-
-			var image = Image.FromObject(args[0]);
-			var opts = args[1] as Scripting.Object;
-			var w = opts.ValueOrDefault<int>("desiredWidth", -1);
-			if(w==-1)
-				throw new Exception("desiredWidth must be defined");
-			var h = opts.ValueOrDefault<int>("desiredHeight", w);
-			var m = (ResizeMode)opts.ValueOrDefault<int>("mode", 3);
-			var inPlace = opts.ValueOrDefault<bool>("performInPlace", true);
-
-			return Resize(image, w, h, m, inPlace);
-		}
-
-		/**
-			@scriptmethod crop(image, options)
-			@param image (Object) The image to crop
-			@param options (Object) The crop options
-			@return (Promise) a Promise of an Image
-
-			Crops the supplied `image`, and returns a Promise of the transformed Image.
-
-			The `options` parameter must be an object with one or more of the following properties defined:
-
-			* `x` - X offset for cropped image, from left
-			* `y` - Y offset for cropped image, from top
-			* `width` - Width of cropped image
-			* `height` - Height of cropped image
-			* `performInPlace` - Boolean value determining whether the existing image will replaced
-
-			## Example
-			```js
-				// Here we assume that we have an existing image variable `originalImage`
-				var ImageTools = require("FuseJS/ImageTools");
-
-				var options = {
-					width: 10, // Width of cropped image
-					height: 10 // Height of cropped image
-				};
-
-				ImageTools.crop(originalImage, options)
-					.then(function(newImage) { console.log("Path of cropped image is " + newImage.path); });
-			```
-		*/
-		Future<Image> CropImageInterface(Context c, object[] args)
-		{
-			if(args.Length!=2)
-				throw new Exception("crop takes 2 arguments: An Image and an options object");
-
-			var image = Image.FromObject(args[0]);
-
-			var opts = args[1] as Scripting.Object;
-			var width = 0;
-			var height = 0;
-			var x = 0;
-			var y = 0;
-			var inPlace = true;
-			if(opts!=null)
-			{
-				x = opts.ValueOrDefault<int>("x", 0);
-				y = opts.ValueOrDefault<int>("y", 0);
-				width = opts.ValueOrDefault<int>("width", 0);
-				height = opts.ValueOrDefault<int>("height", width);
-				inPlace = opts.ValueOrDefault<bool>("performInPlace", true);
-			}
-
-			if(width==0||height==0)
-				throw new Exception("Width and height must be larger than 0");
-
-			return Crop(image, width, height, x, y, inPlace);
-		}
-
-		/**
-			@scriptmethod getImageFromBase64(base64)
-			@param base64 (string) The data to decode
-			@return (Promise) a Promise of an Image
-
-			Takes base64 string encoded image data and returns a Promise of an Image.
-
-			## Example
-			```js
-				// Here we assume that someBase64ImageString contains a base-64 encoded image
-				var ImageTools = require("FuseJS/ImageTools");
-				ImageTools.getImageFromBase64(someBase64ImageString);
-					.then(function(image) {
-						console.log("Scratch path of image is " + image.path);
-					});
-			```
-		*/
-		Future<Image> ImageFromBase64Interface(Context c, object[] args)
-		{
-			if(args.Length!=1)
-				throw new Exception("imageFromBase64 needs a base64 string argument");
-			var str = args.ValueOrDefault<string>(0);
-			return ImageFromBase64(str);
-		}
-
-		/**
-			@scriptmethod getBase64FromImage(image)
-			@param image (Object) The Image to encode
-			@return (Promise) a Promise of a string of base64 data
-
-			Encodes the given image as a base64 string.
-
-			## Example
-			```js
-				// Here we assume that we have an existing `image` object
-				var ImageTools = require("FuseJS/ImageTools");
-				ImageTools.getBase64FromImage(image)
-					.then(function(base64Image) { console.log("The base64 encoded image is \"" + base64Image + "\""); });
-			```
-		*/
-		Future<string> Base64FromImageInterface(Context c, object[] args)
-		{
-			if(args.Length!=1)
-				throw new Exception("base64FromImage needs a Image argument");
-
-			var image = Image.FromObject(args[0]);
-			return ImageToBase64(image);
-		}
-
-		public static Future<Image> Resize(Image img, int desiredWidth, int desiredHeight, ResizeMode mode, bool inPlace = true)
+		public static Future<Image> Resize(Image img, int desiredWidth, int desiredHeight, ResizeMode mode, bool inPlace = true, string format = null, int quality = 90, int background = -1)
 		{
 			var p = new Promise<Image>();
 			var closure = new ImagePromiseCallback(p);
 			if defined(Android)
 			{
-				new ResizeCommand(img.Path, desiredWidth, desiredHeight, (int)mode, closure.Resolve, closure.Reject, inPlace).Execute();
+				new ResizeCommand(img.Path, desiredWidth, desiredHeight, (int)mode, format, quality, background, closure.Resolve, closure.Reject, inPlace).Execute();
 			}
 			else if defined(iOS)
 			{
-				iOSImageUtils.Resize(img.Path, desiredWidth, desiredHeight, (int)mode, closure.Resolve, closure.Reject, inPlace);
+				iOSImageUtils.Resize(img.Path, desiredWidth, desiredHeight, (int)mode, format, quality, background, closure.Resolve, closure.Reject, inPlace);
+			}
+			else if defined(dotnet)
+			{
+				DotNetImageUtils.Resize(img.Path, desiredWidth, desiredHeight, (int)mode, format, quality, background, closure.Resolve, closure.Reject, inPlace);
 			}
 			else
 			{
@@ -350,92 +136,237 @@ namespace Fuse.ImageTools
 			return p;
 		}
 
-		public static Future<Image> Crop(Image img, int width, int height, int x, int y, bool inPlace = true)
+		public static Future<Image> Crop(Image img, int width, int height, int x, int y, bool inPlace = true, string format = null, int quality = 90)
 		{
 			var p = new Promise<Image>();
 			var closure = new ImagePromiseCallback(p);
 			if defined(Android)
-				new CropCommand(img.Path, x, y, width, height, closure.Resolve, closure.Reject, inPlace).Execute();
+				new CropCommand(img.Path, x, y, width, height, format, quality, closure.Resolve, closure.Reject, inPlace).Execute();
 			else if defined(iOS)
-				iOSImageUtils.Crop(img.Path, x, y, width, height, closure.Resolve, closure.Reject, inPlace);
+				iOSImageUtils.Crop(img.Path, x, y, width, height, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else if defined(dotnet)
+				DotNetImageUtils.Crop(img.Path, x, y, width, height, format, quality, closure.Resolve, closure.Reject, inPlace);
 			else
-				closure.Resolve(img.Path);
+				closure.Reject("Unsupported platform");
 			return p;
 		}
 
-		extern (Android) class GetBase64Command : PCommand {
-			string _path;
-			Action<string> _resolve;
-			Action<string> _reject;
-			public GetBase64Command(string path, Action<string> Resolve, Action<string> Reject) : base(
-				AndroidProperties.BuildVersion >= 33 ?
-				new PlatformPermission[]
-				{
-				Permissions.Android.READ_MEDIA_IMAGES, Permissions.Android.READ_MEDIA_VIDEO, Permissions.Android.READ_MEDIA_AUDIO
-				} : new PlatformPermission[]
-				{
-				Permissions.Android.READ_EXTERNAL_STORAGE, Permissions.Android.WRITE_EXTERNAL_STORAGE
-				}
-			)
-			{
-				_path = path;
-				_resolve = Resolve;
-				_reject = Reject;
-			}
-			override void OnGranted()
-			{
-				AndroidImageUtils.GetBase64FromImage(_path, _resolve, _reject);
-			}
+		public static Future<Image> Rotate(Image img, double degrees, string format = null, int quality = 90, bool inPlace = true)
+		{
+			var p = new Promise<Image>();
+			var closure = new ImagePromiseCallback(p);
+			if defined(Android)
+				new RotateCommand(img.Path, degrees, format, quality, closure.Resolve, closure.Reject, inPlace).Execute();
+			else if defined(iOS)
+				iOSImageUtils.Rotate(img.Path, degrees, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else if defined(dotnet)
+				DotNetImageUtils.Rotate(img.Path, degrees, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else
+				closure.Reject("Unsupported platform");
+			return p;
+		}
 
-			override void OnRejected(Exception e)
+		public static Future<Image> Flip(Image img, bool horizontal, bool vertical, string format = null, int quality = 90, bool inPlace = true)
+		{
+			var p = new Promise<Image>();
+			var closure = new ImagePromiseCallback(p);
+			if defined(Android)
+				new FlipCommand(img.Path, horizontal, vertical, format, quality, closure.Resolve, closure.Reject, inPlace).Execute();
+			else if defined(iOS)
+				iOSImageUtils.Flip(img.Path, horizontal, vertical, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else if defined(dotnet)
+				DotNetImageUtils.Flip(img.Path, horizontal, vertical, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else
+				closure.Reject("Unsupported platform");
+			return p;
+		}
+
+		public static Future<Image> AutoOrient(Image img, string format = null, int quality = 90, bool inPlace = true)
+		{
+			var p = new Promise<Image>();
+			var closure = new ImagePromiseCallback(p);
+			if defined(Android)
+				new AutoOrientCommand(img.Path, format, quality, closure.Resolve, closure.Reject, inPlace).Execute();
+			else if defined(iOS)
+				iOSImageUtils.AutoOrient(img.Path, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else if defined(dotnet)
+				DotNetImageUtils.AutoOrient(img.Path, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else
+				closure.Reject("Unsupported platform");
+			return p;
+		}
+
+		public static Future<Image> Thumbnail(Image img, int maxWidth, int maxHeight, string format = null, int quality = 90)
+		{
+			var p = new Promise<Image>();
+			var closure = new ImagePromiseCallback(p);
+			if defined(Android)
+				new ThumbnailCommand(img.Path, maxWidth, maxHeight, format, quality, closure.Resolve, closure.Reject).Execute();
+			else if defined(iOS)
+				iOSImageUtils.Thumbnail(img.Path, maxWidth, maxHeight, format, quality, closure.Resolve, closure.Reject);
+			else if defined(dotnet)
+				DotNetImageUtils.Thumbnail(img.Path, maxWidth, maxHeight, format, quality, closure.Resolve, closure.Reject);
+			else
+				closure.Reject("Unsupported platform");
+			return p;
+		}
+
+		public static Future<Image> Convert(Image img, string format = null, int quality = 90, bool inPlace = true)
+		{
+			var p = new Promise<Image>();
+			var closure = new ImagePromiseCallback(p);
+			if defined(Android)
+				new ConvertCommand(img.Path, format, quality, closure.Resolve, closure.Reject, inPlace).Execute();
+			else if defined(iOS)
+				iOSImageUtils.Convert(img.Path, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else if defined(dotnet)
+				DotNetImageUtils.Convert(img.Path, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else
+				closure.Reject("Unsupported platform");
+			return p;
+		}
+
+		public static Future<Image> Composite(Image img, Image overlay, int x, int y, double opacity, string format = null, int quality = 90, bool inPlace = true)
+		{
+			var p = new Promise<Image>();
+			var closure = new ImagePromiseCallback(p);
+			if defined(Android)
+				new CompositeCommand(img.Path, overlay.Path, x, y, opacity, format, quality, closure.Resolve, closure.Reject, inPlace).Execute();
+			else if defined(iOS)
+				iOSImageUtils.Composite(img.Path, overlay.Path, x, y, opacity, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else if defined(dotnet)
+				DotNetImageUtils.Composite(img.Path, overlay.Path, x, y, opacity, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else
+				closure.Reject("Unsupported platform");
+			return p;
+		}
+
+		public static Future<Image> Filter(Image img, string type, double amount, int radius, string format = null, int quality = 90, bool inPlace = true)
+		{
+			var p = new Promise<Image>();
+			var closure = new ImagePromiseCallback(p);
+			if defined(Android)
+				new FilterCommand(img.Path, type, amount, radius, format, quality, closure.Resolve, closure.Reject, inPlace).Execute();
+			else if defined(iOS)
+				iOSImageUtils.Filter(img.Path, type, amount, radius, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else if defined(dotnet)
+				DotNetImageUtils.Filter(img.Path, type, amount, radius, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else
+				closure.Reject("Unsupported platform");
+			return p;
+		}
+
+		public static Future<Image> DrawText(Image img, string text, int x, int y, float fontSize, string font, int color, string format = null, int quality = 90, bool inPlace = true)
+		{
+			var p = new Promise<Image>();
+			var closure = new ImagePromiseCallback(p);
+			if defined(Android)
+				new DrawTextCommand(img.Path, text, x, y, fontSize, font, color, format, quality, closure.Resolve, closure.Reject, inPlace).Execute();
+			else if defined(iOS)
+				iOSImageUtils.DrawText(img.Path, text, x, y, fontSize, font, color, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else if defined(dotnet)
+				DotNetImageUtils.DrawText(img.Path, text, x, y, fontSize, font, color, format, quality, closure.Resolve, closure.Reject, inPlace);
+			else
+				closure.Reject("Unsupported platform");
+			return p;
+		}
+
+		public static Future<byte[]> GetPixelBuffer(Image img)
+		{
+			var p = new Promise<byte[]>();
+			try
 			{
-				_reject(e.Message);
+				if defined(Android)
+				{
+					var signed = AndroidImageUtils.GetPixelBuffer(img.Path);
+					if(signed == null)
+						throw new Exception("Could not read pixel buffer");
+
+					var bytes = new byte[signed.Length];
+					for(int i = 0; i < signed.Length; i++)
+						bytes[i] = (byte)signed[i];
+
+					p.Resolve(bytes);
+				}
+				else if defined(iOS)
+					p.Resolve(iOSImageUtils.GetPixelBuffer(img.Path));
+				else if defined(dotnet)
+					p.Resolve(DotNetImageUtils.GetPixelBuffer(img.Path));
+				else
+					p.Reject(new Exception("Unsupported platform"));
 			}
+			catch(Exception e)
+			{
+				p.Reject(e);
+			}
+			return p;
+		}
+
+		public static Future<Image> Save(Image img, string directory, string name, string format = null, int quality = 90)
+		{
+			var p = new Promise<Image>();
+			var closure = new ImagePromiseCallback(p);
+			if defined(Android)
+				new SaveCommand(img.Path, directory, name, format, quality, closure.Resolve, closure.Reject).Execute();
+			else if defined(iOS)
+				iOSImageUtils.Save(img.Path, directory, name, format, quality, closure.Resolve, closure.Reject);
+			else if defined(dotnet)
+				DotNetImageUtils.Save(img.Path, directory, name, format, quality, closure.Resolve, closure.Reject);
+			else
+				closure.Reject("Unsupported platform");
+			return p;
+		}
+
+		extern(Android) void ClearCache()
+		{
+			AndroidImageUtils.ClearCache();
+		}
+
+		extern(iOS) void ClearCache()
+		{
+			iOSImageUtils.ClearCache();
+		}
+
+		extern(!Mobile && !DOTNET) void ClearCache() { }
+
+		extern(DOTNET) void ClearCache()
+		{
+			DotNetImageUtils.ClearCache();
 		}
 
 		public static Future<string> ImageToBase64(Image img)
 		{
+			return ImageToBase64(img, null, 90);
+		}
+
+		public static Future<string> ImageToBase64(Image img, string format, int quality)
+		{
 			var p = new Promise<string>();
 			var closure = new PromiseCallback<string>(p);
 			if defined(Android)
-				new GetBase64Command(img.Path,closure.Resolve, closure.Reject).Execute();
+				new GetBase64Command(img.Path, format, quality, closure.Resolve, closure.Reject).Execute();
 			else if defined(iOS)
-				iOSImageUtils.GetBase64FromImage(img.Path, closure.Resolve, closure.Reject);
+				iOSImageUtils.GetBase64FromImage(img.Path, format, quality, closure.Resolve, closure.Reject);
 			else if defined(dotnet)
-				DotNetImageUtils.GetBase64FromImage(img.Path, closure.Resolve, closure.Reject);
+				DotNetImageUtils.GetBase64FromImage(img.Path, format, quality, closure.Resolve, closure.Reject);
 			else
 				closure.Reject("Unsupported platform");
 			return p;
 		}
 
-		extern (Android) class ImageFromBase64Command : PCommand {
-			string _base64Image;
-			Action<string> _resolve;
-			Action<string> _reject;
-			public ImageFromBase64Command(string base64Image, Action<string> Resolve, Action<string> Reject) : base(
-				AndroidProperties.BuildVersion >= 33 ?
-				new PlatformPermission[]
-				{
-				Permissions.Android.READ_MEDIA_IMAGES, Permissions.Android.READ_MEDIA_VIDEO, Permissions.Android.READ_MEDIA_AUDIO
-				} : new PlatformPermission[]
-				{
-				Permissions.Android.READ_EXTERNAL_STORAGE, Permissions.Android.WRITE_EXTERNAL_STORAGE
-				}
-			)
-			{
-				_base64Image = base64Image;
-				_resolve = Resolve;
-				_reject = Reject;
-			}
-			override void OnGranted()
-			{
-				AndroidImageUtils.GetImageFromBase64(_base64Image, _resolve, _reject);
-			}
-
-			override void OnRejected(Exception e)
-			{
-				_reject(e.Message);
-			}
+		public static Future<Image> ImageFromUri(string uri)
+		{
+			var p = new Promise<Image>();
+			var closure = new ImagePromiseCallback(p);
+			if defined(Android)
+				new ImageFromUriCommand(uri, closure.Resolve, closure.Reject).Execute();
+			else if defined(iOS)
+				iOSImageUtils.GetImageFromUri(uri, closure.Resolve, closure.Reject);
+			else if defined(dotnet)
+				DotNetImageUtils.GetImageFromUri(uri, closure.Resolve, closure.Reject);
+			else
+				closure.Reject("Unsupported platform");
+			return p;
 		}
 
 		public static Future<Image> ImageFromBase64(string b64)
