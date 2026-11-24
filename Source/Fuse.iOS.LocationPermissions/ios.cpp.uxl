@@ -1,12 +1,22 @@
 <extensions backend="cplusplus" condition="IOS">
 	<require xcode.plist.element>
 		<![CDATA[
-			<key>NSLocationUsageDescription</key>
-			<string></string>
-			<key>NSLocationWhenInUseUsageDescription</key>
-			<string></string>
-			<key>NSLocationAlwaysUsageDescription</key>
-			<string></string>
+			<!--#if !#(project.ios.plist.NSLocationUsageDescription:isSet)-->
+				<key>NSLocationUsageDescription</key>
+				<string>This app uses your location to provide location-based features.</string>
+			<!--#endif-->
+			<!--#if !#(project.ios.plist.NSLocationWhenInUseUsageDescription:isSet)-->
+				<key>NSLocationWhenInUseUsageDescription</key>
+				<string>This app uses your location while it is in use to provide location-based features.</string>
+			<!--#endif-->
+			<!--#if !#(project.ios.plist.NSLocationAlwaysUsageDescription:isSet)-->
+				<key>NSLocationAlwaysUsageDescription</key>
+				<string>This app uses your location to provide location-based features, including while it is in the background.</string>
+			<!--#endif-->
+			<!--#if !#(project.ios.plist.NSLocationAlwaysAndWhenInUseUsageDescription:isSet)-->
+				<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+				<string>This app uses your location to provide location-based features, including while it is in the background.</string>
+			<!--#endif-->
 		]]>
 	</require>
 </extensions>
