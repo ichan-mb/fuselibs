@@ -66,9 +66,23 @@ namespace Fuse.Controls.Native
 			android.view.View view = (android.view.View)@{Fuse.Controls.Native.ViewHandle:of(_this).NativeHandle:get()};
 			if (view instanceof android.view.ViewGroup)
 			{
+				// ClipToBounds clips everything in the element to the element's bounds, as iOS's
+				// clipsToBounds does. Android's clipChildren clips each child to the child's own
+				// bounds instead, which cut off what reaches outside a child, e.g. a button that
+				// hangs over its panel's edge. Clipping to the outline is Android's equivalent.
 				android.view.ViewGroup viewGroup = (android.view.ViewGroup)view;
-				viewGroup.setClipChildren(clipToBounds);
-				viewGroup.setClipToPadding(clipToBounds);
+				viewGroup.setClipChildren(false);
+				viewGroup.setClipToPadding(false);
+				if (clipToBounds)
+				{
+					view.setOutlineProvider(android.view.ViewOutlineProvider.BOUNDS);
+					view.setClipToOutline(true);
+				}
+				else if (view.getClipToOutline())
+				{
+					view.setClipToOutline(false);
+					view.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+				}
 			}
 		@}
 
