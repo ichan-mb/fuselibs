@@ -100,7 +100,7 @@ namespace Fuse.Controls.Native.iOS
 			if (!string.IsNullOrEmpty(_symbols) && Size.X > 0)
 			{
 				var systemImage = GetSystemImage(_symbols, Size.X);
-				var tintedSystemImage = TintImage(systemImage, _tintColor.X, _tintColor.Y, _tintColor.Z, _tintColor.W);
+				var tintedSystemImage = TintSymbol(systemImage, _tintColor.X, _tintColor.Y, _tintColor.Z, _tintColor.W);
 				SetImage(_uiImageView, tintedSystemImage);
 				SetContentMode(_uiImageView);
 			}
@@ -110,14 +110,19 @@ namespace Fuse.Controls.Native.iOS
 				{
 					var tintedImage = TintImage(_uiImageHandle, _tintColor.X, _tintColor.Y, _tintColor.Z, _tintColor.W);
 					SetImage(_uiImageView, tintedImage);
+					LayoutImage();
 				}
 			}
 		}
 
+		// The image view sits in a view of its own that clips it: Fuse sets the clipping of
+		// Handle from the element's ClipToBounds, but a stretched image must never spill.
+		ObjC.Object _uiClipView;
 		ObjC.Object _uiImageView;
 		public ImageView() : base(Create())
 		{
-			_uiImageView = CreateImageView(Handle);
+			_uiClipView = CreateClipView(Handle);
+			_uiImageView = CreateImageView(_uiClipView);
 			SetAnchorPoint(_uiImageView);
 		}
 
@@ -131,6 +136,7 @@ namespace Fuse.Controls.Native.iOS
 		public override void Dispose()
 		{
 			_uiImageView = null;
+			_uiClipView = null;
 			ImageHandle = null;
 			if (ImageSource != null && ImageSource is MultiDensityImageSource)
 			{
@@ -198,26 +204,45 @@ namespace Fuse.Controls.Native.iOS
 			ImageHandle = null;
 		}
 
+		float2 _origin;
+		float2 _scale = float2(1.0f);
+
 		public void UpdateImageTransform(float density, float2 origin, float2 scale, float2 drawSize)
 		{
-			var imageSize = GetImageSize();
-			SetBounds(_uiImageView, 0.0f, 0.0f, imageSize.X, imageSize.Y);
+			_origin = origin;
+			_scale = scale;
+			LayoutImage();
 			if (!string.IsNullOrEmpty(_symbols))
-			{
 				UpdateImage();
-			}
-			else
-			{
-				SetTransform(_uiImageView, float4x4.Identity);
-				var imageTransform = Matrix.Compose(float3(scale, 0.0f), float4.Identity, float3(origin, 0.0f));
-				SetTransform(_uiImageView, imageTransform);
-			}
 		}
 
 		internal protected override void OnSizeChanged()
 		{
-			SetBounds(_uiImageView, 0.0f, 0.0f, Size.X, Size.Y);
-			UpdateImage();
+			if (_uiClipView != null)
+				SetFrame(_uiClipView, 0.0f, 0.0f, Size.X, Size.Y);
+			LayoutImage();
+			if (!string.IsNullOrEmpty(_symbols))
+				UpdateImage();
+		}
+
+		// Symbols are fitted to the view by UIKit. Bitmaps keep their own size and are placed
+		// with the scale and origin Image computed for its StretchMode, so their bounds have to
+		// follow the image, also when it is replaced after layout.
+		void LayoutImage()
+		{
+			if (_uiImageView == null)
+				return;
+
+			SetTransform(_uiImageView, float4x4.Identity);
+			if (!string.IsNullOrEmpty(_symbols))
+			{
+				SetBounds(_uiImageView, 0.0f, 0.0f, Size.X, Size.Y);
+				return;
+			}
+
+			var imageSize = ImageSizeInPoints();
+			SetBounds(_uiImageView, 0.0f, 0.0f, imageSize.X, imageSize.Y);
+			SetTransform(_uiImageView, Matrix.Compose(float3(_scale, 1.0f), float4.Identity, float3(_origin, 0.0f)));
 		}
 
 		static void SetTransform(ObjC.Object handle, float4x4 t)
@@ -253,12 +278,34 @@ namespace Fuse.Controls.Native.iOS
 			[view setBounds: { { x, y }, { w, h } }];
 		@}
 
+		// The size Image lays the bitmap out with, which its scale and origin are relative to: a
+		// 48 px file with Density="2" is 24 points, while UIKit, loading it at scale 1, says 48.
+		// The image view stretches the bitmap to it.
+		float2 ImageSizeInPoints()
+		{
+			var source = ImageSource;
+			if (source != null)
+			{
+				var size = source.Size;
+				if (size.X > 0 && size.Y > 0)
+					return size;
+			}
+			return GetImageSize();
+		}
+
 		float2 GetImageSize()
 		{
 			return float2(
 				GetImageWidth(_uiImageView),
 				GetImageHeight(_uiImageView));
 		}
+
+		[Foreign(Language.ObjC)]
+		static void SetFrame(ObjC.Object handle, float x, float y, float w, float h)
+		@{
+			::UIView* view = (::UIView*)handle;
+			[view setFrame: { { x, y }, { w, h } }];
+		@}
 
 		[Foreign(Language.ObjC)]
 		static float GetImageWidth(ObjC.Object handle)
@@ -305,6 +352,16 @@ namespace Fuse.Controls.Native.iOS
 		@}
 
 		[Foreign(Language.ObjC)]
+		static ObjC.Object CreateClipView(ObjC.Object container)
+		@{
+			UIView* clipView = [[UIView alloc] init];
+			[clipView setClipsToBounds:true];
+			[clipView setUserInteractionEnabled:false];
+			[container addSubview:clipView];
+			return clipView;
+		@}
+
+		[Foreign(Language.ObjC)]
 		static ObjC.Object CreateImageView(ObjC.Object container)
 		@{
 			UIImageView* imageView = [[UIImageView alloc] init];
@@ -331,23 +388,28 @@ namespace Fuse.Controls.Native.iOS
 			imageView.contentMode = UIViewContentModeScaleAspectFit;
 		@}
 
+		// Symbols are templates: the tint is their color.
+		[Foreign(Language.ObjC)]
+		static ObjC.Object TintSymbol(ObjC.Object imageHandle, float r, float g, float b, float a)
+		@{
+			UIImage* image = (UIImage*)imageHandle;
+			UIColor* tintColor = [UIColor colorWithRed:r green:g blue:b alpha:a];
+			return [image imageWithTintColor:tintColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+		@}
+
+		// Bitmaps are multiplied by the tint, as Image.Color does when drawn with graphics;
+		// replacing their color would turn every opaque photo into a solid box.
 		[Foreign(Language.ObjC)]
 		static ObjC.Object TintImage(ObjC.Object imageHandle, float r, float g, float b, float a)
 		@{
 			UIImage* image = (UIImage*)imageHandle;
-			UIColor* tintColor = [UIColor colorWithRed:r green:g blue:b alpha:a];
+			if (r == 1.0f && g == 1.0f && b == 1.0f && a == 1.0f)
+				return image;
 
-			// Use modern iOS 13+ method when available
-			if (@available(iOS 13.0, *)) {
-				UIImage* tintedImage = [image imageWithTintColor:tintColor renderingMode:UIImageRenderingModeAlwaysOriginal];
-				return tintedImage;
-			}
-
-			// Fallback to Core Graphics for older iOS versions
 			UIGraphicsBeginImageContextWithOptions(image.size, NO, image.scale);
 			CGRect imageRect = CGRectMake(0.0f, 0.0f, image.size.width, image.size.height);
 			CGContextRef ctx = UIGraphicsGetCurrentContext();
-			[tintColor setFill];
+			[[UIColor colorWithRed:r green:g blue:b alpha:a] setFill];
 			CGContextTranslateCTM(ctx, 0, image.size.height);
 			CGContextScaleCTM(ctx, 1.0, -1.0);
 			CGContextSetBlendMode(ctx, kCGBlendModeMultiply);

@@ -181,7 +181,7 @@ namespace Fuse.Controls.Native.Android
 			else
 			{
 				var imagePos = (int2)Math.Ceil(origin * density);
-				var imageScale = scale * density;
+				var imageScale = scale * density * PointsPerPixel();
 				UpdateImageTransform(
 					_imageView,
 					imagePos.X,
@@ -189,6 +189,21 @@ namespace Fuse.Controls.Native.Android
 					imageScale.X,
 					imageScale.Y);
 			}
+		}
+
+		// The matrix works on the bitmap's pixels, while Image's scale is relative to its size in
+		// points: a 48 px file with Density="2" is 24 points, half a point per pixel.
+		float2 PointsPerPixel()
+		{
+			var source = ImageSource;
+			if (source != null)
+			{
+				var size = source.Size;
+				var pixels = source.PixelSize;
+				if (size.X > 0 && size.Y > 0 && pixels.X > 0 && pixels.Y > 0)
+					return size / float2(pixels.X, pixels.Y);
+			}
+			return float2(1.0f);
 		}
 
 		IDisposable _imageHandle;
