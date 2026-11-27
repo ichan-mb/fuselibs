@@ -23,13 +23,19 @@ namespace Fuse.Controls
 
 		readonly Dictionary<Element,ViewHandle> _elements = new Dictionary<Element,ViewHandle>();
 
+		// Elements shown as a plain container view, below the root: the views that let
+		// touches through when the element draws nothing (UpdatePassThrough).
+		readonly HashSet<Element> _containers = new HashSet<Element>();
+
 		void ITreeRenderer.RootingStarted(Element e)
 		{
-			var v = InstantiateView(e);
+			bool isContainer;
+			var v = InstantiateView(e, out isContainer);
 			if (e is Control)
 				((Control)e).ViewHandle = v;
 
-			if (e.Parent is Element && _elements.ContainsKey((Element)e.Parent))
+			var hasParent = e.Parent is Element && _elements.ContainsKey((Element)e.Parent);
+			if (hasParent)
 				_elements[(Element)e.Parent].InsertChild(v, 0);
 			else
 				_setRoot(v);
@@ -38,6 +44,30 @@ namespace Fuse.Controls
 				Fuse.Controls.Native.iOS.InputDispatch.AddInputHandler(e, v);
 
 			_elements.Add(e, v);
+
+			// The root has to take every touch no other view takes, or Fuse gets none of them.
+			if (isContainer && hasParent && !v.HandlesInput)
+			{
+				_containers.Add(e);
+				UpdatePassThrough(e);
+			}
+		}
+
+		// A container view takes a touch that lands on it only where Fuse's own hit testing
+		// would hit the element: with HitTestMode LocalBounds, or LocalVisual and a background.
+		// Otherwise it is left to the views behind, as in the OpenGL renderer: an empty Panel in
+		// front must not stop a ScrollView behind it from scrolling.
+		void UpdatePassThrough(Element e)
+		{
+			if (!_containers.Contains(e))
+				return;
+
+			var mode = e.HitTestMode;
+			var control = e as Control;
+			var hitsItself = mode.HasFlag(HitTestMode.LocalBounds)
+				|| (mode.HasFlag(HitTestMode.LocalVisual) && control != null && control.Background != null);
+
+			Fuse.Controls.Native.iOS.InputDispatch.SetHitTestPassThrough(_elements[e], !hitsItself);
 		}
 
 		void ITreeRenderer.Rooted(Element e) { }
@@ -51,6 +81,7 @@ namespace Fuse.Controls
 
 			var v = _elements[e];
 			_elements.Remove(e);
+			_containers.Remove(e);
 
 			if (!v.HandlesInput)
 				Fuse.Controls.Native.iOS.InputDispatch.RemoveInputHandler(v);
@@ -70,6 +101,7 @@ namespace Fuse.Controls
 		void ITreeRenderer.BackgroundChanged(Element e, Brush background)
 		{
 			_elements[e].SetBackgroundColor(background.GetColor());
+			UpdatePassThrough(e);
 		}
 
 		void ITreeRenderer.TransformChanged(Element e)
@@ -125,6 +157,7 @@ namespace Fuse.Controls
 		{
 			var v = _elements[e];
 			v.SetHitTestEnabled(enabled);
+			UpdatePassThrough(e);
 		}
 
 		void ITreeRenderer.ZOrderChanged(Element e, Visual[] zorder)
@@ -147,8 +180,9 @@ namespace Fuse.Controls
 			return canMeasure;
 		}
 
-		ViewHandle InstantiateView(Element e)
+		ViewHandle InstantiateView(Element e, out bool isContainer)
 		{
+			isContainer = false;
 			var sd = e as ISurfaceDrawable;
 			if (sd != null && sd.IsPrimary)
 			{
@@ -170,6 +204,7 @@ namespace Fuse.Controls
 			else
 			{
 				result = ViewFactory.InstantiateViewGroup();
+				isContainer = true;
 			}
 			result.SetAccessibilityIdentifier(e.ToString());
 			return result;

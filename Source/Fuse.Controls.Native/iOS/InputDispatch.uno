@@ -81,6 +81,15 @@ namespace Fuse.Controls.Native.iOS
 			removeInputHandler(view);
 		@}
 
+		// See setHitTestPassThrough in UIViewInputDispatch.h. Takes effect once the view has an
+		// input handler (AddInputHandler).
+		[Foreign(Language.ObjC)]
+		public static void SetHitTestPassThrough(ViewHandle viewHandle, bool passThrough)
+		@{
+			UIView* view = (UIView*)@{Fuse.Controls.Native.ViewHandle:of(viewHandle).HitTestHandle:get()};
+			setHitTestPassThrough(view, passThrough);
+		@}
+
 		struct RootInfo
 		{
 			public readonly Visual RootVisual;
