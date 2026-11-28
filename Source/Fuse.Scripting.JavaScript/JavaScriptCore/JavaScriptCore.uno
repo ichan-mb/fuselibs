@@ -353,6 +353,22 @@ namespace Fuse.Scripting.JavaScriptCore
 			return (@{JSContextRef})::JSGlobalContextCreate(NULL);
 		@}
 
+		// Lets Safari's Web Inspector debug the context (Develop > device > JSContext): breakpoints,
+		// stepping, the console. Looked up at run time: JSGlobalContextSetInspectable is in iOS
+		// 16.4 and later; before then, apps signed for development can be inspected without it.
+		[Require("source.include", "dlfcn.h")]
+		public void SetInspectable(string name)
+		@{
+			typedef void (*SetInspectableFunction)(::JSGlobalContextRef, bool);
+			static SetInspectableFunction setInspectable = (SetInspectableFunction)dlsym(RTLD_DEFAULT, "JSGlobalContextSetInspectable");
+			if (setInspectable != NULL)
+				setInspectable((::JSGlobalContextRef)*$$, true);
+
+			::JSStringRef jsName = ::JSStringCreateWithUTF8CString(uCString($0).Ptr);
+			::JSGlobalContextSetName((::JSGlobalContextRef)*$$, jsName);
+			::JSStringRelease(jsName);
+		@}
+
 		public void Dispose()
 		@{
 			::JSGlobalContextRelease((::JSGlobalContextRef)*$$);

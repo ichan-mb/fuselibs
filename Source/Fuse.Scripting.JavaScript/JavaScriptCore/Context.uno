@@ -32,6 +32,10 @@ namespace Fuse.Scripting.JavaScriptCore
 		{
 			_context = JSContextRef.Create();
 
+			// Debug and preview builds can be debugged in Safari; release builds cannot.
+			if defined(iOS && (DEBUG || SIMULATOR))
+				_context.SetInspectable("Fuse");
+
 			// To not have to reconstruct the delegate all the
 			// time.  Note: Creates a cyclic reference to `this`,
 			// which can be broken with `Dispose`.
